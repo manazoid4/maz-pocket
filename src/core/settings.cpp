@@ -1,0 +1,74 @@
+#include "settings.h"
+
+#include <M5Unified.h>
+#include <Preferences.h>
+
+#include "sys.h"
+
+namespace maz {
+
+Settings Cfg;
+SysState Sys;
+
+namespace {
+constexpr const char* NS = "mazpocket";
+Preferences prefs;
+}  // namespace
+
+void Settings::load() {
+    if (!prefs.begin(NS, /*readOnly=*/true)) {
+        // First boot, or NVS wiped by a launcher. Defaults are already sane.
+        ESP_LOGI("cfg", "no saved settings, using defaults");
+        applyToHardware();
+        return;
+    }
+    brightness      = prefs.getUChar("bright", brightness);
+    volume          = prefs.getUChar("vol", volume);
+    uiSounds        = prefs.getBool("snd", uiSounds);
+    screenTimeout   = prefs.getUShort("stimeout", screenTimeout);
+    micGain         = prefs.getUChar("mgain", micGain);
+    preferSd        = prefs.getBool("prefsd", preferSd);
+    wifiSsid        = prefs.getString("ssid", "").c_str();
+    wifiPass        = prefs.getString("pass", "").c_str();
+    wifiSsid2       = prefs.getString("ssid2", "").c_str();
+    wifiPass2       = prefs.getString("pass2", "").c_str();
+    hostAddr        = prefs.getString("host", "").c_str();
+    hostPort        = prefs.getUShort("hostport", hostPort);
+    tzMinutesOffset = prefs.getChar("tz", tzMinutesOffset);
+    lastKnownEpoch  = prefs.getULong("epoch", 0);
+    prefs.end();
+    applyToHardware();
+}
+
+void Settings::save() const {
+    if (!prefs.begin(NS, /*readOnly=*/false)) {
+        ESP_LOGE("cfg", "NVS open failed, settings not saved");
+        return;
+    }
+    prefs.putUChar("bright", brightness);
+    prefs.putUChar("vol", volume);
+    prefs.putBool("snd", uiSounds);
+    prefs.putUShort("stimeout", screenTimeout);
+    prefs.putUChar("mgain", micGain);
+    prefs.putBool("prefsd", preferSd);
+    prefs.putString("ssid", wifiSsid.c_str());
+    prefs.putString("pass", wifiPass.c_str());
+    prefs.putString("ssid2", wifiSsid2.c_str());
+    prefs.putString("pass2", wifiPass2.c_str());
+    prefs.putString("host", hostAddr.c_str());
+    prefs.putUShort("hostport", hostPort);
+    prefs.putChar("tz", tzMinutesOffset);
+    prefs.putULong("epoch", lastKnownEpoch);
+    prefs.end();
+}
+
+void Settings::applyToHardware() const {
+    M5.Display.setBrightness(brightness < 8 ? 8 : brightness);  // never black
+    M5.Speaker.setVolume(volume);
+}
+
+uint32_t SysState::uptimeSeconds() const {
+    return (millis() - bootMillis) / 1000;
+}
+
+}  // namespace maz

@@ -1,0 +1,580 @@
+// Tools, Settings, Connections and Help.
+//
+// Tools is diagnostics, not a second Bruce: everything here answers "is my
+// hardware working" or "what is this device doing", and nothing here touches
+// anyone else's network.
+#include <esp_system.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <vector>
+
+#include "../audio/sfx.h"
+#include "../audio/voice.h"
+#include "../core/notify.h"
+#include "../core/settings.h"
+#include "../core/shell.h"
+#include "../core/sys.h"
+#include "../input/keyboard.h"
+#include "../net/net.h"
+#include "../storage/store.h"
+#include "apps.h"
+#include "common.h"
+
+namespace maz {
+namespace apps {
+
+using namespace theme;
+
+namespace {
+
+const char* TOOL_NAMES[] = {"Microphone test", "Speaker test", "Keyboard test",
+                            "Wi-Fi scan",      "Battery",      "Memory",
+                            "Storage",         "Device info",  "Reboot"};
+constexpr int TOOL_COUNT = sizeof(TOOL_NAMES) / sizeof(TOOL_NAMES[0]);
+
+// ------------------------------------------------------------------ Tools
+class ToolsApp : public App {
+public:
+    const char* id() const override { return "tools"; }
+    const char* title() const override { return "Tools"; }
+    const char* hints() const override {
+        return _detail.empty() ? "ENTER run   ESC back" : "ESC back";
+    }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down) return false;
+        if (!_detail.empty()) {
+            if (e.code == KEY_ESC) {
+                _detail.clear();
+                _kbTest = false;
+                invalidate();
+                return true;
+            }
+            if (_kbTest) {
+                // Keyboard test: echo whatever arrives, including modifiers.
+                char line[72];
+                snprintf(line, sizeof(line),
+                         "code 0x%02X  char '%c'  mods 0x%02X", e.code,
+                         e.ch ? e.ch : ' ', e.mods);
+                _detail = std::string("Press keys - ESC exits\n") + line;
+                invalidate();
+                return true;
+            }
+            return false;
+        }
+        if (_cursor.onKey(e, TOOL_COUNT)) {
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_ENTER) {
+            run(_cursor.sel);
+            return true;
+        }
+        return false;
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+        if (!_detail.empty()) {
+            ui::header(g, TOOL_NAMES[_cursor.sel]);
+            g.setFont(&fonts::Font0);
+            g.setTextColor(TEXT, BG);
+            g.setTextDatum(top_left);
+            size_t i   = 0;
+            int    row = 0;
+            while (i < _detail.size() && row < 8) {
+                size_t eol = _detail.find('\n', i);
+                if (eol == std::string::npos) eol = _detail.size();
+                g.drawString(_detail.substr(i, eol - i).c_str(), PAD,
+                             BODY_Y + 22 + row * 11);
+                row++;
+                i = eol + 1;
+            }
+            return;
+        }
+
+        ui::header(g, "Tools");
+        const int rows = std::min(ROWS_VISIBLE - 1, TOOL_COUNT);
+        for (int i = 0; i < rows; ++i) {
+            const int idx = _cursor.first + i;
+            if (idx >= TOOL_COUNT) break;
+            ui::listRow(g, i + 1, idx == _cursor.sel, TOOL_NAMES[idx]);
+        }
+        ui::scrollBar(g, TOOL_COUNT, _cursor.first, ROWS_VISIBLE - 1);
+    }
+
+private:
+    void run(int idx) {
+        char buf[360];
+        switch (idx) {
+            case 0:
+                micTest();
+                return;
+            case 1:
+                sfx::boot();
+                delay(120);
+                sfx::timerDone();
+                _detail =
+                    "Played boot + alarm tones.\nHeard nothing? check Volume.";
+                break;
+            case 2:
+                _kbTest = true;
+                _detail = "Press keys - ESC exits";
+                break;
+            case 3: {
+                auto aps = net::scan();
+                _detail  = "Nearby networks:\n";
+                for (size_t i = 0; i < aps.size() && i < 6; ++i) {
+                    snprintf(buf, sizeof(buf), "%-18s %d dBm%s\n",
+                             aps[i].ssid.c_str(), (int)aps[i].rssi,
+                             aps[i].known ? " *" : "");
+                    _detail += buf;
+                }
+                if (aps.empty()) _detail += "(none found)";
+                break;
+            }
+            case 4:
+                snprintf(buf, sizeof(buf),
+                         "Level    %d%%\nCharging %s\nVoltage  %d mV",
+                         Sys.batteryPct, Sys.charging ? "yes" : "no",
+                         (int)M5.Power.getBatteryVoltage());
+                _detail = buf;
+                break;
+            case 5:
+                snprintf(buf, sizeof(buf),
+                         "Free heap  %u KB\nLargest    %u KB\nSketch     %u KB\n"
+                         "Flash      %u MB\nPSRAM      %s",
+                         (unsigned)(ESP.getFreeHeap() / 1024),
+                         (unsigned)(ESP.getMaxAllocHeap() / 1024),
+                         (unsigned)(ESP.getSketchSize() / 1024),
+                         (unsigned)(ESP.getFlashChipSize() / (1024 * 1024)),
+                         ESP.getPsramSize() ? "yes" : "none (ADV has none)");
+                _detail = buf;
+                break;
+            case 6:
+                snprintf(buf, sizeof(buf),
+                         "Backend  %s\nSD card  %s\nInternal %s\n"
+                         "Free     %s\nTotal    %s",
+                         store::backendName(), Sys.sdPresent ? "yes" : "no",
+                         Sys.internalFs ? "yes" : "no",
+                         ui::humanSize(store::freeBytes()).c_str(),
+                         ui::humanSize(store::totalBytes()).c_str());
+                _detail = buf;
+                break;
+            case 7:
+                snprintf(buf, sizeof(buf),
+                         "MAZ Pocket v%s\nBoard    Cardputer ADV\nChip     %s "
+                         "rev%d\nCores    %d\nKeyboard %s\nUptime   %s",
+                         MAZ_POCKET_VERSION, ESP.getChipModel(),
+                         (int)ESP.getChipRevision(), (int)ESP.getChipCores(),
+                         KB.ok() ? "TCA8418 ok" : "NOT DETECTED",
+                         ui::hhmmss(Sys.uptimeSeconds()).c_str());
+                _detail = buf;
+                break;
+            case 8:
+                notify::post(Note::Info, "Rebooting", "back to M5Launcher");
+                delay(600);
+                ESP.restart();
+                return;
+            default:
+                break;
+        }
+        sfx::confirm();
+        invalidate();
+    }
+
+    void micTest() {
+        // Runs the real capture path for three seconds and reports peak level,
+        // so "is the mic dead" has a definite answer rather than a shrug.
+        static voice::WavFileSink sink("cache");
+        if (!voice::start(&sink, 3)) {
+            _detail = std::string("Mic failed to start\n") + voice::lastError();
+            invalidate();
+            return;
+        }
+        float          peak = 0.f;
+        const uint32_t end  = millis() + 3000;
+        while (millis() < end && voice::state() == voice::State::Listening) {
+            voice::update();
+            peak = std::max(peak, voice::level());
+            delay(5);
+        }
+        voice::stop();
+        char buf[180];
+        snprintf(buf, sizeof(buf),
+                 "Peak level %d%%\n%s\nGain is Settings > Mic gain",
+                 (int)(peak * 100),
+                 peak < 0.02f ? "No signal - check the mic" : "Microphone works");
+        _detail = buf;
+        invalidate();
+    }
+
+    ListCursor  _cursor;
+    std::string _detail;
+    bool        _kbTest = false;
+};
+
+// --------------------------------------------------------------- Settings
+const char* SET_NAMES[] = {"Brightness",    "Volume",        "UI sounds",
+                           "Screen timeout", "Mic gain",     "Storage",
+                           "Time zone",      "Wi-Fi & host", "Keys & help"};
+constexpr int SET_COUNT = sizeof(SET_NAMES) / sizeof(SET_NAMES[0]);
+
+class SettingsApp : public App {
+public:
+    const char* id() const override { return "settings"; }
+    const char* title() const override { return "Settings"; }
+    const char* hints() const override {
+        return "left/right change   ENTER toggle   ESC save";
+    }
+
+    void onExit() override { Cfg.save(); }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down) return false;
+        if (_cursor.onKey(e, SET_COUNT)) {
+            invalidate();
+            return true;
+        }
+        const int d = e.code == KEY_RIGHT ? 1 : (e.code == KEY_LEFT ? -1 : 0);
+        if (d == 0 && e.code != KEY_ENTER) return false;
+
+        switch (_cursor.sel) {
+            case 0:
+                Cfg.brightness = clamp8(Cfg.brightness + d * 15);
+                Cfg.applyToHardware();
+                break;
+            case 1:
+                Cfg.volume = clamp8(Cfg.volume + d * 15);
+                Cfg.applyToHardware();
+                break;
+            case 2:
+                if (e.code == KEY_ENTER) Cfg.uiSounds = !Cfg.uiSounds;
+                break;
+            case 3: {
+                static const uint16_t T[] = {0, 15, 30, 60, 120, 300};
+                int                   i   = 0;
+                for (int k = 0; k < 6; ++k)
+                    if (T[k] == Cfg.screenTimeout) i = k;
+                i                 = (i + d + 6) % 6;
+                Cfg.screenTimeout = T[i];
+                break;
+            }
+            case 4:
+                Cfg.micGain = clamp8(Cfg.micGain + d);
+                if (Cfg.micGain < 1) Cfg.micGain = 1;
+                voice::begin();  // re-apply gain to the codec
+                break;
+            case 5:
+                if (e.code == KEY_ENTER) {
+                    Cfg.preferSd = !Cfg.preferSd;
+                    store::remount();
+                }
+                break;
+            case 6:
+                Cfg.tzMinutesOffset = static_cast<int8_t>(
+                    std::max(-48, std::min(56, Cfg.tzMinutesOffset + d)));
+                break;
+            case 7:
+                if (e.code == KEY_ENTER) shell::pushById("wifi");
+                break;
+            case 8:
+                if (e.code == KEY_ENTER) shell::pushById("help");
+                break;
+            default:
+                break;
+        }
+        sfx::select();
+        invalidate();
+        return true;
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+        ui::header(g, "Settings", "v" MAZ_POCKET_VERSION);
+
+        const int rows = std::min(ROWS_VISIBLE - 1, SET_COUNT);
+        for (int i = 0; i < rows; ++i) {
+            const int idx = _cursor.first + i;
+            if (idx >= SET_COUNT) break;
+            ui::listRow(g, i + 1, idx == _cursor.sel, SET_NAMES[idx],
+                        value(idx).c_str());
+        }
+        ui::scrollBar(g, SET_COUNT, _cursor.first, ROWS_VISIBLE - 1);
+    }
+
+private:
+    static uint8_t clamp8(int v) {
+        return static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+    }
+
+    std::string value(int idx) const {
+        char b[32];
+        switch (idx) {
+            case 0:
+                snprintf(b, sizeof(b), "%d%%", Cfg.brightness * 100 / 255);
+                break;
+            case 1:
+                snprintf(b, sizeof(b), "%d%%", Cfg.volume * 100 / 255);
+                break;
+            case 2:
+                return Cfg.uiSounds ? "on" : "off";
+            case 3:
+                if (Cfg.screenTimeout == 0) return "never";
+                snprintf(b, sizeof(b), "%us", (unsigned)Cfg.screenTimeout);
+                break;
+            case 4:
+                snprintf(b, sizeof(b), "%u", (unsigned)Cfg.micGain);
+                break;
+            case 5:
+                return Cfg.preferSd ? "SD first" : "internal";
+            case 6:
+                snprintf(b, sizeof(b), "UTC%+d:%02d", Cfg.tzMinutesOffset / 4,
+                         abs(Cfg.tzMinutesOffset % 4) * 15);
+                break;
+            case 7:
+                return Sys.wifiConnected ? Sys.wifiSsid : "not connected";
+            default:
+                return "";
+        }
+        return b;
+    }
+
+    ListCursor _cursor;
+};
+
+// ------------------------------------------------------------ Connections
+class ConnectionsApp : public App {
+public:
+    const char* id() const override { return "wifi"; }
+    const char* title() const override { return "Connections"; }
+    const char* hints() const override {
+        if (_entering) return "ENTER connect   ESC cancel";
+        if (_scanning) return "ENTER pick network";
+        return "W wifi   S scan   H test host   T time";
+    }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down) return false;
+
+        if (_entering) {
+            if (e.code == KEY_ENTER) {
+                if (net::connect(_pending, _field.text)) {
+                    Cfg.wifiSsid = _pending;
+                    Cfg.wifiPass = _field.text;
+                    Cfg.save();
+                    notify::post(Note::Success, "Connected", _pending);
+                } else {
+                    notify::post(Note::Error, "Could not connect", _pending);
+                }
+                _entering = false;
+                _scanning = false;
+                invalidate();
+                return true;
+            }
+            if (e.code == KEY_ESC) {
+                _entering = false;
+                invalidate();
+                return true;
+            }
+            if (_field.onKey(e)) {
+                invalidate();
+                return true;
+            }
+            return false;
+        }
+
+        if (_scanning) {
+            if (_cursor.onKey(e, static_cast<int>(_aps.size()))) {
+                invalidate();
+                return true;
+            }
+            if (e.code == KEY_ENTER && !_aps.empty()) {
+                _pending = _aps[_cursor.sel].ssid;
+                _field.text.clear();
+                _entering = true;
+                invalidate();
+                return true;
+            }
+            if (e.code == KEY_ESC) {
+                _scanning = false;
+                invalidate();
+                return true;
+            }
+            return false;
+        }
+
+        if (e.code == KEY_W) {
+            net::enable(!Sys.wifiOn);
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_S) {
+            _aps      = net::scan();
+            _scanning = true;
+            _cursor.clamp(static_cast<int>(_aps.size()));
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_H) {
+            const bool ok = net::probeHost();
+            notify::post(ok ? Note::Success : Note::Warn,
+                         ok ? "MAZ Host reachable" : "MAZ Host not reachable",
+                         Cfg.hostAddr.empty() ? "not configured" : Cfg.hostAddr);
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_T) {
+            const bool ok = net::syncClock();
+            notify::post(ok ? Note::Success : Note::Warn, "Clock",
+                         ok ? "synced" : "no NTP");
+            invalidate();
+            return true;
+        }
+        return false;
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+
+        if (_entering) {
+            ui::header(g, "Password", _pending.c_str());
+            _field.draw(g, PAD, BODY_Y + 30, SCREEN_W - PAD * 2, "password");
+            return;
+        }
+        if (_scanning) {
+            ui::header(g, "Networks");
+            if (_aps.empty()) {
+                ui::emptyState(g, "Nothing found", "press ESC and try again");
+                return;
+            }
+            const int rows =
+                std::min<int>(ROWS_VISIBLE - 1, static_cast<int>(_aps.size()));
+            for (int i = 0; i < rows; ++i) {
+                const int idx = _cursor.first + i;
+                if (idx >= static_cast<int>(_aps.size())) break;
+                char meta[16];
+                snprintf(meta, sizeof(meta), "%d", (int)_aps[idx].rssi);
+                ui::listRow(g, i + 1, idx == _cursor.sel,
+                            ui::ellipsis(_aps[idx].ssid, 20).c_str(), meta);
+            }
+            return;
+        }
+
+        ui::header(g, "Connections", Sys.wifiOn ? "radio on" : "radio off");
+        g.setFont(&fonts::Font0);
+        g.setTextDatum(top_left);
+
+        int y = BODY_Y + 24;
+        row(g, y, "WI-FI",
+            Sys.wifiConnected ? Sys.wifiSsid.c_str() : "not connected",
+            Sys.wifiConnected ? OK : DIM);
+        y += 16;
+        row(g, y, "IP", Sys.ip.empty() ? "-" : Sys.ip.c_str(), DIM);
+        y += 16;
+
+        // The MAZ Host line never lies: unconfigured is unconfigured.
+        const char* hostState = Cfg.hostAddr.empty()
+                                    ? "NOT CONFIGURED"
+                                    : (Sys.hostOnline ? "ONLINE" : "OFFLINE");
+        row(g, y, "MAZ HOST", hostState,
+            Sys.hostOnline ? OK : (Cfg.hostAddr.empty() ? DIM : WARN));
+        y += 16;
+        if (!Cfg.hostAddr.empty()) {
+            char addr[56];
+            snprintf(addr, sizeof(addr), "%s:%u", Cfg.hostAddr.c_str(),
+                     (unsigned)Cfg.hostPort);
+            row(g, y, "", addr, DIM);
+        }
+    }
+
+private:
+    static void row(M5Canvas& g, int y, const char* k, const char* v,
+                    uint16_t colour) {
+        g.setTextColor(DIM, BG);
+        g.drawString(k, PAD, y);
+        g.setTextColor(colour, BG);
+        g.drawString(v, PAD + 62, y);
+    }
+
+    std::vector<net::Ap> _aps;
+    ListCursor           _cursor;
+    TextField            _field;
+    std::string          _pending;
+    bool                 _scanning = false;
+    bool                 _entering = false;
+};
+
+// ------------------------------------------------------------------- Help
+const char* HELP_LINES[] = {
+    "#GLOBAL",
+    "Ctrl+K      command palette",
+    "ESC         back",
+    "hold ESC    home",
+    "#HOME",
+    "hold SPACE  voice capture",
+    "C X F       call, capture, focus",
+    "N T R       notes, tasks, recorder",
+    "/           command palette",
+    "#VOICE",
+    "hold SPACE  talk (Call, Capture)",
+    "P S D       play, save, delete",
+    "#LISTS",
+    "up/down move   ENTER open",
+    "D twice     delete",
+    "#ABOUT",
+    "MAZ Pocket for Cardputer ADV",
+    "Bruce and Nemo stay available",
+    "through M5Launcher.",
+};
+constexpr int HELP_COUNT = sizeof(HELP_LINES) / sizeof(HELP_LINES[0]);
+
+class HelpApp : public App {
+public:
+    const char* id() const override { return "help"; }
+    const char* title() const override { return "Keys & Help"; }
+    const char* hints() const override { return "up/down scroll   ESC back"; }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down) return false;
+        if (e.code == KEY_DOWN) {
+            _scroll++;
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_UP) {
+            if (_scroll > 0) _scroll--;
+            invalidate();
+            return true;
+        }
+        return false;
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+        ui::header(g, "Keys & Help", "v" MAZ_POCKET_VERSION);
+        g.setFont(&fonts::Font0);
+        g.setTextDatum(top_left);
+
+        if (_scroll > HELP_COUNT - 8) _scroll = std::max(0, HELP_COUNT - 8);
+        for (int i = 0; i < 8 && _scroll + i < HELP_COUNT; ++i) {
+            const char* l = HELP_LINES[_scroll + i];
+            g.setTextColor(l[0] == '#' ? ACCENT : TEXT, BG);
+            g.drawString(l[0] == '#' ? l + 1 : l, PAD, BODY_Y + 22 + i * 11);
+        }
+    }
+
+private:
+    int _scroll = 0;
+};
+
+}  // namespace
+
+App* makeTools() { return new ToolsApp(); }
+App* makeSettings() { return new SettingsApp(); }
+App* makeConnections() { return new ConnectionsApp(); }
+App* makeHelp() { return new HelpApp(); }
+
+}  // namespace apps
+}  // namespace maz

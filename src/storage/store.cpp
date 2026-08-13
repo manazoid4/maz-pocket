@@ -1,0 +1,268 @@
+#include "store.h"
+
+#include <LittleFS.h>
+#include <M5Unified.h>
+#include <SD.h>
+#include <SPI.h>
+#include <time.h>
+
+#include <algorithm>
+
+#include "../core/settings.h"
+
+namespace maz {
+namespace store {
+
+namespace {
+// Cardputer ADV SD wiring. These differ from the published datasheet page
+// (which lists CS on G5); both M5Unified's ADV pin table and M5Stack's own ADV
+// UserDemo HAL use G12, so we follow the code, not the web page.
+constexpr int PIN_SCLK = 40;
+constexpr int PIN_MISO = 39;
+constexpr int PIN_MOSI = 14;
+constexpr int PIN_CS   = 12;
+
+SPIClass    sdSpi(HSPI);
+fs::FS*     active    = nullptr;
+bool        sdMounted = false;
+bool        fsMounted = false;
+const char* backend   = "none";
+
+const char* SUBDIRS[] = {"notes", "recordings", "captures", "tasks",
+                         "snippets", "logs", "cache", "settings"};
+
+void ensureTree(fs::FS& f) {
+    f.mkdir("/maz");
+    for (const char* s : SUBDIRS) {
+        const std::string p = std::string("/maz/") + s;
+        if (!f.exists(p.c_str())) f.mkdir(p.c_str());
+    }
+}
+
+bool mountSd() {
+    sdSpi.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, PIN_CS);
+    // 20MHz: the ADV slot is reliable faster with a good card, but a cheap
+    // card that fails at speed looks identical to broken firmware, so we
+    // trade a little throughput for "it just mounts".
+    if (!SD.begin(PIN_CS, sdSpi, 20000000)) {
+        sdSpi.end();
+        return false;
+    }
+    if (SD.cardType() == CARD_NONE) {
+        SD.end();
+        sdSpi.end();
+        return false;
+    }
+    ensureTree(SD);
+    return true;
+}
+}  // namespace
+
+bool begin() {
+    sdMounted     = mountSd();
+    Sys.sdPresent = sdMounted;
+
+    fsMounted = LittleFS.begin(/*formatOnFail=*/true);
+    if (fsMounted) ensureTree(LittleFS);
+    Sys.internalFs = fsMounted;
+
+    if (sdMounted && (Cfg.preferSd || !fsMounted)) {
+        active      = &SD;
+        backend     = "SD";
+        Sys.storage = Storage::SD;
+    } else if (fsMounted) {
+        active      = &LittleFS;
+        backend     = "internal";
+        Sys.storage = Storage::Internal;
+    } else {
+        // Launched from a launcher whose partition table has no LittleFS, and
+        // no card inserted. Settings still work (NVS); data apps say so.
+        active      = nullptr;
+        backend     = "none";
+        Sys.storage = Storage::None;
+        ESP_LOGW("store", "no writable storage - running settings-only");
+    }
+    ESP_LOGI("store", "storage backend: %s", backend);
+    return active != nullptr;
+}
+
+void remount() {
+    if (sdMounted) {
+        SD.end();
+        sdSpi.end();
+        sdMounted = false;
+    }
+    begin();
+}
+
+bool        ready() { return active != nullptr; }
+fs::FS*     fs() { return active; }
+const char* backendName() { return backend; }
+
+uint64_t totalBytes() {
+    if (active == &SD) return SD.totalBytes();
+    if (active == &LittleFS) return LittleFS.totalBytes();
+    return 0;
+}
+uint64_t freeBytes() {
+    if (active == &SD) return SD.totalBytes() - SD.usedBytes();
+    if (active == &LittleFS) return LittleFS.totalBytes() - LittleFS.usedBytes();
+    return 0;
+}
+
+std::string dir(const char* sub) { return std::string("/maz/") + sub; }
+
+std::string newPath(const char* sub, const char* ext) {
+    char      buf[64];
+    time_t    t = time(nullptr);
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    // Timestamped names sort chronologically in any file browser, which
+    // matters when these files are later pulled onto a laptop for OpenFlowKit.
+    snprintf(buf, sizeof(buf), "/maz/%s/%04d%02d%02d-%02d%02d%02d.%s", sub,
+             tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour,
+             tmv.tm_min, tmv.tm_sec, ext);
+    return buf;
+}
+
+std::vector<Entry> list(const char* sub, const char* ext, size_t limit) {
+    std::vector<Entry> out;
+    if (!active) return out;
+
+    File d = active->open(dir(sub).c_str());
+    if (!d || !d.isDirectory()) return out;
+
+    const std::string want = ext ? ext : "";
+    for (File f = d.openNextFile(); f && out.size() < limit;
+         f      = d.openNextFile()) {
+        if (f.isDirectory()) continue;
+        std::string  name  = f.name();
+        const size_t slash = name.find_last_of('/');
+        if (slash != std::string::npos) name = name.substr(slash + 1);
+        if (!want.empty() &&
+            (name.size() < want.size() ||
+             name.compare(name.size() - want.size(), want.size(), want) != 0))
+            continue;
+
+        Entry e;
+        e.path    = dir(sub) + "/" + name;
+        e.name    = name;
+        e.size    = f.size();
+        e.created = f.getLastWrite();
+        e.title   = name;
+        out.push_back(e);
+    }
+    d.close();
+
+    // Newest first: the thing you just captured is the thing you want.
+    std::sort(out.begin(), out.end(),
+              [](const Entry& a, const Entry& b) { return a.name > b.name; });
+    return out;
+}
+
+bool writeText(const std::string& path, const std::string& text) {
+    if (!active) return false;
+    File f = active->open(path.c_str(), FILE_WRITE);
+    if (!f) {
+        ESP_LOGE("store", "open for write failed: %s", path.c_str());
+        return false;
+    }
+    const size_t n = f.print(text.c_str());
+    f.close();
+    return n == text.size();
+}
+
+bool appendText(const std::string& path, const std::string& text) {
+    if (!active) return false;
+    File f = active->open(path.c_str(), FILE_APPEND);
+    if (!f) return false;
+    f.print(text.c_str());
+    f.close();
+    return true;
+}
+
+std::string readText(const std::string& path, size_t maxBytes) {
+    std::string out;
+    if (!active) return out;
+    File f = active->open(path.c_str(), FILE_READ);
+    if (!f) return out;
+    const size_t n = f.size() > maxBytes ? maxBytes : f.size();
+    out.resize(n);
+    f.read(reinterpret_cast<uint8_t*>(&out[0]), n);
+    f.close();
+    return out;
+}
+
+bool remove(const std::string& path) {
+    return active && active->remove(path.c_str());
+}
+bool rename(const std::string& from, const std::string& to) {
+    return active && active->rename(from.c_str(), to.c_str());
+}
+
+// ------------------------------------------------------------------- tasks
+std::vector<Task> loadTasks() {
+    std::vector<Task> out;
+    const std::string raw = readText("/maz/tasks/tasks.tsv", 8192);
+    size_t            i   = 0;
+    while (i < raw.size()) {
+        size_t eol = raw.find('\n', i);
+        if (eol == std::string::npos) eol = raw.size();
+        const std::string line = raw.substr(i, eol - i);
+        i                      = eol + 1;
+        if (line.size() < 7) continue;
+
+        const size_t a = line.find('\t');
+        const size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
+        const size_t c = b == std::string::npos ? b : line.find('\t', b + 1);
+        if (c == std::string::npos) continue;  // malformed line, skip quietly
+
+        Task t;
+        t.done    = line[0] == '1';
+        t.created = strtoul(line.substr(a + 1, b - a - 1).c_str(), nullptr, 10);
+        t.bucket  = static_cast<uint8_t>(line[b + 1] - '0');
+        t.text    = line.substr(c + 1);
+        if (!t.text.empty() && t.text.back() == '\r') t.text.pop_back();
+        out.push_back(t);
+    }
+    return out;
+}
+
+bool saveTasks(const std::vector<Task>& tasks) {
+    std::string out;
+    for (const auto& t : tasks) {
+        char head[40];
+        snprintf(head, sizeof(head), "%d\t%u\t%u\t", t.done ? 1 : 0,
+                 (unsigned)t.created, (unsigned)t.bucket);
+        out += head;
+        out += t.text;
+        out += "\n";
+    }
+    return writeText("/maz/tasks/tasks.tsv", out);
+}
+
+// ---------------------------------------------------------------- snippets
+std::vector<std::pair<std::string, std::string>> loadSnippets() {
+    std::vector<std::pair<std::string, std::string>> out;
+    const std::string raw = readText("/maz/snippets/snippets.tsv", 4096);
+    size_t            i   = 0;
+    while (i < raw.size()) {
+        size_t eol = raw.find('\n', i);
+        if (eol == std::string::npos) eol = raw.size();
+        const std::string line = raw.substr(i, eol - i);
+        i                      = eol + 1;
+        const size_t tab       = line.find('\t');
+        if (tab == std::string::npos) continue;
+        out.emplace_back(line.substr(0, tab), line.substr(tab + 1));
+    }
+    return out;
+}
+
+bool saveSnippets(const std::vector<std::pair<std::string, std::string>>& s) {
+    std::string out;
+    for (const auto& kv : s) out += kv.first + "\t" + kv.second + "\n";
+    return writeText("/maz/snippets/snippets.tsv", out);
+}
+
+}  // namespace store
+}  // namespace maz
