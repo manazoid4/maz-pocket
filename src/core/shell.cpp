@@ -387,6 +387,7 @@ void loop() {
     voice::update();
     net::update();
     notify::update();
+    apps::updateProductServices();
     applyScreenTimeout();
 
     if (gStack.empty()) return;

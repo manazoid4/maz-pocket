@@ -34,6 +34,11 @@ void Settings::load() {
     wifiPass2       = prefs.getString("pass2", "").c_str();
     hostAddr        = prefs.getString("host", "").c_str();
     hostPort        = prefs.getUShort("hostport", hostPort);
+    hostToken       = prefs.getString("htoken", "").c_str();
+    talkRoute       = prefs.getUChar("route", talkRoute);
+    ttsEnabled      = prefs.getBool("tts", ttsEnabled);
+    nudgePollMinutes = prefs.getUChar("npoll", nudgePollMinutes);
+    firstRunComplete = prefs.getBool("firstrun", firstRunComplete);
     tzMinutesOffset = prefs.getChar("tz", tzMinutesOffset);
     lastKnownEpoch  = prefs.getULong("epoch", 0);
     prefs.end();
@@ -57,6 +62,11 @@ void Settings::save() const {
     prefs.putString("pass2", wifiPass2.c_str());
     prefs.putString("host", hostAddr.c_str());
     prefs.putUShort("hostport", hostPort);
+    prefs.putString("htoken", hostToken.c_str());
+    prefs.putUChar("route", talkRoute);
+    prefs.putBool("tts", ttsEnabled);
+    prefs.putUChar("npoll", nudgePollMinutes);
+    prefs.putBool("firstrun", firstRunComplete);
     prefs.putChar("tz", tzMinutesOffset);
     prefs.putULong("epoch", lastKnownEpoch);
     prefs.end();

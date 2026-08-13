@@ -40,6 +40,8 @@ State       gState    = State::Idle;
 Sink*       gSink     = nullptr;
 uint32_t    gStartMs  = 0;
 uint32_t    gMaxSec   = 60;
+uint32_t    gPauseMs  = 0;
+uint32_t    gPausedMs = 0;
 float       gLevel    = 0.f;
 bool        gClipped  = false;
 uint32_t    gClipAtMs = 0;
@@ -164,6 +166,8 @@ bool start(Sink* sink, uint32_t maxSeconds) {
     gClipped      = false;
     gStartMs      = millis();
     gMaxSec       = maxSeconds;
+    gPauseMs      = 0;
+    gPausedMs     = 0;
     gState        = State::Listening;
     Sys.recording = true;
     return true;
@@ -211,11 +215,11 @@ void update() {
 }
 
 bool stop() {
-    if (gState != State::Listening) return false;
+    if (gState != State::Listening && gState != State::Paused) return false;
     gState = State::Saving;
 
     // Drain the block still in flight so the last words are not clipped off.
-    if (gHaveQueued) {
+    if (gHaveQueued && gPauseMs == 0) {
         measure(gBuf[1 - gIdx], BLOCK);
         gSink->write(gBuf[1 - gIdx], BLOCK);
     }
@@ -232,14 +236,48 @@ bool stop() {
     return ok;
 }
 
+bool pause() {
+    if (gState != State::Listening) return false;
+    if (gHaveQueued) {
+        measure(gBuf[1 - gIdx], BLOCK);
+        if (!gSink->write(gBuf[1 - gIdx], BLOCK)) {
+            stop();
+            gState = State::Error;
+            return false;
+        }
+    }
+    M5.Mic.end();
+    gHaveQueued = false;
+    gPauseMs    = millis();
+    gState      = State::Paused;
+    return true;
+}
+
+bool resume() {
+    if (gState != State::Paused) return false;
+    if (!M5.Mic.begin()) {
+        // Close the still-open WAV cleanly; a failed codec restart must not
+        // strand a file handle or leave the UI claiming it is recording.
+        stop();
+        gErr   = "mic did not resume";
+        gState = State::Error;
+        return false;
+    }
+    gPausedMs += millis() - gPauseMs;
+    gPauseMs   = 0;
+    gState     = State::Listening;
+    return true;
+}
+
 State       state() { return gState; }
 float       level() { return gLevel; }
 bool        clipped() { return gClipped; }
 const char* lastError() { return gErr; }
 
 uint32_t elapsedSeconds() {
-    if (gState != State::Listening) return 0;
-    return (millis() - gStartMs) / 1000;
+    if (gState != State::Listening && gState != State::Paused) return 0;
+    const uint32_t paused = gPausedMs + (gPauseMs ? millis() - gPauseMs : 0);
+    return (millis() - gStartMs - paused) / 1000;
 }
 
 // ----------------------------------------------------------------- playback

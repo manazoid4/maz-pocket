@@ -6,14 +6,17 @@
 //   Capture  — a thought. Fastest path from pocket to stored, voice or text.
 //   Recorder — a session. Long-form, file management, playback.
 #include <algorithm>
+#include <time.h>
 #include <vector>
 
 #include "../audio/sfx.h"
 #include "../audio/voice.h"
 #include "../core/notify.h"
 #include "../core/shell.h"
+#include "../core/settings.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
+#include "../net/mazhost.h"
 #include "../storage/store.h"
 #include "apps.h"
 #include "common.h"
@@ -28,6 +31,7 @@ namespace {
 const char* stateName(voice::State s) {
     switch (s) {
         case voice::State::Listening: return "LISTENING";
+        case voice::State::Paused:    return "PAUSED";
         case voice::State::Saving:    return "SAVING";
         case voice::State::Playing:   return "PLAYING";
         case voice::State::Error:     return "ERROR";
@@ -69,29 +73,46 @@ void drawVoiceFace(M5Canvas& g, voice::State st, const char* caption) {
     g.setTextDatum(top_left);
 }
 
+void drawShortText(M5Canvas& g, const std::string& text, int y, int lines = 4) {
+    g.setFont(&fonts::Font0);
+    g.setTextColor(TEXT, BG);
+    g.setTextDatum(top_left);
+    constexpr size_t width = 38;
+    for (int line = 0; line < lines; ++line) {
+        const size_t start = line * width;
+        if (start >= text.size()) break;
+        g.drawString(text.substr(start, width).c_str(), PAD, y + line * 14);
+    }
+}
+
 // ------------------------------------------------------------------- Call
 class CallApp : public App {
 public:
-    const char* id() const override { return "call"; }
-    const char* title() const override { return "Call"; }
+    const char* id() const override { return "talk"; }
+    const char* title() const override { return "MAZ Talk"; }
 
     const char* hints() const override {
         if (voice::state() == voice::State::Listening)
             return "release SPACE to stop";
-        if (_haveTake) return "P play   S save   D delete   SPACE again";
+        if (_sending) return "sending to MAZ Host...";
+        if (!_reply.empty()) return "SPACE ask again   A route   I inbox";
+        if (_haveTake) return "ENTER send   P play   S save raw";
         return "hold SPACE to talk   ESC back";
     }
 
     void onEnter() override {
         _haveTake = false;
         _sink     = nullptr;
+        _session.clear();
+        _reply.clear();
+        if (KB.held(KEY_SPACE)) beginTake();
         invalidate();
     }
 
     void onExit() override {
         voice::stopPlayback();
         if (voice::state() == voice::State::Listening) voice::stop();
-        discardTake();
+        // Failed/offline turns stay in outbox; successful turns are removed.
     }
 
     bool onKey(const KeyEvent& e) override {
@@ -105,11 +126,22 @@ public:
         }
         if (!e.down) return false;
 
+        if (e.code == KEY_A) {
+            Cfg.talkRoute = (Cfg.talkRoute + 1) % 3;
+            Cfg.save();
+            notify::post(Note::Info, "Talk route",
+                         Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO"));
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_I && !_reply.empty()) { shell::pushById("inbox"); return true; }
+
         if (_haveTake && e.code == KEY_P) {
             voice::play(_takePath);
             invalidate();
             return true;
         }
+        if (_haveTake && e.code == KEY_ENTER) { _sending = true; invalidate(); return true; }
         if (_haveTake && e.code == KEY_S) {
             keepTake();
             return true;
@@ -124,23 +156,67 @@ public:
     }
 
     void update() override {
+        if (_sending && millis() >= _sendAt) {
+            _sending = false;
+            if (_session.empty()) _session = host::startSession();
+            const auto result = _session.empty() ? host::Reply{} : host::talkAudio(_session, _takePath);
+            if (result.ok) {
+                _reply = result.text;
+                store::Record item;
+                item.kind = "inbox"; item.status = "open"; item.title = "MAZ answer";
+                item.body = _reply; item.source = result.provider; item.ref = _takePath;
+                store::addRecord(item);
+                if (!result.reminderTitle.empty() && result.reminderDelay) {
+                    store::Record reminder;
+                    reminder.kind = "reminder"; reminder.status = "open";
+                    reminder.title = result.reminderTitle; reminder.source = "voice";
+                    reminder.due = static_cast<uint32_t>(time(nullptr)) + result.reminderDelay;
+                    store::addRecord(reminder);
+                }
+                store::remove(_takePath);
+                _takePath.clear(); _haveTake = false;
+                notify::post(Note::Success, "Answer ready", result.provider);
+            } else {
+                store::Record item;
+                item.kind = "outbox"; item.status = "queued"; item.title = "Talk turn";
+                item.body = result.error.empty() ? "host offline" : result.error;
+                item.source = "talk"; item.ref = _takePath;
+                store::addRecord(item);
+                notify::post(Note::Warn, "Queued offline", "raw audio kept");
+                _takePath.clear();
+                _haveTake = false;
+            }
+            invalidate();
+        }
         if (voice::state() == voice::State::Listening || voice::isPlaying())
             invalidate();
     }
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
-        ui::header(g, "Call",
+        ui::header(g, "MAZ Talk",
                    Sys.hostOnline ? "MAZ HOST ONLINE" : "MAZ HOST OFFLINE");
+
+        if (!_reply.empty() && voice::state() != voice::State::Listening) {
+            g.setFont(&fonts::Font0);
+            g.setTextColor(ACCENT, BG);
+            g.drawString(Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO"), PAD, BODY_Y + 20);
+            drawShortText(g, _reply, BODY_Y + 36);
+            return;
+        }
 
         char cap[48] = "";
         if (voice::state() == voice::State::Listening)
             snprintf(cap, sizeof(cap), "%s",
                      ui::hhmmss(voice::elapsedSeconds()).c_str());
+        else if (_sending)
+            snprintf(cap, sizeof(cap), "sending to laptop...");
+        else if (!_reply.empty())
+            snprintf(cap, sizeof(cap), "%s", ui::ellipsis(_reply, 34).c_str());
         else if (_haveTake)
-            snprintf(cap, sizeof(cap), "take ready - %us", (unsigned)_takeSeconds);
+            snprintf(cap, sizeof(cap), "take ready - ENTER sends");
         else
-            snprintf(cap, sizeof(cap), "local only in v0.1");
+            snprintf(cap, sizeof(cap), "hold SPACE and speak");
 
         drawVoiceFace(g, voice::state(), cap);
     }
@@ -148,7 +224,7 @@ public:
 private:
     void beginTake() {
         discardTake();
-        _sink = new voice::WavFileSink("cache");
+        _sink = new voice::WavFileSink("outbox");
         if (!voice::start(_sink, MAX_SECONDS)) {
             notify::post(Note::Error, "Cannot record", voice::lastError());
             delete _sink;
@@ -173,9 +249,8 @@ private:
         delete _sink;
         _sink = nullptr;
 
-        // Auto-play the take: this is the closest v0.1 gets to a reply, and it
-        // is also the fastest way to hear whether the mic is behaving.
-        voice::play(_takePath);
+        _sending = true;
+        _sendAt = millis() + 180;  // paint SENDING before the blocking LAN turn
         invalidate();
     }
 
@@ -205,62 +280,63 @@ private:
     std::string         _takePath;
     uint32_t            _takeSeconds = 0;
     bool                _haveTake    = false;
+    bool                _sending     = false;
+    uint32_t            _sendAt      = 0;
+    std::string         _session;
+    std::string         _reply;
 };
 
 // ---------------------------------------------------------------- Capture
 class CaptureApp : public App {
 public:
-    const char* id() const override { return "capture"; }
-    const char* title() const override { return "Capture"; }
+    const char* id() const override { return "braindump"; }
+    const char* title() const override { return "BrainDump"; }
 
     const char* hints() const override {
         if (voice::state() == voice::State::Listening)
-            return "release SPACE to save";
-        if (!_field.text.empty()) return "ENTER save note   ESC discard";
-        return "hold SPACE voice   or just type";
+            return "H highlight   P pause   ENTER finish";
+        if (voice::state() == voice::State::Paused) return "P resume   ENTER finish";
+        if (_processing) return "processing on laptop...";
+        if (_ready) return "O process on laptop   P play raw";
+        return "recording saved";
     }
 
     void onEnter() override {
-        _field.text.clear();
-        // Entered by holding SPACE from Home: start immediately rather than
-        // making the user press it again for the same gesture.
-        if (KB.held(KEY_SPACE)) beginVoice();
+        _highlights.clear();
+        _ready = false;
+        beginVoice();
         invalidate();
     }
 
     void onExit() override {
-        if (voice::state() == voice::State::Listening) endVoice();
+        if (voice::state() == voice::State::Listening || voice::state() == voice::State::Paused) endVoice();
     }
 
     bool onKey(const KeyEvent& e) override {
-        if (e.down && e.code == KEY_SPACE && _field.text.empty()) {
-            if (voice::state() != voice::State::Listening) beginVoice();
-            return true;
-        }
-        if (!e.down && e.code == KEY_SPACE) {
-            if (voice::state() == voice::State::Listening) endVoice();
-            return true;
-        }
         if (!e.down) return false;
-
-        if (e.code == KEY_ENTER) {
-            saveText();
+        if (e.code == KEY_H && voice::state() == voice::State::Listening) {
+            _highlights.push_back(voice::elapsedSeconds());
+            notify::post(Note::Success, "Highlighted", ui::hhmmss(voice::elapsedSeconds()));
             return true;
         }
-        if (_field.onKey(e)) {
-            invalidate();
-            return true;
+        if (e.code == KEY_P && voice::state() == voice::State::Listening) { voice::pause(); invalidate(); return true; }
+        if (e.code == KEY_P && voice::state() == voice::State::Paused) { voice::resume(); invalidate(); return true; }
+        if (e.code == KEY_ENTER && (voice::state() == voice::State::Listening || voice::state() == voice::State::Paused)) { endVoice(); return true; }
+        if (e.code == KEY_P && _ready) { voice::play(_path); return true; }
+        if (e.code == KEY_O && _ready) {
+            _processing = true; _processAt = millis() + 180; invalidate(); return true;
         }
         return false;
     }
 
     void update() override {
+        if (_processing && millis() >= _processAt) process();
         if (voice::state() == voice::State::Listening) invalidate();
     }
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
-        ui::header(g, "Capture", store::backendName());
+        ui::header(g, "BrainDump", store::backendName());
 
         if (voice::state() == voice::State::Listening) {
             drawVoiceFace(g, voice::state(),
@@ -268,19 +344,13 @@ public:
             return;
         }
 
-        g.setFont(&fonts::Font0);
-        g.setTextColor(DIM, BG);
-        g.setTextDatum(top_left);
-        g.drawString("thought in, nothing else", PAD, BODY_Y + 26);
-        _field.draw(g, PAD, BODY_Y + 40, SCREEN_W - PAD * 2, "type a note...");
-
-        g.setTextColor(DIM, BG);
-        g.drawString("hold SPACE for a voice memo instead", PAD, BODY_Y + 66);
+        ui::emptyState(g, _processing ? "Processing on laptop" : (_ready ? "Raw thought preserved" : "Ready"),
+                       _processing ? "raw audio remains on device" : (_ready ? "O sends a copy to the laptop" : "recording starts immediately"));
     }
 
 private:
     void beginVoice() {
-        _sink = new voice::WavFileSink("captures");
+        _sink = new voice::WavFileSink("braindumps");
         if (!voice::start(_sink, 120)) {
             notify::post(Note::Error, "Cannot record", voice::lastError());
             delete _sink;
@@ -294,30 +364,40 @@ private:
     void endVoice() {
         const bool   ok    = voice::stop();
         const size_t bytes = _sink ? _sink->samples() * 2 : 0;
+        if (_sink) _path = _sink->path();
         sfx::recStop();
         if (ok)
-            notify::post(Note::Success, "Captured", ui::humanSize(bytes));
+            notify::post(Note::Success, "BrainDump saved", ui::humanSize(bytes));
         else
             notify::post(Note::Error, "Nothing captured", voice::lastError());
         delete _sink;
         _sink = nullptr;
+        _ready = ok;
         invalidate();
     }
 
-    void saveText() {
-        if (_field.text.empty()) return;
-        const std::string path = store::newPath("captures", "txt");
-        if (store::writeText(path, _field.text + "\n")) {
-            notify::post(Note::Success, "Captured", "saved as note");
-            _field.text.clear();
-        } else {
-            notify::post(Note::Error, "Save failed", store::backendName());
-        }
+    void process() {
+        _processing = false;
+        const auto result = host::brainDump(_path, _highlights);
+        store::Record item;
+        item.kind = result.ok ? "inbox" : "outbox";
+        item.status = result.ok ? "open" : "queued";
+        item.title = result.ok ? "BrainDump processed" : "BrainDump queued";
+        item.body = result.ok ? result.text : result.error;
+        item.source = "braindump"; item.ref = _path;
+        store::addRecord(item);
+        notify::post(result.ok ? Note::Success : Note::Warn,
+                     result.ok ? "Useful output ready" : "Queued offline",
+                     result.ok ? result.provider : "raw audio kept");
         invalidate();
     }
 
-    TextField           _field;
     voice::WavFileSink* _sink = nullptr;
+    std::string         _path;
+    std::vector<uint32_t> _highlights;
+    bool                _ready = false;
+    bool                _processing = false;
+    uint32_t            _processAt = 0;
 };
 
 // --------------------------------------------------------------- Recorder

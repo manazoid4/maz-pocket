@@ -4,6 +4,7 @@
 #include <M5Unified.h>
 #include <SD.h>
 #include <SPI.h>
+#include <esp_ota_ops.h>
 #include <time.h>
 
 #include <algorithm>
@@ -29,7 +30,8 @@ bool        fsMounted = false;
 const char* backend   = "none";
 
 const char* SUBDIRS[] = {"notes", "recordings", "captures", "tasks",
-                         "snippets", "logs", "cache", "settings"};
+                         "snippets", "logs", "cache", "settings", "records",
+                         "braindumps", "outbox"};
 
 void ensureTree(fs::FS& f) {
     f.mkdir("/maz");
@@ -62,7 +64,11 @@ bool begin() {
     sdMounted     = mountSd();
     Sys.sdPresent = sdMounted;
 
-    fsMounted = LittleFS.begin(/*formatOnFail=*/true);
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    const bool ownsPartitionTable =
+        running && running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY;
+    // Launcher-installed OTA apps must never format shared internal storage.
+    fsMounted = LittleFS.begin(/*formatOnFail=*/ownsPartitionTable);
     if (fsMounted) ensureTree(LittleFS);
     Sys.internalFs = fsMounted;
 
@@ -239,6 +245,79 @@ bool saveTasks(const std::vector<Task>& tasks) {
         out += "\n";
     }
     return writeText("/maz/tasks/tasks.tsv", out);
+}
+
+// --------------------------------------------------------------- records
+namespace {
+std::string cleanField(std::string value) {
+    for (char& c : value)
+        if (c == '\t' || c == '\r' || c == '\n') c = ' ';
+    return value;
+}
+
+std::vector<std::string> splitTabs(const std::string& line) {
+    std::vector<std::string> fields;
+    size_t start = 0;
+    while (start <= line.size()) {
+        const size_t tab = line.find('\t', start);
+        fields.push_back(line.substr(start, tab == std::string::npos ? tab : tab - start));
+        if (tab == std::string::npos) break;
+        start = tab + 1;
+    }
+    return fields;
+}
+}  // namespace
+
+std::vector<Record> loadRecords(const char* kind, size_t limit) {
+    std::vector<Record> out;
+    const std::string raw = readText("/maz/records/records.tsv", 65536);
+    size_t start = 0;
+    while (start < raw.size()) {
+        size_t end = raw.find('\n', start);
+        if (end == std::string::npos) end = raw.size();
+        const auto f = splitTabs(raw.substr(start, end - start));
+        start = end + 1;
+        if (f.size() != 9 || (kind && f[1] != kind)) continue;
+        Record r;
+        r.id = f[0]; r.kind = f[1]; r.status = f[2];
+        r.created = strtoul(f[3].c_str(), nullptr, 10);
+        r.due = strtoul(f[4].c_str(), nullptr, 10);
+        r.title = f[5]; r.body = f[6]; r.source = f[7]; r.ref = f[8];
+        out.push_back(r);
+    }
+    std::sort(out.begin(), out.end(), [](const Record& a, const Record& b) {
+        return a.created > b.created;
+    });
+    if (out.size() > limit) out.resize(limit);
+    return out;
+}
+
+bool saveRecords(const std::vector<Record>& records) {
+    std::string out;
+    for (const auto& r : records) {
+        out += cleanField(r.id) + "\t" + cleanField(r.kind) + "\t" + cleanField(r.status) + "\t";
+        out += std::to_string(r.created) + "\t" + std::to_string(r.due) + "\t";
+        out += cleanField(r.title) + "\t" + cleanField(r.body) + "\t";
+        out += cleanField(r.source) + "\t" + cleanField(r.ref) + "\n";
+    }
+    return writeText("/maz/records/records.tsv", out);
+}
+
+bool addRecord(Record& record) {
+    if (record.created == 0) record.created = static_cast<uint32_t>(time(nullptr));
+    if (record.id.empty()) record.id = std::to_string(record.created) + "-" + std::to_string(millis());
+    auto records = loadRecords(nullptr, 256);
+    records.push_back(record);
+    return saveRecords(records);
+}
+
+bool updateRecord(const Record& record) {
+    auto records = loadRecords(nullptr, 256);
+    bool found = false;
+    for (auto& existing : records) {
+        if (existing.id == record.id) { existing = record; found = true; break; }
+    }
+    return found && saveRecords(records);
 }
 
 // ---------------------------------------------------------------- snippets

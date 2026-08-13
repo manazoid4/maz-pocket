@@ -59,6 +59,10 @@ void setup() {
         return;
     }
 
+    Serial.printf("MAZ Pocket %s READY board=%d keyboard=%s storage=%s\n",
+                  MAZ_POCKET_VERSION, (int)M5.getBoard(),
+                  KB.ok() ? "ok" : "missing", store::backendName());
+
     if (!KB.ok())
         notify::post(Note::Error, "Keyboard not found",
                      "TCA8418 did not answer");

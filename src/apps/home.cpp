@@ -40,7 +40,7 @@ public:
             // "open Capture" rather than eating the keypress.
             if (e.code == KEY_SPACE && _spaceArmed) {
                 _spaceArmed = false;
-                shell::pushById("capture");
+                shell::pushById("talk");
                 return true;
             }
             return false;
@@ -81,7 +81,7 @@ public:
         // already recording, so a thought costs one gesture, not a menu.
         if (_spaceArmed && KB.heldFor(KEY_SPACE) > 250) {
             _spaceArmed = false;
-            shell::pushById("capture");
+            shell::pushById("talk");
             return;
         }
         if (Sys.focusRunning) invalidate();
@@ -94,8 +94,8 @@ public:
     }
 
 private:
-    static constexpr int COLS = 3;
-    static constexpr int ROWS = 2;
+    static constexpr int COLS = 2;
+    static constexpr int ROWS = 4;
 
     void buildTiles() {
         _tiles.clear();
@@ -170,19 +170,19 @@ private:
     }
 
     void drawGrid(M5Canvas& g) {
-        const int top = BODY_Y + 36;
-        const int tw  = (SCREEN_W - PAD * 2 - 8) / COLS;
-        const int th  = 30;
+        const int top = BODY_Y + 34;
+        const int tw  = (SCREEN_W - PAD * 2 - 4) / COLS;
+        const int th  = 16;
         for (size_t i = 0; i < _tiles.size(); ++i) {
             const int  col = i % COLS, row = i / COLS;
             const int  x  = PAD + col * (tw + 4);
-            const int  y  = top + row * (th + 4);
+            const int  y  = top + row * (th + 2);
             const bool on = static_cast<int>(i) == _sel;
 
             g.fillRoundRect(x, y, tw, th, 4, on ? ACCENT : PANEL);
             if (on) g.drawRoundRect(x - 1, y - 1, tw + 2, th + 2, 5, ACCENT);
 
-            g.setFont(&fonts::Font2);
+            g.setFont(&fonts::Font0);
             g.setTextDatum(middle_center);
             g.setTextColor(on ? BG : TEXT, on ? ACCENT : PANEL);
             g.drawString(_tiles[i]->title, x + tw / 2, y + th / 2);

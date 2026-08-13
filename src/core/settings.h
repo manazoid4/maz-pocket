@@ -24,6 +24,11 @@ struct Settings {
 
     std::string hostAddr;  // MAZ Host — empty means "not configured"
     uint16_t    hostPort = 8787;
+    std::string hostToken;
+    uint8_t     talkRoute = 1;  // 0 local, 1 auto, 2 cloud
+    bool        ttsEnabled = false;
+    uint8_t     nudgePollMinutes = 5;
+    bool        firstRunComplete = false;
 
     int8_t   tzMinutesOffset = 0;  // units of 15 min, so +4 == UTC+1h
     uint32_t lastKnownEpoch  = 0;  // clock is roughly right after a cold boot

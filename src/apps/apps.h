@@ -43,6 +43,12 @@ App* makeQr();
 App* makeViewer();
 App* makeGenerator();
 App* makeHelp();
+App* makeInbox();
+App* makeDecision();
+App* makeSprint();
+App* makeNudge();
+App* makeReminders();
+void updateProductServices();
 
 }  // namespace apps
 }  // namespace maz

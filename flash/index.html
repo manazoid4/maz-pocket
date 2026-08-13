@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flash MAZ Pocket</title>
+<!--
+  One-click installer for MAZ Pocket.
+
+  Why this exists: the alternatives are M5Burner (a separate desktop app), or
+  PlatformIO (a toolchain), or copying a .bin onto an SD card and driving
+  M5Launcher. All of those are fine for me and hostile to everyone else. ESP Web
+  Tools flashes over WebSerial straight from the browser, and the Cardputer ADV
+  normally resets into its bootloader over USB-C; the page also gives the G0
+  recovery step for machines where automatic reset is unavailable.
+
+  Deploy: GitHub Pages on /flash. maz-pocket-merged.bin must sit beside this file.
+-->
+<script type="module" src="https://unpkg.com/esp-web-tools@10.0.3/dist/web/install-button.js"></script>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --line: #2a2f36;
+    --text: #e6e9ec; --dim: #7a848e; --accent: #ff7a18; --cyan: #22d3ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem; background: var(--bg); color: var(--text);
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 44rem; }
+  .mark { display: flex; align-items: center; gap: .75rem; margin-bottom: .25rem; }
+  .ring {
+    width: 34px; height: 34px; border: 3px solid var(--accent); border-radius: 50%;
+    position: relative; flex: none;
+  }
+  .ring::after {
+    content: ""; position: absolute; inset: 8px; background: var(--accent);
+    border-radius: 50%;
+  }
+  h1 { font-size: 1.6rem; margin: 0; letter-spacing: .02em; }
+  .sub { color: var(--dim); margin: 0 0 2rem; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1.25rem 1.4rem; margin-bottom: 1.25rem;
+  }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .12em;
+       color: var(--accent); margin: 0 0 .75rem; }
+  ol, ul { margin: 0; padding-left: 1.2rem; }
+  li { margin-bottom: .4rem; }
+  code { background: #0b0d10; border: 1px solid var(--line); border-radius: 4px;
+         padding: .1rem .35rem; font-size: .87em; }
+  .cta { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  esp-web-install-button[install-unsupported] { display: block; }
+  .unsupported { color: var(--dim); }
+  .note { color: var(--dim); font-size: .9rem; }
+  a { color: var(--cyan); }
+  footer { color: var(--dim); font-size: .85rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark"><div class="ring"></div><h1>MAZ Pocket</h1></div>
+  <p class="sub">Firmware for the M5Stack Cardputer ADV. Flash it from this page — no app, no toolchain.</p>
+
+  <div class="card">
+    <h2>Keep M5Launcher — recommended</h2>
+    <p>Download the app-only binary, then install it from M5Launcher using
+    <strong>WUI</strong> or a FAT32 microSD card. Launcher, Bruce, Nemo and your
+    other installed apps stay in place.</p>
+    <p><a href="maz-pocket-app.bin" download><strong>Download MAZ Pocket app binary</strong></a></p>
+  </div>
+
+  <div class="card">
+    <h2>Replace the whole device</h2>
+    <p class="note"><strong>This removes M5Launcher and every installed app.</strong>
+    Use it only when you want MAZ Pocket to own the device.</p>
+    <div class="cta">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate" style="background:var(--accent);color:#0b0d10;border:0;
+          border-radius:7px;padding:.7rem 1.3rem;font-weight:650;font-size:1rem;cursor:pointer">
+          Connect &amp; flash
+        </button>
+        <span slot="unsupported" class="unsupported">
+          This browser cannot talk to serial devices. Use desktop Chrome or Edge.
+        </span>
+        <span slot="not-allowed" class="unsupported">
+          Serial access needs a secure page (https or localhost).
+        </span>
+      </esp-web-install-button>
+      <span class="note">Chrome or Edge, desktop, USB-C data cable.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What happens</h2>
+    <ol>
+      <li>Plug the Cardputer into USB-C and press <strong>Connect &amp; flash</strong>.</li>
+      <li>Pick the serial port in the browser dialog.</li>
+      <li>Wait about a minute. If connection fails, unplug it, hold <strong>G0</strong>, reconnect USB-C, then try again.</li>
+      <li>It reboots into MAZ Pocket.</li>
+    </ol>
+    <p class="note">This writes a full image: bootloader, partition table and app.
+    It replaces whatever is on the device, including M5Launcher.</p>
+  </div>
+
+  <div class="card">
+    <h2>After flashing</h2>
+    <ul>
+      <li>Capture, Focus, Sprint, Decision and reminders work offline.</li>
+      <li>For Talk and Nudge, run <code>host/setup.ps1</code> once, then <code>host/run.ps1</code>.</li>
+    </ul>
+  </div>
+
+  <footer>
+    MIT licensed ·
+    <a href="https://github.com/manazoid4/maz-pocket">github.com/manazoid4/maz-pocket</a>
+  </footer>
+</main>
+</body>
+</html>
