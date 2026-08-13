@@ -50,6 +50,7 @@ struct Record {
     std::string status;  // open, queued, done, snoozed, failed
     uint32_t    created = 0;
     uint32_t    due     = 0;
+    bool        dueIsUptime = false;  // relative reminder before wall-clock sync
     std::string title;
     std::string body;
     std::string source;

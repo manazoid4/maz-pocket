@@ -1,6 +1,6 @@
 # Verification status — MAZ Pocket v0.2
 
-Updated 2026-08-13. Compiling is not counted as a product demonstration.
+Updated 2026-08-14. Compiling is not counted as a product demonstration.
 
 ## Verified in automation
 
@@ -8,10 +8,10 @@ Updated 2026-08-13. Compiling is not counted as a product demonstration.
 |---|---|
 | Cardputer ADV release build | PASS — PlatformIO 6.1.19, espressif32 6.9.0 |
 | Static memory | 53,804 B / 327,680 B (16.4%) |
-| App flash | 1,260,809 B / 3,145,728 B (40.1%) |
-| MAZ Host | Python suite passes, including authenticated streamed WAV, Agent Nudge credential discovery and deterministic voice reminders |
+| App flash | 1,262,613 B / 3,145,728 B (40.1%) |
+| MAZ Host | 13 Python tests pass, including authenticated streamed WAV, Agent Nudge credential discovery and deterministic voice reminders |
 | Agent Nudge | Typecheck, 65 unit tests, 39 integration tests, 2 end-to-end tests and production build pass |
-| Release packaging | Produces a Launcher-safe app binary and an explicitly destructive merged web image |
+| Release packaging | Produces only a Launcher-safe app binary; the destructive merged web image was removed |
 
 ## Observed on the physical Cardputer ADV
 
@@ -24,6 +24,10 @@ Updated 2026-08-13. Compiling is not counted as a product demonstration.
   separate FSPI host. Repeated boots now reach the shell.
 - Device-to-laptop status is verified over the real LAN connection:
   `wifi=online host=online nudge=ALL_SYNCED agents=8`.
+- The current Launcher-installed build includes automatic offline Talk/BrainDump
+  dispatch, lossless record updates, clock-safe relative reminders, reachable
+  Sprint debrief and configured host binding. It boots and reports live status;
+  the interaction details remain in the acceptance list below.
 - MAZ Pocket's serial/keyboard Launcher hand-back was exercised. M5Launcher
   booted without an abort, and the installer successfully replaced the old app.
 - A generated spoken WAV completed STT → local Ollama → answer. Warm timings:

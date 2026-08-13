@@ -9,6 +9,7 @@
 #include "../core/app.h"
 
 namespace maz {
+namespace store { struct Record; }
 namespace apps {
 
 struct Descriptor {
@@ -48,6 +49,7 @@ App* makeDecision();
 App* makeSprint();
 App* makeNudge();
 App* makeReminders();
+void scheduleReminder(store::Record& reminder, uint32_t delaySeconds);
 void updateProductServices();
 
 }  // namespace apps

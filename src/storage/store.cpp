@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "../core/settings.h"
 
@@ -292,19 +293,21 @@ std::vector<std::string> splitTabs(const std::string& line) {
 
 std::vector<Record> loadRecords(const char* kind, size_t limit) {
     std::vector<Record> out;
-    const std::string raw = readText("/maz/records/records.tsv", 65536);
+    const std::string raw = readText("/maz/records/records.tsv",
+                                     std::numeric_limits<size_t>::max());
     size_t start = 0;
     while (start < raw.size()) {
         size_t end = raw.find('\n', start);
         if (end == std::string::npos) end = raw.size();
         const auto f = splitTabs(raw.substr(start, end - start));
         start = end + 1;
-        if (f.size() != 9 || (kind && f[1] != kind)) continue;
+        if ((f.size() != 9 && f.size() != 10) || (kind && f[1] != kind)) continue;
         Record r;
         r.id = f[0]; r.kind = f[1]; r.status = f[2];
         r.created = strtoul(f[3].c_str(), nullptr, 10);
         r.due = strtoul(f[4].c_str(), nullptr, 10);
         r.title = f[5]; r.body = f[6]; r.source = f[7]; r.ref = f[8];
+        r.dueIsUptime = f.size() == 10 && f[9] == "1";
         out.push_back(r);
     }
     std::sort(out.begin(), out.end(), [](const Record& a, const Record& b) {
@@ -320,7 +323,8 @@ bool saveRecords(const std::vector<Record>& records) {
         out += cleanField(r.id) + "\t" + cleanField(r.kind) + "\t" + cleanField(r.status) + "\t";
         out += std::to_string(r.created) + "\t" + std::to_string(r.due) + "\t";
         out += cleanField(r.title) + "\t" + cleanField(r.body) + "\t";
-        out += cleanField(r.source) + "\t" + cleanField(r.ref) + "\n";
+        out += cleanField(r.source) + "\t" + cleanField(r.ref) + "\t";
+        out += r.dueIsUptime ? "1\n" : "0\n";
     }
     return writeText("/maz/records/records.tsv", out);
 }
@@ -328,13 +332,13 @@ bool saveRecords(const std::vector<Record>& records) {
 bool addRecord(Record& record) {
     if (record.created == 0) record.created = static_cast<uint32_t>(time(nullptr));
     if (record.id.empty()) record.id = std::to_string(record.created) + "-" + std::to_string(millis());
-    auto records = loadRecords(nullptr, 256);
+    auto records = loadRecords(nullptr, std::numeric_limits<size_t>::max());
     records.push_back(record);
     return saveRecords(records);
 }
 
 bool updateRecord(const Record& record) {
-    auto records = loadRecords(nullptr, 256);
+    auto records = loadRecords(nullptr, std::numeric_limits<size_t>::max());
     bool found = false;
     for (auto& existing : records) {
         if (existing.id == record.id) { existing = record; found = true; break; }

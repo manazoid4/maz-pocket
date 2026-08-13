@@ -4,7 +4,7 @@ $Python = Join-Path $HostRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $Python)) { throw "Run .\setup.ps1 first." }
 Push-Location $HostRoot
 try {
-    & $Python -m uvicorn mazhost.app:app --host 0.0.0.0 --port 8787
+    & $Python -c "import uvicorn; from mazhost.config import Settings; s = Settings(); uvicorn.run('mazhost.app:app', host=s.bind, port=s.port)"
 } finally {
     Pop-Location
 }

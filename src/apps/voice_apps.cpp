@@ -170,7 +170,7 @@ public:
                     store::Record reminder;
                     reminder.kind = "reminder"; reminder.status = "open";
                     reminder.title = result.reminderTitle; reminder.source = "voice";
-                    reminder.due = static_cast<uint32_t>(time(nullptr)) + result.reminderDelay;
+                    scheduleReminder(reminder, result.reminderDelay);
                     store::addRecord(reminder);
                 }
                 store::remove(_takePath);

@@ -12,6 +12,22 @@
 namespace maz {
 namespace apps {
 using namespace theme;
+
+namespace {
+constexpr time_t VALID_WALL_CLOCK = 1704067200;  // 2024-01-01 UTC
+}
+
+void scheduleReminder(store::Record& reminder, uint32_t delaySeconds) {
+    const time_t now = time(nullptr);
+    if (now >= VALID_WALL_CLOCK) {
+        reminder.due = static_cast<uint32_t>(now) + delaySeconds;
+        reminder.dueIsUptime = false;
+    } else {
+        reminder.due = millis() / 1000 + delaySeconds;
+        reminder.dueIsUptime = true;
+    }
+}
+
 namespace {
 
 void drawRecords(M5Canvas& g, const std::vector<store::Record>& rows, const ListCursor& cursor) {
@@ -86,10 +102,14 @@ class SprintApp : public App {
 public:
     const char* id() const override { return "sprint"; }
     const char* title() const override { return "Sprint"; }
-    const char* hints() const override { return shell::focus::running() ? "P pause   X stop   B debrief" : "ENTER start 25 minutes"; }
+    const char* hints() const override {
+        if (shell::focus::running()) return "P pause   X stop";
+        return _debriefReady ? "B debrief   ENTER new sprint" : "ENTER start 25 minutes";
+    }
     void onEnter() override {
         _goal.text.clear();
         _current = {};
+        _debriefReady = false;
         for (const auto& sprint : store::loadRecords("sprint")) {
             if (sprint.status == "running") { _current = sprint; break; }
         }
@@ -102,9 +122,9 @@ public:
         if (shell::focus::running()) {
             if (e.code == KEY_P) { shell::focus::paused() ? shell::focus::resume() : shell::focus::pause(); return true; }
             if (e.code == KEY_X) { shell::focus::cancel(); finish("stopped"); return true; }
-            if (e.code == KEY_B) { shell::pushById("braindump"); return true; }
             return false;
         }
+        if (e.code == KEY_B && _debriefReady) { shell::pushById("braindump"); return true; }
         if (e.code == KEY_ENTER && !_goal.text.empty()) {
             _current.kind="sprint"; _current.status="running"; _current.title=_goal.text; _current.source="device";
             store::addRecord(_current); shell::focus::start(25 * 60, _goal.text); _wasRunning=true; invalidate(); return true;
@@ -125,8 +145,14 @@ public:
         } else _goal.draw(g, PAD, BODY_Y+38, SCREEN_W-PAD*2, "intended outcome...");
     }
 private:
-    void finish(const char* status) { _current.status=status; if (!_current.id.empty()) store::updateRecord(_current); _current = {}; invalidate(); }
-    TextField _goal; store::Record _current; bool _wasRunning=false;
+    void finish(const char* status) {
+        _current.status=status;
+        if (!_current.id.empty()) store::updateRecord(_current);
+        _current = {};
+        _debriefReady = true;
+        invalidate();
+    }
+    TextField _goal; store::Record _current; bool _wasRunning=false; bool _debriefReady=false;
 };
 
 class RemindersApp : public App {
@@ -146,7 +172,11 @@ public:
         if (_cursor.onKey(e, _rows.size())) { invalidate(); return true; }
         if (_rows.empty()) return false;
         if (e.code == KEY_D) { _rows[_cursor.sel].status="done"; store::updateRecord(_rows[_cursor.sel]); reload(); return true; }
-        if (e.code == KEY_S) { _rows[_cursor.sel].status="snoozed"; _rows[_cursor.sel].due=time(nullptr)+600; store::updateRecord(_rows[_cursor.sel]); reload(); return true; }
+        if (e.code == KEY_S) {
+            _rows[_cursor.sel].status="snoozed";
+            scheduleReminder(_rows[_cursor.sel], 600);
+            store::updateRecord(_rows[_cursor.sel]); reload(); return true;
+        }
         return false;
     }
     void render(M5Canvas& g) override {
@@ -159,7 +189,8 @@ private:
     void save() {
         const size_t split=_field.text.find(' '); if (split==std::string::npos) return;
         const int minutes=atoi(_field.text.substr(0,split).c_str()); if (minutes<1) return;
-        store::Record r; r.kind="reminder"; r.status="open"; r.title=_field.text.substr(split+1); r.source="human"; r.due=time(nullptr)+minutes*60;
+        store::Record r; r.kind="reminder"; r.status="open"; r.title=_field.text.substr(split+1); r.source="human";
+        scheduleReminder(r, minutes * 60);
         if (store::addRecord(r)) { notify::post(Note::Success,"Reminder set",std::to_string(minutes)+" minutes"); reload(); }
     }
     std::vector<store::Record> _rows; ListCursor _cursor; TextField _field; bool _adding=false;
@@ -216,13 +247,77 @@ private:
 }  // namespace
 
 void updateProductServices() {
-    static uint32_t next = 0;
-    if (millis() < next || !store::ready()) return;
-    next = millis() + 1000;
+    static uint32_t nextReminder = 0;
+    static uint32_t nextOutbox = 0;
+    if (!store::ready()) return;
+
+    if (millis() >= nextOutbox && Sys.hostOnline) {
+        nextOutbox = millis() + 15000;
+        auto queued = store::loadRecords("outbox", 8);
+        for (auto& item : queued) {
+            if (item.status != "queued" || item.ref.empty()) continue;
+            host::Reply result;
+            if (item.source == "talk") {
+                const std::string session = host::startSession();
+                if (!session.empty()) result = host::talkAudio(session, item.ref);
+            } else if (item.source == "braindump") {
+                result = host::brainDump(item.ref, {});
+            } else {
+                continue;
+            }
+            if (!result.ok) break;
+
+            store::Record answer;
+            answer.kind="inbox"; answer.status="open";
+            answer.title=item.source == "talk" ? "MAZ answer" : "BrainDump processed";
+            answer.body=result.text; answer.source=result.provider; answer.ref=item.ref;
+            if (!store::addRecord(answer)) break;
+
+            if (!result.reminderTitle.empty() && result.reminderDelay) {
+                store::Record reminder;
+                reminder.kind="reminder"; reminder.status="open";
+                reminder.title=result.reminderTitle; reminder.source="voice";
+                scheduleReminder(reminder, result.reminderDelay);
+                store::addRecord(reminder);
+            }
+            item.status="sent"; item.body=result.text;
+            if (store::updateRecord(item)) {
+                if (item.source == "talk") store::remove(item.ref);
+                notify::post(Note::Success, "Queued result ready", answer.title);
+            }
+            break;  // one blocking LAN job per service pass
+        }
+    }
+
+    if (millis() < nextReminder) return;
+    nextReminder = millis() + 1000;
     const time_t now = time(nullptr);
+    const uint32_t uptime = millis() / 1000;
+    const bool wallClockReady = now >= VALID_WALL_CLOCK;
     auto reminders = store::loadRecords("reminder", 64);
     for (auto& reminder : reminders) {
-        if ((reminder.status == "open" || reminder.status == "snoozed") && reminder.due && reminder.due <= now) {
+        if (reminder.status != "open" && reminder.status != "snoozed") continue;
+        if (!reminder.due) continue;
+
+        // Migrate reminders created by older builds before NTP was available.
+        if (!reminder.dueIsUptime && reminder.due < VALID_WALL_CLOCK) {
+            const uint32_t delay = reminder.due > reminder.created
+                ? reminder.due - reminder.created : 60;
+            reminder.due = uptime + delay;
+            reminder.dueIsUptime = true;
+            store::updateRecord(reminder);
+        }
+        if (reminder.dueIsUptime && wallClockReady) {
+            const uint32_t remaining = reminder.due > uptime ? reminder.due - uptime : 0;
+            reminder.due = static_cast<uint32_t>(now) + remaining;
+            reminder.dueIsUptime = false;
+            store::updateRecord(reminder);
+        }
+
+        const bool isDue = reminder.dueIsUptime
+            ? uptime >= reminder.due
+            : wallClockReady && static_cast<uint32_t>(now) >= reminder.due;
+        if (isDue) {
             reminder.status = "fired"; store::updateRecord(reminder);
             notify::post(Note::Warn, "REMINDER", reminder.title);
             break;
