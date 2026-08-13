@@ -5,6 +5,7 @@
 #include <SD.h>
 #include <SPI.h>
 #include <esp_ota_ops.h>
+#include <esp_partition.h>
 #include <time.h>
 
 #include <algorithm>
@@ -23,7 +24,6 @@ constexpr int PIN_MISO = 39;
 constexpr int PIN_MOSI = 14;
 constexpr int PIN_CS   = 12;
 
-SPIClass    sdSpi(HSPI);
 fs::FS*     active    = nullptr;
 bool        sdMounted = false;
 bool        fsMounted = false;
@@ -39,20 +39,33 @@ void ensureTree(fs::FS& f) {
         const std::string p = std::string("/maz/") + s;
         if (!f.exists(p.c_str())) f.mkdir(p.c_str());
     }
+    for (const char* path : {"/maz/tasks/tasks.tsv", "/maz/records/records.tsv",
+                             "/maz/snippets/snippets.tsv"}) {
+        File data = f.open(path, FILE_APPEND);
+        if (data) data.close();
+    }
 }
 
 bool mountSd() {
-    sdSpi.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, PIN_CS);
-    // 20MHz: the ADV slot is reliable faster with a good card, but a cheap
-    // card that fails at speed looks identical to broken firmware, so we
-    // trade a little throughput for "it just mounts".
-    if (!SD.begin(PIN_CS, sdSpi, 20000000)) {
-        sdSpi.end();
+    // Cardputer ADV leaves several legacy keyboard pins floating. Launcher
+    // proves the slot is reliable when they are driven high before SD starts.
+    for (const int pin : {3, 4, 5, 6, 13, 15}) {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, HIGH);
+    }
+    // M5GFX owns SPI3/HSPI. Arduino's global SPI object is the separate FSPI
+    // host, avoiding two SPIClass drivers competing for the same peripheral.
+    SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, PIN_CS);
+    delay(10);
+    // Match M5Launcher's conservative default. Capture reliability matters
+    // more here than peak card throughput.
+    if (!SD.begin(PIN_CS, SPI, 4000000)) {
+        SPI.end();
         return false;
     }
     if (SD.cardType() == CARD_NONE) {
         SD.end();
-        sdSpi.end();
+        SPI.end();
         return false;
     }
     ensureTree(SD);
@@ -65,10 +78,19 @@ bool begin() {
     Sys.sdPresent = sdMounted;
 
     const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* dedicated = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "mazdata");
     const bool ownsPartitionTable =
         running && running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY;
-    // Launcher-installed OTA apps must never format shared internal storage.
-    fsMounted = LittleFS.begin(/*formatOnFail=*/ownsPartitionTable);
+    if (dedicated) {
+        // M5Launcher provisions this partition specifically for MAZ Pocket.
+        // Formatting it cannot affect Launcher or another installed app.
+        fsMounted = LittleFS.begin(/*formatOnFail=*/true, "/littlefs", 10,
+                                   "mazdata");
+    } else {
+        // Launcher-installed OTA apps must never format shared internal storage.
+        fsMounted = LittleFS.begin(/*formatOnFail=*/ownsPartitionTable);
+    }
     if (fsMounted) ensureTree(LittleFS);
     Sys.internalFs = fsMounted;
 
@@ -95,7 +117,7 @@ bool begin() {
 void remount() {
     if (sdMounted) {
         SD.end();
-        sdSpi.end();
+        SPI.end();
         sdMounted = false;
     }
     begin();
@@ -189,7 +211,7 @@ bool appendText(const std::string& path, const std::string& text) {
 
 std::string readText(const std::string& path, size_t maxBytes) {
     std::string out;
-    if (!active) return out;
+    if (!active || !active->exists(path.c_str())) return out;
     File f = active->open(path.c_str(), FILE_READ);
     if (!f) return out;
     const size_t n = f.size() > maxBytes ? maxBytes : f.size();

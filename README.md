@@ -27,27 +27,29 @@ PSRAM and never buffers a whole WAV in memory.
 ```powershell
 cd host
 .\setup.ps1
-.\run.ps1
+Start-Process powershell -ArgumentList '-File', '.\run.ps1' -WindowStyle Hidden
+.\pair.ps1
 ```
 
-Then open **Connections**, join Wi-Fi, press `C`, and enter the address/token
-printed by setup. Agent Nudge remains loopback-only; MAZ Host is the authenticated
-LAN proxy used by the Cardputer.
+`pair.ps1` finds the Cardputer and laptop address automatically and asks for the
+Wi-Fi password in a private prompt. Agent Nudge remains loopback-only; MAZ Host
+reads its owner-only local credential and acts as the authenticated LAN proxy.
 
 ## Build and install
 
 ```powershell
-py -m platformio run
-.\scripts\package-release.ps1
+.\scripts\install.ps1
 ```
 
-- **Recommended:** keep M5Launcher and install `dist/maz-pocket-app.bin` through Launcher's WUI or FAT32 microSD manager.
-- Full replacement: use the browser installer in `flash/` only when MAZ Pocket should own the whole device.
+- This is the only supported install path. It builds MAZ Pocket, hands control
+  back to M5Launcher when needed, prepares isolated MAZ storage, uses
+  M5Launcher's pinned official serial flasher, and verifies the real boot banner.
+- `Ctrl+L` or **Tools → Back to M5Launcher** returns to Launcher. Re-running the
+  same command replaces the old MAZ slot instead of filling flash with copies.
 
-When launched from M5Launcher, MAZ Pocket never formats a shared internal partition. Use a FAT32 SDHC card for durable audio unless compatible LittleFS storage already exists.
-
-The full web image replaces the current firmware and launcher. If automatic USB
-connection fails, unplug the ADV, hold `G0`, reconnect, and retry.
+MAZ Pocket never formats shared Launcher storage. The installer creates a named
+2 MB LittleFS partition for settings, queues and metadata. Use a FAT32 SDHC card
+for longer audio capture; offline text/timers/reminders still use internal storage.
 
 ## Verification truth
 

@@ -25,9 +25,13 @@ class SpeechToText:
                 if self._model is None:
                     from faster_whisper import WhisperModel
 
+                    # CTranslate2 can report a CUDA device even when the CUDA
+                    # runtime DLLs it needs are absent. CPU int8 is the reliable
+                    # zero-setup default; users can still opt into cuda.
+                    device = "cpu" if self.settings.whisper_device == "auto" else self.settings.whisper_device
                     self._model = WhisperModel(
                         self.settings.whisper_model,
-                        device=self.settings.whisper_device,
+                        device=device,
                         compute_type=self.settings.whisper_compute,
                     )
         return self._model

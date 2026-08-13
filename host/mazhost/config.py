@@ -21,10 +21,10 @@ class Settings(BaseSettings):
     bind: str = "0.0.0.0"
     port: int = 8787
     whisper_model: str = "base.en"
-    whisper_device: str = "auto"
+    whisper_device: str = "cpu"
     whisper_compute: str = "int8"
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen2.5:3b-instruct"
+    ollama_model: str = "gemma3:1b"
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"
@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     tts_rate: int = Field(default=185, ge=80, le=300)
     nudge_url: str = "http://127.0.0.1:47831"
     nudge_token: str = ""
+    nudge_token_file: str = "~/.agent-nudge/control-plane.key"
     nudge_cross_sync_days: int = Field(default=3, ge=1, le=30)
     device_port: str = ""
     device_baud: int = Field(default=115200, ge=1200, le=3_000_000)

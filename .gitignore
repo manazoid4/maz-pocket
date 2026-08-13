@@ -1,4 +1,5 @@
 .pio/
+.device-diagnostic/
 .vscode/
 .idea/
 *.bin.bak

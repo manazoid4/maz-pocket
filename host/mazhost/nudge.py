@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 
 from .config import Settings
@@ -11,16 +13,26 @@ class NudgeClient:
         self.client = client or httpx.Client(timeout=5)
 
     @property
+    def token(self) -> str:
+        if self.settings.nudge_token:
+            return self.settings.nudge_token
+        token_file = Path(self.settings.nudge_token_file).expanduser()
+        if not token_file.is_file():
+            return ""
+        return token_file.read_text(encoding="utf-8").strip()
+
+    @property
     def configured(self) -> bool:
-        return bool(self.settings.nudge_token)
+        return bool(self.token)
 
     def _request(self, method: str, path: str):
-        if not self.configured:
+        token = self.token
+        if not token:
             raise RuntimeError("nudge_not_configured")
         response = self.client.request(
             method,
             f"{self.settings.nudge_url.rstrip('/')}{path}",
-            headers={"Authorization": f"Bearer {self.settings.nudge_token}"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         response.raise_for_status()
         return response.json()

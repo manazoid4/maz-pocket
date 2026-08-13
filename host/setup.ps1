@@ -10,7 +10,7 @@ if (-not (Test-Path $Python)) {
 $EnvPath = Join-Path $HostRoot ".env"
 if (-not (Test-Path $EnvPath)) {
     $Template = Get-Content (Join-Path $HostRoot ".env.example") -Raw
-    $Token = & $Python -c "import secrets; print(secrets.token_urlsafe(24))"
+    $Token = & $Python -c "import secrets; print(secrets.token_urlsafe(12))"
     $Template.Replace("change-me-before-first-run", $Token) | Set-Content $EnvPath -NoNewline
 }
 
@@ -23,3 +23,4 @@ Write-Host "On MAZ Pocket open Connections, press C, then enter:"
 Write-Host "  Address: ${Address}:8787"
 Write-Host "  Token:   $ConfiguredToken"
 Write-Host "Run .\run.ps1 to start the host."
+Write-Host "With MAZ Pocket open over USB, run .\pair.ps1 for one-step pairing."

@@ -13,6 +13,7 @@
 #include "../audio/voice.h"
 #include "../core/notify.h"
 #include "../core/settings.h"
+#include "../core/launcher.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
@@ -175,7 +176,8 @@ private:
             case 8:
                 notify::post(Note::Info, "Rebooting", "back to M5Launcher");
                 delay(600);
-                ESP.restart();
+                if (!launcher::reboot())
+                    notify::post(Note::Error, "Launcher", "hand-back failed");
                 return;
             default:
                 break;

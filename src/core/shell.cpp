@@ -13,6 +13,7 @@
 #include "../ui/ui.h"
 #include "notify.h"
 #include "settings.h"
+#include "launcher.h"
 #include "sys.h"
 
 namespace maz {
@@ -244,6 +245,11 @@ bool handleGlobalKey(const KeyEvent& e) {
     // Ctrl+K anywhere: the palette is the one thing that must always answer.
     if ((e.mods & MOD_CTRL) && e.code == KEY_K) {
         openPalette();
+        return true;
+    }
+    // Ctrl+L always hands control back to M5Launcher.
+    if ((e.mods & MOD_CTRL) && e.code == KEY_L) {
+        launcher::reboot();
         return true;
     }
     return false;
