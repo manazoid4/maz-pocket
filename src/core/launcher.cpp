@@ -18,10 +18,18 @@ bool bootable(const esp_partition_t* part) {
     return magic == 0xE9;
 }
 
-// Where control would actually land once this app invalidates itself. The
-// bootloader prefers the TEST partition M5Launcher installs itself into, then
-// a factory image, then any other slot carrying a real image.
-const esp_partition_t* handBackTarget(const esp_partition_t* running) {
+// Where control would land once this app invalidates itself.
+//
+// Only a TEST or FACTORY image counts. M5Launcher installs itself into TEST,
+// and "hand back to the launcher" has no meaning if the answer is another copy
+// of MAZ Pocket sitting in the neighbouring OTA slot.
+//
+// Accepting any bootable slot is precisely what made this dangerous: the first
+// press invalidated the running image and booted the other copy, so a second
+// press invalidated that one too and the device was left with no valid app at
+// all. Recovering from that needs a cable, so the guard has to make it
+// unreachable rather than merely unlikely.
+const esp_partition_t* handBackTarget() {
     const esp_partition_t* test = esp_partition_find_first(
         ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, nullptr);
     if (bootable(test)) return test;
@@ -30,20 +38,7 @@ const esp_partition_t* handBackTarget(const esp_partition_t* running) {
         ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, nullptr);
     if (bootable(factory)) return factory;
 
-    esp_partition_iterator_t it = esp_partition_find(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, nullptr);
-    const esp_partition_t* found = nullptr;
-    while (it) {
-        const esp_partition_t* candidate = esp_partition_get(it);
-        if (candidate && (!running || candidate->address != running->address) &&
-            bootable(candidate)) {
-            found = candidate;
-            break;
-        }
-        it = esp_partition_next(it);
-    }
-    if (it) esp_partition_iterator_release(it);
-    return found;
+    return nullptr;
 }
 
 }  // namespace
@@ -60,10 +55,10 @@ bool reboot() {
     // running image unbootable, so with nothing valid to fall into this does
     // not hand control back - it strands the device somewhere only a cable can
     // reach. A handheld should never be one keystroke away from that.
-    if (!handBackTarget(running)) {
+    if (!handBackTarget()) {
         ESP_LOGE("launcher",
-                 "no bootable partition to hand back to - refusing to "
-                 "invalidate the only working image");
+                 "M5Launcher is not installed - refusing to invalidate this "
+                 "image, which would leave nothing to boot");
         return false;
     }
 

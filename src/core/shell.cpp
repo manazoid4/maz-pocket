@@ -304,9 +304,13 @@ bool handleGlobalKey(const KeyEvent& e) {
         openPalette();
         return true;
     }
-    // Ctrl+L always hands control back to M5Launcher.
+    // Ctrl+L hands control back to M5Launcher when it is installed, and
+    // returns having done nothing when it is not. Say so: an invisible no-op
+    // is a key you press again, harder.
     if ((e.mods & MOD_CTRL) && e.code == KEY_L) {
-        launcher::reboot();
+        if (!launcher::reboot())
+            notify::post(Note::Warn, "No launcher installed",
+                         "MAZ Pocket was flashed straight over USB");
         return true;
     }
     return false;

@@ -18,9 +18,15 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
 
 - USB identity `303A:1001` was detected on COM5 and the chip identified as an
   ESP32-S3 revision 0.2 with 8 MB flash.
-- Official M5Launcher 2.8.0 remains in its TEST partition. The one-command
-  installer prepared isolated `mazdata`, installed one MAZ OTA slot and observed
-  `MAZ Pocket 0.2.0 READY board=24 keyboard=ok storage=internal`.
+- **M5Launcher is no longer installed.** It lived in `app0` at 0x10000 under its
+  own partition table. Flashing MAZ Pocket directly over USB writes our table at
+  0x8000 and our image at 0x10000, over the top of it; the later OTA wrote into
+  `ota_1` (0x310000-0x610000), which also covers the old `mazpoc` slot. Restoring
+  it means flashing Launcher's bootloader, table and app over USB, which removes
+  the two-slot layout and therefore OTA. It is one or the other.
+  (Historically: the one-command installer prepared an isolated `mazdata`
+  partition, installed one MAZ OTA slot and observed
+  `MAZ Pocket 0.2.0 READY board=24 keyboard=ok storage=internal`.)
 - The display SPI deadlock was reproduced and removed by moving SD to the
   separate FSPI host. Repeated boots now reach the shell.
 - Device-to-laptop status is verified over the real LAN connection:
@@ -39,13 +45,44 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
   upload 16 ms, STT 906 ms, model 929 ms, total 1.85 s. First cold run was
   12.16 s, so the shipped laptop default uses the installed `gemma3:1b` model.
 
+## Recovering a device that will not boot
+
+A flat battery cannot be flashed in one pass. The ESP32-S3 browns out partway
+through a large write, because USB alone does not carry sustained flash-write
+current, and the symptom is misleading: the serial port disappears mid-transfer
+at a consistent percentage, which reads exactly like a driver or cable fault and
+is not one. Retrying, dropping the baud rate and changing `--before` mode all
+fail the same way.
+
+Two things make it work. Skip esptool's stub — the S3's native USB drops its CDC
+link when the stub takes over — and write the image in 128 KB chunks so no
+single write outlasts the available current.
+
+```powershell
+# split the image
+python -c "import os;d=open(r'.pio/build/cardputer-adv/firmware.bin','rb').read();CH=0x20000;[open(os.path.join(os.environ['TEMP'],f'fwc{n}.bin'),'wb').write(d[i:i+CH]) for n,i in enumerate(range(0,len(d),CH))]"
+
+# write each chunk at 0x10000 + n*0x20000, retrying on brownout
+$esp="$env:USERPROFILE\.platformio\packages\tool-esptoolpy\esptool.py"
+for ($n=0; $n -lt 13; $n++) {
+  $addr = '0x{0:x}' -f (0x10000 + $n*0x20000)
+  python $esp --chip esp32s3 --port COM5 --baud 115200 --no-stub `
+    --before default_reset --after no_reset write_flash -z `
+    --flash_mode dio --flash_freq 80m --flash_size 8MB $addr "$env:TEMP\fwc$n.bin"
+}
+```
+
+If the app is missing or corrupt the device boot-loops, printing only
+`rst:0x3 (RTC_SW_SYS_RST)` and never reaching `[boot] serial`. Blanking
+`otadata` (write 8 KB of 0xFF at 0xe000) makes the bootloader fall back to the
+first app slot. Recovery does not touch `/maz/**`, so notes and recordings
+survive.
+
 ## Physical acceptance still required for the new build
 
-The Cardputer is currently absent from Windows USB (`303A:1001` is recorded
-but `Present=False`), so the new binary has not been installed or accepted on
-hardware yet. The prior Launcher-installed build remains the last physical
-proof described above.
-
+0. Confirm dictation end to end. Hold Ctrl+SPACE in Decision, speak, release,
+   and check the words land in the field. This is the one path in the current
+   build that no automated harness can reach, because it needs a human voice.
 1. Confirm the LVGL-rendered home screen visually and press each Home shortcut.
 2. Confirm storage. The card observed during boot was not a valid FAT
    volume to Arduino's SD driver; Launcher itself recommends SDHC, max 32 GB,
