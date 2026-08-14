@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.background import BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
@@ -21,6 +23,7 @@ from .refine import refine
 from .security import Security
 from .sessions import SessionStore
 from .stt import SpeechToText
+from .tts import SpeechOut
 
 
 class TextTurn(BaseModel):
@@ -34,6 +37,10 @@ class ExtractRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20_000)
 
 
+class SpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1_400)
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -45,13 +52,14 @@ def create_app(
     cfg = settings or Settings()
     security = Security(cfg)
     speech = stt or SpeechToText(cfg)
+    speech_out = SpeechOut(cfg)
     model_router = models or Models(cfg)
     nudge_client = nudge or NudgeClient(cfg)
     device_monitor = device or DeviceMonitor(cfg)
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
     api = FastAPI(
         title="MAZ Host",
-        version="0.2.0",
+        version="0.3.0",
         dependencies=[Depends(security.authorize)],
     )
 
@@ -100,10 +108,11 @@ def create_app(
     def health():
         return {
             "ok": True,
+            "version": "0.3.0",
             "stt": speech.available(),
             "llm": model_router.status(),
             "nudge": nudge_client.status(),
-            "tts": cfg.tts_enabled,
+            "tts": speech_out.available(),
         }
 
     @api.get("/models")
@@ -137,6 +146,15 @@ def create_app(
     @api.post("/turn/text")
     def turn_text(turn: TextTurn):
         return answer(turn.session_id, turn.text, turn.route)
+
+    @api.post("/speak")
+    def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
+        try:
+            path = speech_out.synthesize(body.text)
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
+        background_tasks.add_task(path.unlink, missing_ok=True)
+        return FileResponse(path, media_type="audio/wav", filename="maz-reply.wav")
 
     @api.post("/turn")
     async def turn_audio(
@@ -173,7 +191,6 @@ def create_app(
         x_maz_session: Annotated[str, Header()],
         x_maz_route: Annotated[Route, Header()] = "auto",
     ):
-        """ESP32-friendly WAV upload; the body is streamed, never buffered."""
         upload_started = time.perf_counter()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
@@ -198,12 +215,6 @@ def create_app(
 
     @api.post("/transcribe/raw")
     async def transcribe_raw(request: Request):
-        """Speech to text and nothing else.
-
-        /turn/raw also runs the model, which is the wrong shape for dictation:
-        filling in a field must not cost a model round-trip, must not touch the
-        conversation session, and must hand back exactly what was said.
-        """
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
             async for chunk in request.stream():
@@ -268,7 +279,6 @@ def create_app(
         request: Request,
         x_maz_highlights: Annotated[str, Header()] = "[]",
     ):
-        """Streaming BrainDump upload with highlight seconds in one header."""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
             async for chunk in request.stream():
