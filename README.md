@@ -5,6 +5,12 @@ to intelligence running on a laptop. The device stays focused on fast capture,
 visible state, shortcuts, timers, reminders and agent assurance; MAZ Host does
 STT and local/cloud model work.
 
+The glanceable Home surface is rendered with pinned LVGL 9.5.0 over the
+existing M5Unified framebuffer. This adds reusable embedded widgets and styles
+without replacing the proven ADV keyboard, storage, audio or Launcher paths.
+The official sources and retained MIT notice are recorded in
+[docs/research/LVGL.md](docs/research/LVGL.md).
+
 ## The eight fast surfaces
 
 | Key | Surface | Purpose |

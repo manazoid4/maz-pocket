@@ -110,6 +110,7 @@ void setup() {
     }
 
     if (!shell::begin()) {
+        Serial.println("[boot] shell failed: out of memory");
         M5.Display.fillScreen(TFT_BLACK);
         M5.Display.setTextColor(TFT_RED);
         M5.Display.drawString("MAZ Pocket: out of memory", 10, 60);

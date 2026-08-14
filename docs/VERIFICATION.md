@@ -7,8 +7,8 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
 | Check | Result |
 |---|---|
 | Cardputer ADV release build | PASS — PlatformIO 6.1.19, espressif32 6.9.0 |
-| Static memory | 53,804 B / 327,680 B (16.4%) |
-| App flash | 1,262,613 B / 3,145,728 B (40.1%) |
+| Static memory | 126,756 B / 327,680 B (38.7%), including LVGL's 64 KiB pool and 6,720 B partial draw buffer |
+| App flash | 1,525,621 B / 3,145,728 B (48.5%) |
 | MAZ Host | 13 Python tests pass, including authenticated streamed WAV, Agent Nudge credential discovery and deterministic voice reminders |
 | Agent Nudge | Typecheck, 65 unit tests, 39 integration tests, 2 end-to-end tests and production build pass |
 | Release packaging | Produces only a Launcher-safe app binary; the destructive merged web image was removed |
@@ -24,6 +24,10 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
   separate FSPI host. Repeated boots now reach the shell.
 - Device-to-laptop status is verified over the real LAN connection:
   `wifi=online host=online nudge=ALL_SYNCED agents=8`.
+- LVGL 9.5.0 initialized its core, RGB565 display, aligned partial buffer and
+  Home widget tree on the physical device before the READY banner. The first
+  hardware attempt exposed a 2-byte-aligned draw buffer; applying LVGL's
+  required 4-byte alignment removed the assertion halt.
 - The current Launcher-installed build includes automatic offline Talk/BrainDump
   dispatch, lossless record updates, clock-safe relative reminders, reachable
   Sprint debrief and configured host binding. It boots and reports live status;
@@ -36,7 +40,7 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
 
 ## Physical acceptance still required
 
-1. Confirm the rendered home screen visually and press each Home shortcut.
+1. Confirm the LVGL-rendered home screen visually and press each Home shortcut.
 2. Confirm storage. The card observed during boot was not a valid FAT
    volume to Arduino's SD driver; Launcher itself recommends SDHC, max 32 GB,
    FAT32 and MBR.

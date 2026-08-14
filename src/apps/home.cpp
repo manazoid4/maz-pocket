@@ -1,10 +1,12 @@
 #include <vector>
+#include <array>
 
 #include "../audio/sfx.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../storage/store.h"
+#include "../ui/lvgl_ui.h"
 #include "apps.h"
 #include "common.h"
 
@@ -17,7 +19,7 @@ namespace {
 
 // Home is the only screen that must be readable in a half-second glance, so
 // it shows exactly one piece of context (live Focus > next task > identity)
-// above a fixed six-tile grid. Everything else is one keystroke away in the
+// above a fixed eight-tile grid. Everything else is one keystroke away in the
 // palette rather than crowded in here.
 class HomeApp : public App {
 public:
@@ -31,8 +33,11 @@ public:
         buildTiles();
         refreshNextTask();
         _spaceArmed = false;
+        lvui::setActive(true);
         invalidate();
     }
+
+    void onExit() override { lvui::setActive(false); }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) {
@@ -88,9 +93,25 @@ public:
     }
 
     void render(M5Canvas& g) override {
-        g.fillScreen(BG);
-        drawContext(g);
-        drawGrid(g);
+        std::array<const char*, 8> titles{};
+        for (size_t i = 0; i < _tiles.size() && i < titles.size(); ++i)
+            titles[i] = _tiles[i]->title;
+
+        std::string kind = "MAZ";
+        std::string text = "POCKET";
+        if (Sys.focusRunning) {
+            kind = "FOCUS";
+            text = ui::ellipsis(shell::focus::label(), 16) + "  " +
+                   ui::hhmmss(shell::focus::remaining());
+        } else if (!_next.empty()) {
+            kind = "NEXT";
+            text = ui::ellipsis(_next, 22);
+        }
+
+        const char* state = Sys.hostOnline ? "ONLINE" :
+                            (Sys.wifiConnected ? "NO HOST" : "OFFLINE");
+        lvui::renderHome(g, titles.data(), _tiles.size(), _sel, kind.c_str(),
+                         text.c_str(), state, Sys.hostOnline);
     }
 
 private:
@@ -128,66 +149,6 @@ private:
         if (idx < 0 || idx >= static_cast<int>(_tiles.size())) return;
         sfx::confirm();
         shell::pushById(_tiles[idx]->id);
-    }
-
-    void drawContext(M5Canvas& g) {
-        const int y = BODY_Y + 2;
-        if (Sys.focusRunning) {
-            ui::panel(g, PAD, y, SCREEN_W - PAD * 2, 30, PANEL);
-            g.setFont(&fonts::Font0);
-            g.setTextDatum(top_left);
-            g.setTextColor(ACCENT, PANEL);
-            g.drawString("FOCUS", PAD + 6, y + 4);
-            g.setTextColor(DIM, PANEL);
-            g.drawString(ui::ellipsis(shell::focus::label(), 22).c_str(),
-                         PAD + 44, y + 4);
-            g.setFont(&fonts::Font4);
-            g.setTextColor(TEXT, PANEL);
-            g.drawString(ui::hhmmss(shell::focus::remaining()).c_str(), PAD + 6,
-                         y + 12);
-            return;
-        }
-        if (!_next.empty()) {
-            ui::panel(g, PAD, y, SCREEN_W - PAD * 2, 30, PANEL);
-            g.setFont(&fonts::Font0);
-            g.setTextDatum(top_left);
-            g.setTextColor(ACCENT, PANEL);
-            g.drawString("NEXT", PAD + 6, y + 4);
-            g.setFont(&fonts::Font2);
-            g.setTextColor(TEXT, PANEL);
-            g.drawString(ui::ellipsis(_next, 27).c_str(), PAD + 6, y + 13);
-            return;
-        }
-        // Nothing pending: the device shows what it is.
-        ui::mark(g, 26, y + 15, 11, ACCENT);
-        g.setTextDatum(top_left);
-        g.setFont(&fonts::Font4);
-        g.setTextColor(TEXT, BG);
-        g.drawString("MAZ", 48, y + 2);
-        g.setFont(&fonts::Font0);
-        g.setTextColor(DIM, BG);
-        g.drawString("POCKET", 50, y + 22);
-    }
-
-    void drawGrid(M5Canvas& g) {
-        const int top = BODY_Y + 34;
-        const int tw  = (SCREEN_W - PAD * 2 - 4) / COLS;
-        const int th  = 16;
-        for (size_t i = 0; i < _tiles.size(); ++i) {
-            const int  col = i % COLS, row = i / COLS;
-            const int  x  = PAD + col * (tw + 4);
-            const int  y  = top + row * (th + 2);
-            const bool on = static_cast<int>(i) == _sel;
-
-            g.fillRoundRect(x, y, tw, th, 4, on ? ACCENT : PANEL);
-            if (on) g.drawRoundRect(x - 1, y - 1, tw + 2, th + 2, 5, ACCENT);
-
-            g.setFont(&fonts::Font0);
-            g.setTextDatum(middle_center);
-            g.setTextColor(on ? BG : TEXT, on ? ACCENT : PANEL);
-            g.drawString(_tiles[i]->title, x + tw / 2, y + th / 2);
-            g.setTextDatum(top_left);
-        }
     }
 
     std::vector<const apps::Descriptor*> _tiles;

@@ -11,6 +11,7 @@
 #include "../net/net.h"
 #include "../storage/store.h"
 #include "../ui/ui.h"
+#include "../ui/lvgl_ui.h"
 #include "notify.h"
 #include "settings.h"
 #include "launcher.h"
@@ -344,6 +345,8 @@ const std::string& label() { return gFocus.label; }
 
 // ------------------------------------------------------------------- loop
 bool begin() {
+    Serial.printf("[boot] shell canvas heap=%u\n",
+                  static_cast<unsigned>(ESP.getFreeHeap()));
     gCanvas.setColorDepth(16);
     if (!gCanvas.createSprite(SCREEN_W, SCREEN_H)) {
         // 64KB of a 512KB part. If this fails something else has eaten the
@@ -351,7 +354,16 @@ bool begin() {
         ESP_LOGE("shell", "canvas allocation failed");
         return false;
     }
+    Serial.printf("[boot] canvas ready heap=%u\n",
+                  static_cast<unsigned>(ESP.getFreeHeap()));
     bootScreen();
+    Serial.println("[boot] lvgl begin");
+    if (!lvui::begin(gCanvas)) {
+        ESP_LOGE("shell", "LVGL display allocation failed");
+        return false;
+    }
+    Serial.printf("[boot] lvgl ready heap=%u\n",
+                  static_cast<unsigned>(ESP.getFreeHeap()));
     push(apps::makeHome());
     gLastInput = millis();
     sfx::boot();
@@ -394,6 +406,7 @@ void loop() {
     net::update();
     notify::update();
     apps::updateProductServices();
+    lvui::tick();
     applyScreenTimeout();
 
     if (gStack.empty()) return;

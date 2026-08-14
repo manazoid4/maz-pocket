@@ -11,6 +11,7 @@ this repository is a copy of another firmware's source or assets.
 | M5GFX | 0.2.26 (pinned) | MIT | Yes |
 | ricmoo/QRCode | 0.0.1 | MIT | Yes |
 | ArduinoJson | 7.2.1 | MIT | Yes |
+| LVGL | 9.5.0 (pinned) | MIT | Yes; exact upstream notice is retained under `third_party/lvgl/` |
 | Arduino-ESP32 / ESP-IDF | platform espressif32 6.9.0 | Apache-2.0 / LGPL components | Yes, standard for ESP32 firmware |
 
 ## Projects read for reference, and what was taken
@@ -19,6 +20,7 @@ this repository is a copy of another firmware's source or assets.
 |---|---|---|---|
 | **M5Cardputer-UserDemo** (CardputerADV branch) | MIT | Hardware facts only: TCA8418 configuration (`matrix(7,8)`), INT on G11, the row/col remap arithmetic, and the physical 4x14 key legend. These describe the hardware, and the licence permits reuse regardless. | No source files, no assets, no UI code, no Mooncake framework |
 | **M5Unified / M5GFX** | MIT | Linked as libraries, unmodified | — |
+| **LVGL** | MIT | Linked as a pinned PlatformIO library. Its widget, label, style, partial-buffer and display-flush contracts render the MAZ Home screen. | No upstream demos, examples, Pro/XML output, themes, branding or assets are shipped. |
 | **Bruce** | **AGPL-3.0** | **Nothing.** Studied only as a UX reference — information density, icon-led navigation, status bar conventions. | Any source, any branding. AGPL would force MAZ Pocket to be AGPL; not copying is what keeps MIT honest. |
 | **Nemo (m5stick-nemo)** | GPL-3.0 | Nothing. Read for feature scope only. | Any source |
 | **bmorcelli/Launcher (M5Launcher)** | GPL-3.0 | Nothing. Read its wiki for the binary/partition requirements. | Any source |
@@ -31,7 +33,7 @@ this repository is a copy of another firmware's source or assets.
 All visual identity in MAZ Pocket is drawn programmatically at runtime — the
 MAZ mark, the wordmark, app tiles, status glyphs, the listening ring, the boot
 animation. There are no imported bitmaps, icon sets, or fonts beyond those
-bundled in M5GFX (MIT). This was deliberate: it removes the entire class of
+bundled in M5GFX and LVGL (both MIT). This was deliberate: it removes the entire class of
 asset-licence questions, and it keeps the mark crisp at any size.
 
 ## Attribution stated in the firmware
