@@ -1,6 +1,7 @@
 // MAZ Pocket v0.3 — the two product surfaces that replace generic Talk/Nudge
 // on Home. Capture keeps its existing proven BrainDump implementation.
 #include <algorithm>
+#include <array>
 #include <string>
 
 #include "../audio/sfx.h"
@@ -34,23 +35,41 @@ void drawWrapped(M5Canvas& g, const std::string& text, int y, int first = 0) {
     }
 }
 
+struct ControlAction {
+    const char* key;
+    const char* label;
+    const char* hint;
+};
+
+constexpr ControlAction CONTROLS[] = {
+    {"desktop",     "DESKTOP", "show / hide desktop"},
+    {"play_pause",  "PLAY",    "play or pause media"},
+    {"mute",        "MUTE",    "toggle PC sound"},
+    {"volume_down", "VOL -",   "lower volume"},
+    {"volume_up",   "VOL +",   "raise volume"},
+    {"lock",        "LOCK",    "lock Windows"},
+};
+constexpr int CONTROL_COUNT = sizeof(CONTROLS) / sizeof(CONTROLS[0]);
+
 class CallPCApp : public App {
 public:
     const char* id() const override { return "talk"; }
     const char* title() const override { return "Call PC"; }
 
     const char* hints() const override {
+        if (_controlMode) return "< > choose   ENTER send   C voice";
         if (voice::state() == voice::State::Listening) return "release SPACE to send";
         if (_sending) return "PC is thinking...";
         if (voice::isPlaying()) return "SPACE interrupt   P replay";
-        if (!_reply.empty()) return "SPACE reply   N new call   A route";
-        return "hold SPACE to call   N new call";
+        if (!_reply.empty()) return "SPACE reply   C controls   N new";
+        return "hold SPACE call   C controls   N new";
     }
 
     void onEnter() override {
         _sending = false;
         _haveTake = false;
         _scroll = 0;
+        _controlMode = false;
         if (KB.held(KEY_SPACE)) beginTake();
         invalidate();
     }
@@ -62,6 +81,38 @@ public:
     }
 
     bool onKey(const KeyEvent& e) override {
+        if (_controlMode) {
+            if (!e.down) return false;
+            if (e.code == KEY_C) {
+                _controlMode = false;
+                sfx::select();
+                invalidate();
+                return true;
+            }
+            if (e.code == KEY_LEFT) {
+                _controlSel = (_controlSel + CONTROL_COUNT - 1) % CONTROL_COUNT;
+                sfx::select();
+                invalidate();
+                return true;
+            }
+            if (e.code == KEY_RIGHT) {
+                _controlSel = (_controlSel + 1) % CONTROL_COUNT;
+                sfx::select();
+                invalidate();
+                return true;
+            }
+            if (e.code == KEY_ENTER) {
+                runControl();
+                return true;
+            }
+            if (e.code == KEY_SPACE) {
+                _controlMode = false;
+                beginTake();
+                return true;
+            }
+            return false;
+        }
+
         if (e.down && e.code == KEY_SPACE) {
             if (voice::isPlaying()) voice::stopPlayback();
             if (voice::state() != voice::State::Listening && !_sending) beginTake();
@@ -73,10 +124,18 @@ public:
         }
         if (!e.down) return false;
 
+        if (e.code == KEY_C && !_sending && voice::state() != voice::State::Listening) {
+            _controlMode = true;
+            voice::stopPlayback();
+            sfx::select();
+            invalidate();
+            return true;
+        }
         if (e.code == KEY_N && !_sending) {
             gCallSession.clear();
             _reply.clear();
-            notify::post(Note::Info, "New call", "conversation reset");
+            voice::stopPlayback();
+            notify::post(Note::Info, "Line cleared", "new conversation");
             invalidate();
             return true;
         }
@@ -111,7 +170,12 @@ public:
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
-        ui::header(g, "CALL PC", host::linkName());
+        if (_controlMode) {
+            renderControl(g);
+            return;
+        }
+
+        ui::header(g, "COMM / PC", host::linkName());
 
         if (voice::state() == voice::State::Listening) {
             ui::panel(g, 71, BODY_Y + 19, 98, 52);
@@ -122,12 +186,12 @@ public:
             g.setTextDatum(top_left);
             g.setFont(&fonts::Font0);
             g.setTextColor(DIM, BG);
-            g.drawString(("00:" + two(voice::elapsedSeconds())).c_str(), 105, BODY_Y + 78);
+            g.drawString(("TX 00:" + two(voice::elapsedSeconds())).c_str(), 98, BODY_Y + 78);
             return;
         }
 
         if (_sending) {
-            retroPhone(g, "DIALING", WARN);
+            retroPhone(g, "DIALING PC", WARN);
             return;
         }
         if (voice::isPlaying()) {
@@ -137,11 +201,11 @@ public:
         if (!_reply.empty()) {
             g.setFont(&fonts::Font0);
             g.setTextColor(ACCENT, BG);
-            g.drawString((std::string("PC / ") + host::linkName() + " / " + routeName()).c_str(), PAD, BODY_Y + 18);
+            g.drawString((std::string("PC> ") + host::linkName() + " / " + routeName()).c_str(), PAD, BODY_Y + 18);
             drawWrapped(g, _reply, BODY_Y + 34, _scroll);
             return;
         }
-        retroPhone(g, gCallSession.empty() ? "READY TO CALL" : "CALL OPEN", ACCENT);
+        retroPhone(g, gCallSession.empty() ? "LINE READY" : "LINE OPEN", ACCENT);
     }
 
 private:
@@ -167,6 +231,45 @@ private:
         g.setTextColor(colour, BG);
         g.drawString(status, SCREEN_W / 2, BODY_Y + 82);
         g.setTextDatum(top_left);
+    }
+
+    void renderControl(M5Canvas& g) {
+        ui::header(g, "COMMAND DECK", host::linkName());
+        const int prev = (_controlSel + CONTROL_COUNT - 1) % CONTROL_COUNT;
+        const int next = (_controlSel + 1) % CONTROL_COUNT;
+
+        g.setTextDatum(top_center);
+        g.setFont(&fonts::Font0);
+        g.setTextColor(DIM, BG);
+        g.drawString(CONTROLS[prev].label, 35, BODY_Y + 31);
+        g.drawString(CONTROLS[next].label, 205, BODY_Y + 31);
+
+        ui::panel(g, 66, BODY_Y + 19, 108, 55);
+        g.setFont(&fonts::Font2);
+        g.setTextColor(ACCENT, PANEL);
+        g.drawString(CONTROLS[_controlSel].label, SCREEN_W / 2, BODY_Y + 33);
+        g.setFont(&fonts::Font0);
+        g.setTextColor(TEXT, PANEL);
+        g.drawString("ENTER / TRANSMIT", SCREEN_W / 2, BODY_Y + 54);
+
+        g.setTextColor(DIM, BG);
+        g.drawString(CONTROLS[_controlSel].hint, SCREEN_W / 2, BODY_Y + 83);
+        g.setTextDatum(top_left);
+    }
+
+    void runControl() {
+        const auto& control = CONTROLS[_controlSel];
+        const auto result = host::pcAction(control.key);
+        if (result.ok) {
+            sfx::confirm();
+            notify::post(Note::Success, control.label,
+                         result.text.empty() ? "PC acknowledged" : result.text);
+        } else {
+            sfx::error();
+            notify::post(Note::Error, "Command failed",
+                         result.error.empty() ? "PC unavailable" : result.error);
+        }
+        invalidate();
     }
 
     void beginTake() {
@@ -253,6 +356,8 @@ private:
     std::string _speechPath;
     std::string _reply;
     int _scroll = 0;
+    int _controlSel = 0;
+    bool _controlMode = false;
     bool _haveTake = false;
     bool _sending = false;
     uint32_t _sendAt = 0;
@@ -291,7 +396,7 @@ public:
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
-        ui::header(g, "AGENTS", _summary.ok ? host::linkName() : "OFFLINE");
+        ui::header(g, "OPS / AGENTS", _summary.ok ? host::linkName() : "OFFLINE");
         g.setFont(&fonts::Font2);
         g.setTextColor(_status == "ALL CLEAR" ? OK : WARN, BG);
         g.drawString(_status.c_str(), PAD, BODY_Y + 18);
