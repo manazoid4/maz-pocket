@@ -21,13 +21,17 @@ void pair(float a, float b, uint32_t ms, bool force = false) {
 }
 }  // namespace
 
-void boot()     { pair(660.f, 990.f, 70); }
-void select()   { beep(1200.f, 8); }
-void confirm()  { beep(1600.f, 18); }
-void recStart() { pair(880.f, 1320.f, 40); }
-void recStop()  { pair(1320.f, 880.f, 40); }
-void saved()    { beep(1760.f, 45); }
-void error()    { pair(300.f, 200.f, 90); }
+void boot()      { pair(660.f, 990.f, 70); }
+void select()    { beep(1200.f, 8); }
+void confirm()   { beep(1600.f, 18); }
+void recStart()  { pair(880.f, 1320.f, 40); }
+void recStop()   { pair(1320.f, 880.f, 40); }
+// Not decoration: these let you know a remote session actually opened or was
+// cleared without staring at the screen while walking around with the device.
+void lineOpen()  { pair(440.f, 660.f, 55); }
+void lineClose() { pair(660.f, 330.f, 55); }
+void saved()     { beep(1760.f, 45); }
+void error()     { pair(300.f, 200.f, 90); }
 
 void timerDone() {
     for (int i = 0; i < 3; ++i) {
