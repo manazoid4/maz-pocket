@@ -41,13 +41,15 @@ struct Assurance {
 
 bool configured();
 bool health();
+const char* linkName();  // LAN / REMOTE / OFFLINE
 std::string startSession();
 Reply talkText(const std::string& session, const std::string& text);
 Reply talkAudio(const std::string& session, const std::string& wavPath);
-// Speech to text with no model round-trip and no session: this backs typing by
-// voice, where the only correct answer is exactly what was said.
 Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
+// Ask MAZ Host to synthesize a short reply and save the WAV directly into the
+// existing storage abstraction. No cloud TTS key ever reaches the Cardputer.
+bool speak(const std::string& text, const std::string& wavPath);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);
 
