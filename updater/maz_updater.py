@@ -299,9 +299,9 @@ class App:
         buttons = Frame(self.root)
         buttons.pack(fill=X, padx=16, pady=14)
         Button(buttons, text="USB UPDATE", height=2, command=lambda: self.run(self.usb_update)).pack(side=LEFT, fill=X, expand=True, padx=(0, 5))
-        Button(buttons, text="WI-FI UPDATE", height=2, command=lambda: self.run(self.wifi_update)).pack(side=LEFT, fill=X, expand=True, padx=5)
-        Button(buttons, text="PAIR", height=2, command=lambda: self.run(self.pair)).pack(side=LEFT, fill=X, expand=True, padx=5)
-        Button(buttons, text="REMOTE CALL", height=2, command=lambda: self.run(self.remote_call)).pack(side=LEFT, fill=X, expand=True, padx=(5, 0))
+        Button(buttons, text="WI-FI UPDATE", height=2, command=self.begin_wifi_update).pack(side=LEFT, fill=X, expand=True, padx=5)
+        Button(buttons, text="PAIR", height=2, command=self.begin_pair).pack(side=LEFT, fill=X, expand=True, padx=5)
+        Button(buttons, text="REMOTE CALL", height=2, command=self.begin_remote_call).pack(side=LEFT, fill=X, expand=True, padx=(5, 0))
 
         self.bar = Progressbar(self.root, maximum=100)
         self.bar.pack(fill=X, padx=16)
@@ -314,7 +314,6 @@ class App:
     def firmware(self) -> Path:
         path = resource_path("firmware", "maz-pocket-app.bin")
         if not path.exists():
-            # Developer mode: run directly from updater/ while dist exists.
             candidate = Path(__file__).resolve().parents[1] / "dist" / "maz-pocket-app.bin"
             if candidate.exists():
                 return candidate
@@ -342,8 +341,37 @@ class App:
                 self.progress(0, "Failed")
                 self.root.after(0, lambda: messagebox.showerror("Maz Pocket", str(exc)))
             finally:
-                self.remember()
+                self.root.after(0, self.remember)
         threading.Thread(target=worker, daemon=True).start()
+
+    # Snapshot all Tk values and collect dialogs on the main thread. The worker
+    # then receives plain strings only; serial/network operations never touch Tk.
+    def begin_wifi_update(self) -> None:
+        ip = self.device_ip.get().strip()
+        token = self.token.get().strip()
+        self.run(lambda: self.wifi_update(ip, token))
+
+    def begin_pair(self) -> None:
+        port = find_usb_port()
+        if not port:
+            messagebox.showerror("Maz Pocket", "Pairing needs USB once so Wi-Fi credentials stay off an unauthenticated network")
+            return
+        ssid = simpledialog.askstring("Pair Maz Pocket", "2.4 GHz Wi-Fi name:", parent=self.root)
+        if not ssid:
+            return
+        password = simpledialog.askstring("Pair Maz Pocket", f"Password for {ssid}:", show="•", parent=self.root)
+        if password is None:
+            return
+        token = self.token.get().strip() or secrets.token_urlsafe(24)
+        self.run(lambda: self.pair(port, ssid, password, token))
+
+    def begin_remote_call(self) -> None:
+        token = self.token.get().strip()
+        ip = self.device_ip.get().strip()
+        if not token:
+            messagebox.showerror("Maz Pocket", "Pair the Cardputer first so it has a host token")
+            return
+        self.run(lambda: self.remote_call(token, ip))
 
     def discover(self) -> None:
         port = find_usb_port()
@@ -383,9 +411,7 @@ class App:
         self.progress(1, "USB update complete")
         self.write("USB UPDATE OK / v0.3 boot verified")
 
-    def wifi_update(self) -> None:
-        ip = self.device_ip.get().strip()
-        token = self.token.get().strip()
+    def wifi_update(self, ip: str, token: str) -> None:
         if not ip:
             found = discover_lan(self.progress)
             if not found:
@@ -398,17 +424,7 @@ class App:
         ota_upload(ip, token, self.firmware, self.progress)
         self.write("WI-FI UPDATE OK / device rebooting")
 
-    def pair(self) -> None:
-        port = find_usb_port()
-        if not port:
-            raise RuntimeError("Pairing needs USB once so Wi-Fi credentials never cross an unauthenticated network")
-        ssid = simpledialog.askstring("Pair Maz Pocket", "2.4 GHz Wi-Fi name:", parent=self.root)
-        if not ssid:
-            raise RuntimeError("Pairing cancelled")
-        password = simpledialog.askstring("Pair Maz Pocket", f"Password for {ssid}:", show="•", parent=self.root)
-        if password is None:
-            raise RuntimeError("Pairing cancelled")
-        token = self.token.get().strip() or secrets.token_urlsafe(24)
+    def pair(self, port: str, ssid: str, password: str, token: str) -> None:
         host_ip = local_ip()
         command = f"MAZPAIR\t{ssid}\t{password}\t{host_ip}\t8787\t{token}"
         reply = usb_command(port, command, "MAZPAIR", 20)
@@ -426,10 +442,7 @@ class App:
             pass
         self.progress(1, f"Paired to MAZ Host at {host_ip}:8787")
 
-    def remote_call(self) -> None:
-        token = self.token.get().strip()
-        if not token:
-            raise RuntimeError("Pair the Cardputer first so it has a host token")
+    def remote_call(self, token: str, ip: str) -> None:
         self.progress(0.15, "Starting Tailscale Funnel")
         url = enable_funnel()
         self.write(f"Remote Call PC: {url}")
@@ -438,7 +451,6 @@ class App:
         if port:
             reply = usb_command(port, command, "MAZREMOTE", 8)
         else:
-            ip = self.device_ip.get().strip()
             if not ip:
                 raise RuntimeError("Connect USB or enter the Cardputer IP to provision remote access")
             reply = control_command(ip, token, command)
