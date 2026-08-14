@@ -47,6 +47,7 @@ Reply talkText(const std::string& session, const std::string& text);
 Reply talkAudio(const std::string& session, const std::string& wavPath);
 Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
+Reply pcAction(const std::string& action);
 // Ask MAZ Host to synthesize a short reply and save the WAV directly into the
 // existing storage abstraction. No cloud TTS key ever reaches the Cardputer.
 bool speak(const std::string& text, const std::string& wavPath);
