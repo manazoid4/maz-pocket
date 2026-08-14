@@ -12,7 +12,7 @@ import serial
 
 
 BOOT_BANNER = "Press the button to enter the Launcher!"
-READY_BANNER = "MAZ Pocket 0.2.0 READY"
+READY_BANNER = "MAZ Pocket 0.3.0 READY"
 
 
 def reset(port: str) -> None:
@@ -33,21 +33,17 @@ def read_line(device: serial.Serial, deadline: float) -> str:
 
 
 def handoff(port: str) -> None:
-    """Wait through USB-open reset, then ask a running MAZ app for Launcher."""
     with serial.Serial(port, 115200, timeout=0.2) as device:
         deadline = time.time() + 15
         while time.time() < deadline:
             line = read_line(device, deadline)
-            if READY_BANNER in line:
+            if "MAZ Pocket" in line and "READY" in line:
                 break
         device.write(b"MAZLAUNCHER\n")
         device.flush()
         deadline = time.time() + 4
         while time.time() < deadline:
             if read_line(device, deadline).startswith("MAZLAUNCHER OK"):
-                # The acknowledgement is deliberately printed before the app
-                # invalidates its OTA slot. Let that terminal flash write and
-                # reboot finish before `prepare` issues another hard reset.
                 time.sleep(2)
                 print("[+] MAZ Pocket handed control back to M5Launcher.")
                 return
@@ -64,16 +60,12 @@ def prepare(port: str) -> None:
         device.write(b"nav SelPress\n")
         device.flush()
         time.sleep(0.3)
-        # A MAZ hand-back invalidates the old app image; remove its Launcher
-        # table entry so upgrades reuse one slot instead of accumulating OTAs.
         device.write(b"partition delete mazpoc\n")
         device.flush()
         deadline = time.time() + 8
         while time.time() < deadline:
             line = read_line(device, deadline)
-            if line.startswith("OK partition deleted") or line.startswith(
-                "ERR partition not found"
-            ):
+            if line.startswith("OK partition deleted") or line.startswith("ERR partition not found"):
                 break
         device.write(b"partitions\n")
         device.flush()
@@ -112,9 +104,9 @@ def verify(port: str) -> None:
         while time.time() < deadline:
             line = read_line(device, deadline)
             if READY_BANNER in line:
-                print("[+] MAZ Pocket boot verified on hardware.")
+                print("[+] MAZ Pocket v0.3 boot verified on hardware.")
                 return
-        raise RuntimeError("MAZ Pocket READY banner not observed")
+        raise RuntimeError("MAZ Pocket v0.3 READY banner not observed")
 
 
 def main() -> None:
