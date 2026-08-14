@@ -17,8 +17,6 @@ namespace maz {
 namespace control {
 namespace {
 
-// Same language as the USB surface, on a port that is deliberately not 80:
-// this is a control channel for the owner's laptop, not a web page.
 constexpr uint16_t PORT = 8022;
 
 WiFiServer gServer(PORT);
@@ -32,16 +30,10 @@ uint8_t keyCode(String name) {
     name.toUpperCase();
     if (name.length() == 1 && name[0] >= 'A' && name[0] <= 'Z')
         return KEY_A + (name[0] - 'A');
-    // Home pages with TAB and opens cells by their digit badge, so a harness
-    // has to be able to send both. Without these the paging path is undrivable
-    // and simply looks like it does nothing.
     if (name.length() == 1 && name[0] >= '1' && name[0] <= '9')
         return KEY_1 + (name[0] - '1');
     if (name == "0") return KEY_0;
     if (name == "TAB") return KEY_TAB;
-    // The keys the arrows are printed on. The shell turns these into UP/LEFT/
-    // DOWN/RIGHT/ESC when the focused app does not want the character, so the
-    // harness has to be able to send the raw key to prove that path works.
     if (name == "SEMICOLON") return KEY_SEMICOLON;
     if (name == "COMMA") return KEY_COMMA;
     if (name == "DOT") return KEY_DOT;
@@ -72,26 +64,25 @@ String field(const String& line, int from, int index) {
 void startOta() {
     if (gOtaUp || WiFi.status() != WL_CONNECTED) return;
     ArduinoOTA.setHostname("maz-pocket");
-    // The pairing token is already a shared secret between this device and the
-    // laptop. Reusing it means there is no second credential to lose, and an
-    // unpaired device cannot be updated over the air at all.
     if (!Cfg.hostToken.empty()) ArduinoOTA.setPassword(Cfg.hostToken.c_str());
     ArduinoOTA.onStart([]() {
-        // Audio DMA and an in-flight flash write must not overlap.
         if (voice::state() == voice::State::Listening) voice::stop();
         M5.Display.fillScreen(TFT_BLACK);
         M5.Display.setTextColor(TFT_ORANGE);
-        M5.Display.drawString("Updating over Wi-Fi", 10, 50);
-        M5.Display.drawString("do not power off", 10, 70);
+        M5.Display.drawString("MAZ UPDATE", 10, 42);
+        M5.Display.setTextColor(TFT_WHITE);
+        M5.Display.drawString("receiving over Wi-Fi", 10, 62);
+        M5.Display.drawString("do not power off", 10, 78);
     });
     ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
         if (!total) return;
-        M5.Display.drawRect(10, 95, 220, 10, TFT_DARKGREY);
-        M5.Display.fillRect(10, 95, (220 * done) / total, 10, TFT_ORANGE);
+        M5.Display.drawRect(10, 98, 220, 10, TFT_DARKGREY);
+        M5.Display.fillRect(10, 98, (220 * done) / total, 10, TFT_ORANGE);
     });
     ArduinoOTA.onEnd([]() {
         M5.Display.fillScreen(TFT_BLACK);
-        M5.Display.drawString("Updated. Restarting.", 10, 60);
+        M5.Display.setTextColor(TFT_GREEN);
+        M5.Display.drawString("UPDATED / REBOOTING", 10, 60);
     });
     ArduinoOTA.begin();
     gOtaUp = true;
@@ -123,14 +114,15 @@ String handleLine(const String& raw, bool trusted) {
                WiFi.localIP().toString();
 
     if (line == "MAZSTATUS") {
-        const bool            hostOnline = host::health();
+        const bool hostOnline = host::health();
         const host::Assurance fleet =
             hostOnline ? host::assurance() : host::Assurance{};
-        char out[160];
-        snprintf(out, sizeof(out), "MAZSTATUS wifi=%s host=%s nudge=%s agents=%u",
+        char out[180];
+        snprintf(out, sizeof(out),
+                 "MAZSTATUS wifi=%s host=%s link=%s nudge=%s agents=%u",
                  Sys.wifiConnected ? "online" : "offline",
-                 hostOnline ? "online" : "offline", fleet.state.c_str(),
-                 static_cast<unsigned>(fleet.agents.size()));
+                 hostOnline ? "online" : "offline", host::linkName(),
+                 fleet.state.c_str(), static_cast<unsigned>(fleet.agents.size()));
         return out;
     }
 
@@ -153,7 +145,6 @@ String handleLine(const String& raw, bool trusted) {
         return out;
     }
 
-    // Everything past this point moves the device, so it needs the token.
     if (!trusted) return "MAZERR unauthorised";
 
     if (line.startsWith("MAZOPEN\t")) {
@@ -169,7 +160,7 @@ String handleLine(const String& raw, bool trusted) {
         if (text.length() > 120) text.remove(120);
         for (size_t i = 0; i < text.length(); ++i) {
             KeyEvent event;
-            event.ch   = text[i];
+            event.ch = text[i];
             event.down = true;
             shell::dispatchKey(event);
         }
@@ -180,8 +171,8 @@ String handleLine(const String& raw, bool trusted) {
     if (line.startsWith("MAZKEY\t")) {
         const int split = line.indexOf('\t', 7);
         if (split < 0) return "MAZKEY ERR fields";
-        const uint8_t code  = keyCode(line.substring(7, split));
-        const String  state = line.substring(split + 1);
+        const uint8_t code = keyCode(line.substring(7, split));
+        const String state = line.substring(split + 1);
         if (code == KEY_NONE || (state != "DOWN" && state != "UP"))
             return "MAZKEY ERR key";
         KeyEvent event;
@@ -208,7 +199,7 @@ String handleLine(const String& raw, bool trusted) {
         Cfg.hostAddr = fields[2].c_str();
         Cfg.hostPort = static_cast<uint16_t>(fields[3].toInt());
         if (!Cfg.hostPort) Cfg.hostPort = 8787;
-        Cfg.hostToken        = fields[4].c_str();
+        Cfg.hostToken = fields[4].c_str();
         Cfg.firstRunComplete = true;
         Cfg.save();
         net::begin();
@@ -216,6 +207,18 @@ String handleLine(const String& raw, bool trusted) {
         return String("MAZPAIR OK wifi=") +
                (connected ? "connected" : "saved") + " host=" +
                Cfg.hostAddr.c_str();
+    }
+
+    // Optional second provisioning line used by the v0.3 Windows updater.
+    // Keeping it separate makes MAZPAIR backwards compatible with old scripts.
+    if (line.startsWith("MAZREMOTE\t")) {
+        String remote = line.substring(10);
+        remote.trim();
+        if (!remote.isEmpty() && !remote.startsWith("https://"))
+            return "MAZREMOTE ERR https_required";
+        Cfg.hostRemoteUrl = remote.c_str();
+        Cfg.save();
+        return String("MAZREMOTE OK ") + (remote.isEmpty() ? "disabled" : "enabled");
     }
 
     return "";
@@ -227,8 +230,6 @@ void begin() {
 }
 
 void update() {
-    // Wi-Fi comes up after boot and can drop, so both surfaces are armed here
-    // rather than once in begin().
     startServer();
     startOta();
     if (gOtaUp) ArduinoOTA.handle();
@@ -253,17 +254,15 @@ void update() {
     while (gClient.available()) {
         const char c = static_cast<char>(gClient.read());
         if (c != '\n') {
-            if (c != '\r' && gInbound.length() < 200) gInbound += c;
+            if (c != '\r' && gInbound.length() < 240) gInbound += c;
             continue;
         }
         String line = gInbound;
-        gInbound    = "";
+        gInbound = "";
         line.trim();
         if (line.isEmpty()) continue;
 
         if (!gAuthed) {
-            // One shot: a wrong token drops the connection rather than letting
-            // something sit on the port guessing.
             if (line.startsWith("MAZAUTH\t") && !Cfg.hostToken.empty() &&
                 line.substring(8) == Cfg.hostToken.c_str()) {
                 gAuthed = true;
