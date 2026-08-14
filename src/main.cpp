@@ -13,144 +13,13 @@
 #include "core/shell.h"
 #include "core/sys.h"
 #include "input/keyboard.h"
+#include "net/control.h"
 #include "net/mazhost.h"
 #include "net/net.h"
 #include "storage/store.h"
 
 using namespace maz;
 
-namespace {
-uint8_t serialKeyCode(String name) {
-    name.toUpperCase();
-    if (name.length() == 1 && name[0] >= 'A' && name[0] <= 'Z')
-        return KEY_A + (name[0] - 'A');
-    // Home pages with TAB and opens cells by their digit badge, so the
-    // acceptance harness has to be able to send both. Without these the whole
-    // paging path is undrivable over USB and simply looks like it does nothing.
-    if (name.length() == 1 && name[0] >= '1' && name[0] <= '9')
-        return KEY_1 + (name[0] - '1');
-    if (name == "0") return KEY_0;
-    if (name == "TAB") return KEY_TAB;
-    // The keys the arrows are printed on. The shell turns these into UP/LEFT/
-    // DOWN/RIGHT/ESC when the focused app does not want the character, so the
-    // harness has to be able to send the raw key to prove that path works.
-    if (name == "SEMICOLON") return KEY_SEMICOLON;
-    if (name == "COMMA") return KEY_COMMA;
-    if (name == "DOT") return KEY_DOT;
-    if (name == "SLASH") return KEY_SLASH;
-    if (name == "GRAVE") return KEY_GRAVE;
-    if (name == "ENTER") return KEY_ENTER;
-    if (name == "ESC") return KEY_ESC;
-    if (name == "SPACE") return KEY_SPACE;
-    if (name == "UP") return KEY_UP;
-    if (name == "DOWN") return KEY_DOWN;
-    if (name == "LEFT") return KEY_LEFT;
-    if (name == "RIGHT") return KEY_RIGHT;
-    if (name == "BACKSPACE") return KEY_BACKSPACE;
-    return KEY_NONE;
-}
-
-void handlePairingCommand() {
-    if (!Serial.available()) return;
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line == "MAZSTATUS") {
-        const bool hostOnline = host::health();
-        const host::Assurance fleet = hostOnline ? host::assurance() : host::Assurance{};
-        Serial.printf("MAZSTATUS wifi=%s host=%s nudge=%s agents=%u\n",
-                      Sys.wifiConnected ? "online" : "offline",
-                      hostOnline ? "online" : "offline", fleet.state.c_str(),
-                      static_cast<unsigned>(fleet.agents.size()));
-        return;
-    }
-    if (line == "MAZSCREEN") {
-        const bool recording = voice::state() == voice::State::Listening ||
-                               voice::state() == voice::State::Paused;
-        Serial.printf(
-            "MAZSCREEN screen=%s recording=%u focus=%u storage=%s "
-            "sdbad=%u wiped=%u braindumps=%u "
-            "inbox=%u decisions=%u reminders=%u sprints=%u\n",
-            shell::currentId(), recording ? 1 : 0,
-            shell::focus::running() ? 1 : 0, store::backendName(),
-            Sys.sdUnreadable ? 1 : 0, Sys.internalFormatted ? 1 : 0,
-            static_cast<unsigned>(store::list("braindumps", "wav", 1000).size()),
-            static_cast<unsigned>(store::loadRecords("inbox", 1000).size()),
-            static_cast<unsigned>(store::loadRecords("decision", 1000).size()),
-            static_cast<unsigned>(store::loadRecords("reminder", 1000).size()),
-            static_cast<unsigned>(store::loadRecords("sprint", 1000).size()));
-        return;
-    }
-    if (line.startsWith("MAZOPEN\t")) {
-        const String target = line.substring(8);
-        shell::goHome();
-        const bool ok = target == "home" || shell::pushById(target.c_str());
-        Serial.printf("MAZOPEN %s screen=%s\n", ok ? "OK" : "ERR",
-                      shell::currentId());
-        return;
-    }
-    if (line.startsWith("MAZTYPE\t")) {
-        String text = line.substring(8);
-        if (text.length() > 120) text.remove(120);
-        for (size_t i = 0; i < text.length(); ++i) {
-            KeyEvent event;
-            event.ch = text[i];
-            event.down = true;
-            shell::dispatchKey(event);
-        }
-        Serial.printf("MAZTYPE OK chars=%u screen=%s\n",
-                      static_cast<unsigned>(text.length()), shell::currentId());
-        return;
-    }
-    if (line.startsWith("MAZKEY\t")) {
-        const int split = line.indexOf('\t', 7);
-        if (split < 0) { Serial.println("MAZKEY ERR fields"); return; }
-        const uint8_t code = serialKeyCode(line.substring(7, split));
-        const String state = line.substring(split + 1);
-        if (code == KEY_NONE || (state != "DOWN" && state != "UP")) {
-            Serial.println("MAZKEY ERR key");
-            return;
-        }
-        KeyEvent event;
-        event.code = code;
-        event.down = state == "DOWN";
-        shell::dispatchKey(event);
-        Serial.printf("MAZKEY OK screen=%s\n", shell::currentId());
-        return;
-    }
-    if (line == "MAZLAUNCHER") {
-        Serial.println("MAZLAUNCHER OK");
-        delay(100);
-        if (!launcher::reboot()) Serial.println("MAZLAUNCHER ERR handback");
-        return;
-    }
-    if (!line.startsWith("MAZPAIR\t")) return;
-
-    String fields[5];
-    int start = 8;
-    for (int i = 0; i < 5; ++i) {
-        const int tab = line.indexOf('\t', start);
-        fields[i] = tab < 0 ? line.substring(start) : line.substring(start, tab);
-        start = tab < 0 ? line.length() : tab + 1;
-    }
-    if (fields[0].isEmpty() || fields[2].isEmpty() || fields[4].isEmpty()) {
-        Serial.println("MAZPAIR ERR fields");
-        return;
-    }
-
-    Cfg.wifiSsid = fields[0].c_str();
-    Cfg.wifiPass = fields[1].c_str();
-    Cfg.hostAddr = fields[2].c_str();
-    Cfg.hostPort = static_cast<uint16_t>(fields[3].toInt());
-    if (!Cfg.hostPort) Cfg.hostPort = 8787;
-    Cfg.hostToken = fields[4].c_str();
-    Cfg.firstRunComplete = true;
-    Cfg.save();
-    net::begin();
-    const bool connected = net::connect(Cfg.wifiSsid, Cfg.wifiPass);
-    Serial.printf("MAZPAIR OK wifi=%s host=%s\n",
-                  connected ? "connected" : "saved", Cfg.hostAddr.c_str());
-}
-}  // namespace
 
 void setup() {
     Serial.begin(115200);
@@ -183,6 +52,9 @@ void setup() {
     Serial.println("[boot] audio");
     net::begin();
     Serial.println("[boot] network");
+    // The control surface answers on USB immediately and binds its Wi-Fi
+    // listener as soon as there is an address to bind to.
+    control::begin();
 
     // Restore a plausible clock so files stamped before any NTP sync are at
     // least ordered correctly. Sys.timeValid stays false until a real sync.
@@ -223,7 +95,7 @@ void setup() {
 }
 
 void loop() {
-    handlePairingCommand();
+    control::update();
     shell::loop();
     // A short yield keeps the watchdog happy and the radio serviced without
     // making input feel laggy.

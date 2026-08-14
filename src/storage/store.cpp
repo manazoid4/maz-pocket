@@ -88,8 +88,20 @@ bool begin() {
     const esp_partition_t* running = esp_ota_get_running_partition();
     const esp_partition_t* dedicated = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "mazdata");
+
+    // "May I format the internal filesystem?" cannot be answered by the app
+    // subtype. MAZ Pocket now ships two OTA slots of its own, and a
+    // Launcher-installed build also runs from an OTA slot in *Launcher's*
+    // table — the one case where formatting would destroy someone else's data.
+    // So identify our own layout directly: our partitions.csv is the only one
+    // that puts a `spiffs` data partition at exactly this offset and size.
+    constexpr uint32_t OUR_DATA_OFFSET = 0x610000;
+    constexpr uint32_t OUR_DATA_SIZE   = 0x1E0000;
+    const esp_partition_t* data = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
     const bool ownsPartitionTable =
-        running && running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY;
+        running != nullptr && data != nullptr &&
+        data->address == OUR_DATA_OFFSET && data->size == OUR_DATA_SIZE;
     // Always try a plain mount first, and only then fall back to formatting.
     // Doing it in one `formatOnFail=true` call cannot tell the two apart, so a
     // wipe looked exactly like a clean boot: that is how a partition-table

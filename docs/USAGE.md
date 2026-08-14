@@ -140,6 +140,44 @@ That used to happen in silence. It now announces itself:
 If you want data that survives reflashing, keep a FAT32 card in the slot. That
 is the only backend a firmware install cannot disturb.
 
+## Wireless install and control
+
+Once the device is paired, the cable is optional.
+
+**Updating over the air.** MAZ Pocket carries two app slots and writes an
+update into the one it is not running from, so a failed transfer cannot leave
+you with half a firmware.
+
+```
+$env:MAZ_POCKET_IP    = "192.168.1.47"     # MAZPING reports this
+$env:MAZ_POCKET_TOKEN = "<your MAZ_TOKEN>" # the same token host/.env holds
+pio run -e cardputer-adv-ota -t upload
+```
+
+The screen shows the progress bar and says not to power off. The password is
+the MAZ Host pairing token the device already holds, so there is no second
+secret to manage, and a device that has never been paired cannot be updated
+remotely at all.
+
+**Driving it over the network.** The same MAZ* commands the USB surface accepts
+are served on TCP port 8022:
+
+```
+MAZAUTH <token>      then MAZSCREEN, MAZOPEN <id>, MAZKEY <key> DOWN|UP,
+                     MAZTYPE <text>, MAZPING, MAZSTATUS, MAZBYE
+```
+
+Before authenticating, a connection may read `MAZPING`, `MAZSTATUS` and
+`MAZSCREEN` and nothing else. Anything that moves the device needs the token,
+and a wrong one closes the connection rather than allowing another guess. This
+is a LAN control channel for your own laptop — it is not exposed to the
+internet, and it should not be forwarded there.
+
+**When the cable is still required.** Only for changing the partition table
+itself, and for recovering a device that will not join Wi-Fi. Note that USB
+flashing on this board needs `--no-stub` (already set in `platformio.ini`): the
+ESP32-S3's native USB drops its CDC link when esptool's stub takes over.
+
 ## Getting back to Bruce
 
 Tools then Reboot, or power cycle and hold **ENTER** to land in M5Launcher.
