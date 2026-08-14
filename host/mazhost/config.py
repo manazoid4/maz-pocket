@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     max_audio_seconds: int = Field(default=900, ge=1, le=3600)
     session_ttl_minutes: int = Field(default=120, ge=1, le=1440)
     max_turns: int = Field(default=24, ge=1, le=100)
-    tts_enabled: bool = False
-    tts_rate: int = Field(default=185, ge=80, le=300)
+    # Windows SAPI through pyttsx3: offline, no API key, and low friction.
+    tts_enabled: bool = True
+    tts_rate: int = Field(default=180, ge=80, le=300)
     nudge_url: str = "http://127.0.0.1:47831"
     nudge_token: str = ""
     nudge_token_file: str = "~/.agent-nudge/control-plane.key"
