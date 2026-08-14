@@ -2,7 +2,10 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $Root
 try {
-    py -m platformio run
+    # Use the active interpreter, not the Windows `py` launcher. On GitHub
+    # Actions `py` can select a different preinstalled Python than setup-python,
+    # which makes PlatformIO appear missing even though CI installed it.
+    python -m platformio run
     if ($LASTEXITCODE -ne 0) { throw "Firmware build failed." }
     $Build = Join-Path $Root ".pio\build\cardputer-adv"
     $Dist = Join-Path $Root "dist"
