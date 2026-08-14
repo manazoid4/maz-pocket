@@ -18,6 +18,7 @@ from .braindump import structure_braindump
 from .device import DeviceMonitor
 from .llm import Models, Route
 from .nudge import NudgeClient
+from .pc import PCController
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
 from .security import Security
@@ -41,6 +42,19 @@ class SpeakRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1_400)
 
 
+class PCActionRequest(BaseModel):
+    action: Literal[
+        "desktop",
+        "play_pause",
+        "mute",
+        "volume_down",
+        "volume_up",
+        "previous_track",
+        "next_track",
+        "lock",
+    ]
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -48,6 +62,7 @@ def create_app(
     models: Models | None = None,
     nudge: NudgeClient | None = None,
     device: DeviceMonitor | None = None,
+    pc: PCController | None = None,
 ) -> FastAPI:
     cfg = settings or Settings()
     security = Security(cfg)
@@ -56,6 +71,7 @@ def create_app(
     model_router = models or Models(cfg)
     nudge_client = nudge or NudgeClient(cfg)
     device_monitor = device or DeviceMonitor(cfg)
+    pc_controller = pc or PCController()
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
     api = FastAPI(
         title="MAZ Host",
@@ -75,20 +91,35 @@ def create_app(
                 context = "\nAgent Nudge is unavailable; say that plainly."
         return [{"role": "system", "content": SYSTEM_PROMPT + context}, *history, {"role": "user", "content": text}]
 
+    def deterministic_command(session_id: str, text: str, command: dict, actions: list) -> dict:
+        if command["type"] == "reminder.create":
+            reply = f"Reminder set: {command['title']}"
+            provider = "deterministic-local"
+        elif command["type"] == "pc.action":
+            try:
+                result = pc_controller.perform(command["action"])
+            except RuntimeError as error:
+                raise HTTPException(503, str(error)) from error
+            reply = f"PC: {result.label}"
+            provider = "pc-local"
+        else:
+            raise HTTPException(400, "unsupported_command")
+
+        sessions.add_turn(session_id, text, reply)
+        return {
+            "text": text,
+            "reply": reply,
+            "provider": provider,
+            "actions": actions,
+            "commands": [command],
+            "timings": {"llm_ms": 0},
+        }
+
     def answer(session_id: str, text: str, route: Route) -> dict:
         refined = refine(text)
         command = parse_command(refined.text)
         if command:
-            reply = f"Reminder set: {command['title']}"
-            sessions.add_turn(session_id, refined.text, reply)
-            return {
-                "text": refined.text,
-                "reply": reply,
-                "provider": "deterministic-local",
-                "actions": refined.actions,
-                "commands": [command],
-                "timings": {"llm_ms": 0},
-            }
+            return deterministic_command(session_id, refined.text, command, refined.actions)
         started = time.perf_counter()
         try:
             reply, provider = model_router.chat(grounded_messages(session_id, refined.text), route)
@@ -113,6 +144,7 @@ def create_app(
             "llm": model_router.status(),
             "nudge": nudge_client.status(),
             "tts": speech_out.available(),
+            "pc_control": pc_controller.available,
         }
 
     @api.get("/models")
@@ -146,6 +178,14 @@ def create_app(
     @api.post("/turn/text")
     def turn_text(turn: TextTurn):
         return answer(turn.session_id, turn.text, turn.route)
+
+    @api.post("/pc/action")
+    def pc_action(body: PCActionRequest):
+        try:
+            result = pc_controller.perform(body.action)
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
+        return {"ok": True, "action": result.action, "reply": result.label, "provider": "pc-local"}
 
     @api.post("/speak")
     def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
