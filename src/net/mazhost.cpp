@@ -261,6 +261,14 @@ Reply brainDump(const std::string& wavPath,
                   {{"X-MAZ-Highlights", marks.c_str()}});
 }
 
+Reply pcAction(const std::string& action) {
+    JsonDocument doc;
+    doc["action"] = action;
+    String body;
+    serializeJson(doc, body);
+    return jsonPost("/pc/action", body.c_str());
+}
+
 bool speak(const std::string& text, const std::string& wavPath) {
     if (!configured() || WiFi.status() != WL_CONNECTED || !store::ready() ||
         text.empty())
