@@ -17,30 +17,30 @@ Preferences prefs;
 
 void Settings::load() {
     if (!prefs.begin(NS, /*readOnly=*/true)) {
-        // First boot, or NVS wiped by a launcher. Defaults are already sane.
         ESP_LOGI("cfg", "no saved settings, using defaults");
         applyToHardware();
         return;
     }
-    brightness      = prefs.getUChar("bright", brightness);
-    volume          = prefs.getUChar("vol", volume);
-    uiSounds        = prefs.getBool("snd", uiSounds);
-    screenTimeout   = prefs.getUShort("stimeout", screenTimeout);
-    micGain         = prefs.getUChar("mgain", micGain);
-    preferSd        = prefs.getBool("prefsd", preferSd);
-    wifiSsid        = prefs.getString("ssid", "").c_str();
-    wifiPass        = prefs.getString("pass", "").c_str();
-    wifiSsid2       = prefs.getString("ssid2", "").c_str();
-    wifiPass2       = prefs.getString("pass2", "").c_str();
-    hostAddr        = prefs.getString("host", "").c_str();
-    hostPort        = prefs.getUShort("hostport", hostPort);
-    hostToken       = prefs.getString("htoken", "").c_str();
-    talkRoute       = prefs.getUChar("route", talkRoute);
-    ttsEnabled      = prefs.getBool("tts", ttsEnabled);
+    brightness       = prefs.getUChar("bright", brightness);
+    volume           = prefs.getUChar("vol", volume);
+    uiSounds         = prefs.getBool("snd", uiSounds);
+    screenTimeout    = prefs.getUShort("stimeout", screenTimeout);
+    micGain          = prefs.getUChar("mgain", micGain);
+    preferSd         = prefs.getBool("prefsd", preferSd);
+    wifiSsid         = prefs.getString("ssid", "").c_str();
+    wifiPass         = prefs.getString("pass", "").c_str();
+    wifiSsid2        = prefs.getString("ssid2", "").c_str();
+    wifiPass2        = prefs.getString("pass2", "").c_str();
+    hostAddr         = prefs.getString("host", "").c_str();
+    hostPort         = prefs.getUShort("hostport", hostPort);
+    hostRemoteUrl    = prefs.getString("hremote", "").c_str();
+    hostToken        = prefs.getString("htoken", "").c_str();
+    talkRoute        = prefs.getUChar("route", talkRoute);
+    ttsEnabled       = prefs.getBool("tts", ttsEnabled);
     nudgePollMinutes = prefs.getUChar("npoll", nudgePollMinutes);
     firstRunComplete = prefs.getBool("firstrun", firstRunComplete);
-    tzMinutesOffset = prefs.getChar("tz", tzMinutesOffset);
-    lastKnownEpoch  = prefs.getULong("epoch", 0);
+    tzMinutesOffset  = prefs.getChar("tz", tzMinutesOffset);
+    lastKnownEpoch   = prefs.getULong("epoch", 0);
     prefs.end();
     applyToHardware();
 }
@@ -62,6 +62,7 @@ void Settings::save() const {
     prefs.putString("pass2", wifiPass2.c_str());
     prefs.putString("host", hostAddr.c_str());
     prefs.putUShort("hostport", hostPort);
+    prefs.putString("hremote", hostRemoteUrl.c_str());
     prefs.putString("htoken", hostToken.c_str());
     prefs.putUChar("route", talkRoute);
     prefs.putBool("tts", ttsEnabled);
@@ -73,7 +74,7 @@ void Settings::save() const {
 }
 
 void Settings::applyToHardware() const {
-    M5.Display.setBrightness(brightness < 8 ? 8 : brightness);  // never black
+    M5.Display.setBrightness(brightness < 8 ? 8 : brightness);
     M5.Speaker.setVolume(volume);
 }
 
