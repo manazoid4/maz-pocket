@@ -11,6 +11,19 @@ without replacing the proven ADV keyboard, storage, audio or Launcher paths.
 The official sources and retained MIT notice are recorded in
 [docs/research/LVGL.md](docs/research/LVGL.md).
 
+## Try it today
+
+Start MAZ Host with `host/run.ps1`, then use the eight Home tiles or their
+single-letter shortcuts: **T** Talk, **B** BrainDump, **I** Inbox, **D**
+Decision, **F** Focus, **S** Sprint, **N** Nudge and **R** Reminders. Hold
+SPACE from Home to speak. `/` opens every additional utility.
+
+For a repeatable physical acceptance run, connect the Cardputer over USB and
+run `host/.venv/Scripts/python.exe scripts/accept-device.py`. It opens and
+renders every first-class screen, drives the actual app key handlers, records
+through the device mic, exercises the live host, and returns the device Home.
+The control commands exist only on the local USB serial interface.
+
 ## The eight fast surfaces
 
 | Key | Surface | Purpose |

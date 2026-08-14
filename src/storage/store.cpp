@@ -61,6 +61,12 @@ bool mountSd() {
     // Match M5Launcher's conservative default. Capture reliability matters
     // more here than peak card throughput.
     if (!SD.begin(PIN_CS, SPI, 4000000)) {
+        // SD.begin() fails both for "nothing in the slot" and for "a card that
+        // carries no FAT volume". Those deserve different words in front of the
+        // user, so ask the card directly before giving up: one that still
+        // answers is present and simply is not formatted.
+        Sys.sdUnreadable = SD.cardType() != CARD_NONE;
+        SD.end();
         SPI.end();
         return false;
     }
@@ -75,22 +81,55 @@ bool mountSd() {
 }  // namespace
 
 bool begin() {
-    sdMounted     = mountSd();
-    Sys.sdPresent = sdMounted;
+    Sys.sdUnreadable = false;
+    sdMounted        = mountSd();
+    Sys.sdPresent    = sdMounted;
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     const esp_partition_t* dedicated = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "mazdata");
+
+    // "May I format the internal filesystem?" cannot be answered by the app
+    // subtype. MAZ Pocket now ships two OTA slots of its own, and a
+    // Launcher-installed build also runs from an OTA slot in *Launcher's*
+    // table — the one case where formatting would destroy someone else's data.
+    // So identify our own layout directly: our partitions.csv is the only one
+    // that puts a `spiffs` data partition at exactly this offset and size.
+    constexpr uint32_t OUR_DATA_OFFSET = 0x610000;
+    constexpr uint32_t OUR_DATA_SIZE   = 0x1E0000;
+    const esp_partition_t* data = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
     const bool ownsPartitionTable =
-        running && running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY;
-    if (dedicated) {
-        // M5Launcher provisions this partition specifically for MAZ Pocket.
-        // Formatting it cannot affect Launcher or another installed app.
-        fsMounted = LittleFS.begin(/*formatOnFail=*/true, "/littlefs", 10,
-                                   "mazdata");
-    } else {
-        // Launcher-installed OTA apps must never format shared internal storage.
-        fsMounted = LittleFS.begin(/*formatOnFail=*/ownsPartitionTable);
+        running != nullptr && data != nullptr &&
+        data->address == OUR_DATA_OFFSET && data->size == OUR_DATA_SIZE;
+    // Always try a plain mount first, and only then fall back to formatting.
+    // Doing it in one `formatOnFail=true` call cannot tell the two apart, so a
+    // wipe looked exactly like a clean boot: that is how a partition-table
+    // change (M5Launcher's table vs ours moves the data region) silently took
+    // every note and recording with it.
+    const char* label = dedicated ? "mazdata" : nullptr;
+    if (dedicated)
+        fsMounted = LittleFS.begin(false, "/littlefs", 10, "mazdata");
+    else
+        fsMounted = LittleFS.begin(false);
+
+    if (!fsMounted) {
+        // M5Launcher provisions "mazdata" specifically for MAZ Pocket, so
+        // formatting it cannot affect Launcher or another installed app.
+        // Without it, only format a partition table we own ourselves.
+        const bool mayFormat = dedicated || ownsPartitionTable;
+        if (mayFormat) {
+            fsMounted = dedicated
+                            ? LittleFS.begin(true, "/littlefs", 10, "mazdata")
+                            : LittleFS.begin(true);
+            // Report it rather than pretending this was a normal boot.
+            Sys.internalFormatted = fsMounted;
+            if (fsMounted)
+                ESP_LOGW("store",
+                         "internal storage was reformatted - previous data on "
+                         "partition '%s' is gone",
+                         label ? label : "spiffs");
+        }
     }
     if (fsMounted) ensureTree(LittleFS);
     Sys.internalFs = fsMounted;

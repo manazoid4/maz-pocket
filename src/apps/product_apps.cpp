@@ -200,7 +200,7 @@ class NudgeApp : public App {
 public:
     const char* id() const override { return "nudge"; }
     const char* title() const override { return "Nudge"; }
-    const char* hints() const override { return "ENTER evidence   N nudge   R refresh"; }
+    const char* hints() const override { return "ENTER evidence  N nudge  R refresh"; }
     void onEnter() override { refresh(); }
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;

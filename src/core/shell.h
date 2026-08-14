@@ -22,6 +22,11 @@ bool pushById(const char* id);
 void pop();
 void goHome();
 int  depth();
+const char* currentId();
+
+// Route a local USB acceptance event through exactly the same app path as a
+// physical keyboard event. Network clients cannot call this surface.
+void dispatchKey(const KeyEvent& event);
 
 M5Canvas& canvas();
 void      invalidate();  // force a repaint of the current app

@@ -72,6 +72,40 @@ def test_text_turn_keeps_session_context_and_nudge_is_evidence_backed():
     assert api.get("/nudge", headers=headers).json()["state"] == "ALL_SYNCED"
 
 
+def test_transcribe_raw_returns_only_the_words():
+    """Dictation must not answer, and must not join the conversation.
+
+    /turn/raw runs the model over what you said; filling in a text field needs
+    the opposite. A regression that pointed dictation at the model would be
+    invisible on the device but would rewrite the contents of every field.
+    """
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16_000)
+        wav.writeframes(b"\0\0" * 160)
+
+    api = client()
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    response = api.post(
+        "/transcribe/raw",
+        content=audio.getvalue(),
+        headers={**headers, "Content-Type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcript"] == "what should I focus on"
+    # The model's reply must appear nowhere in this response.
+    assert "reply" not in body
+    assert "Focus on the hardware test" not in str(body)
+
+
+def test_transcribe_raw_needs_the_token():
+    assert client().post("/transcribe/raw", content=b"").status_code == 401
+
+
 def test_raw_audio_turn_accepts_streamed_wav():
     audio = io.BytesIO()
     with wave.open(audio, "wb") as wav:

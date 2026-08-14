@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../apps/apps.h"
+#include "../audio/dictate.h"
 #include "../audio/sfx.h"
 #include "../audio/voice.h"
 #include "../input/keyboard.h"
@@ -31,6 +32,10 @@ bool              gDimmed      = false;
 bool              gScreenOff   = false;
 uint32_t          gLastPowerMs = 0;
 bool              gEscHandled  = false;
+// Set when the focused app claims the ESC *press*. Without it the matching
+// release falls through to the shell and pops the app as well, so one ESC in
+// a sub-mode both cancelled the edit and left the screen.
+bool              gEscClaimed  = false;
 
 // ------------------------------------------------------------- Focus timer
 struct FocusTimer {
@@ -118,7 +123,7 @@ class Palette : public App {
 public:
     const char* id() const override { return "palette"; }
     const char* title() const override { return "Command"; }
-    const char* hints() const override { return "type   ENTER run   ESC close"; }
+    const char* hints() const override { return "^SPACE say it  ENTER run"; }
 
     void onEnter() override {
         _query.clear();
@@ -126,7 +131,22 @@ public:
     }
 
     bool onKey(const KeyEvent& e) override {
+        // Say the name of the app instead of spelling it. The palette is the
+        // fastest route to anything on the device, so it is the last place
+        // that should require the keyboard.
+        if (e.code == KEY_SPACE && (e.mods & MOD_CTRL)) {
+            if (e.down) {
+                if (!dictate::active(this)) dictate::start(this);
+            } else if (dictate::state() == dictate::State::Listening) {
+                dictate::stop();
+            }
+            return true;
+        }
         if (!e.down) return false;
+        if (dictate::active(this) && e.code == KEY_ESC) {
+            dictate::cancel();
+            return true;
+        }
         if (e.code == KEY_BACKSPACE) {
             if (!_query.empty()) _query.pop_back();
             rebuild();
@@ -159,13 +179,29 @@ public:
     }
 
     void render(M5Canvas& g) override {
+        // Pick up anything that was dictated into the query.
+        std::string spoken;
+        if (dictate::take(this, spoken)) {
+            _query += spoken;
+            rebuild();
+        }
+
         g.fillScreen(BG);
         ui::header(g, "Command", store::backendName());
 
         ui::panel(g, PAD, BODY_Y + 22, SCREEN_W - PAD * 2, 18);
         g.setFont(&fonts::Font2);
-        g.setTextColor(TEXT, PANEL);
         g.setTextDatum(top_left);
+
+        if (dictate::active(this)) {
+            const bool listening = dictate::state() == dictate::State::Listening;
+            g.setTextColor(listening ? ACCENT2 : WARN, PANEL);
+            g.drawString(listening ? "listening..." : "transcribing...",
+                         PAD + 4, BODY_Y + 23);
+            return;
+        }
+
+        g.setTextColor(TEXT, PANEL);
         std::string shown = "> " + _query;
         if ((millis() / 500) % 2) shown += "_";
         g.drawString(shown.c_str(), PAD + 4, BODY_Y + 23);
@@ -240,6 +276,26 @@ void bootScreen() {
     }
 }
 
+// ------------------------------------------------------------- nav layer
+// The ADV prints the arrows and ESC on the Fn layer, so every menu was a
+// two-handed operation: Fn+; Fn+, Fn+. Fn+/ to move, Fn+` to go back.
+//
+// Rather than steal those characters outright, the shell offers the key to the
+// focused app as itself first. Only if the app does not want the character do
+// we re-offer it as the navigation code printed beside it. A text field
+// consumes the comma and keeps typing; a menu ignores it and gets LEFT. No app
+// needs a flag, and no screen can get it wrong.
+uint8_t navFallback(uint8_t code) {
+    switch (code) {
+        case KEY_SEMICOLON:  return KEY_UP;
+        case KEY_COMMA:      return KEY_LEFT;
+        case KEY_DOT:        return KEY_DOWN;
+        case KEY_SLASH:      return KEY_RIGHT;
+        case KEY_GRAVE:      return KEY_ESC;
+        default:             return KEY_NONE;
+    }
+}
+
 // -------------------------------------------------------- global shortcuts
 bool handleGlobalKey(const KeyEvent& e) {
     if (!e.down) return false;
@@ -261,6 +317,9 @@ bool handleGlobalKey(const KeyEvent& e) {
 // -------------------------------------------------------------------- API
 M5Canvas& canvas() { return gCanvas; }
 int       depth() { return static_cast<int>(gStack.size()); }
+const char* currentId() {
+    return gStack.empty() ? "none" : gStack.back()->id();
+}
 
 void invalidate() {
     if (!gStack.empty()) gStack.back()->invalidate();
@@ -280,6 +339,7 @@ void push(App* app) {
     if (!app) return;
     if (!gStack.empty()) gStack.back()->onExit();
     gStack.push_back(app);
+    Sys.navDepth = static_cast<uint8_t>(gStack.size());
     app->onEnter();
     app->invalidate();
 }
@@ -299,6 +359,7 @@ void pop() {
     gStack.back()->onExit();
     delete gStack.back();
     gStack.pop_back();
+    Sys.navDepth = static_cast<uint8_t>(gStack.size());
     gStack.back()->onEnter();
     gStack.back()->invalidate();
 }
@@ -310,6 +371,51 @@ void goHome() {
 void openPalette() {
     if (!gStack.empty() && !strcmp(gStack.back()->id(), "palette")) return;
     push(new Palette());
+}
+
+void dispatchKey(const KeyEvent& e) {
+    if (e.down) wake();
+    if (notify::active() && e.down) notify::dismiss();
+
+    if (handleGlobalKey(e)) return;
+    if (gStack.empty()) return;
+
+    KeyEvent ev = e;
+    if (ev.down && ev.code == KEY_ESC) {
+        gEscHandled = false;
+        gEscClaimed = false;
+    }
+    if (gStack.back()->onKey(ev)) {
+        // The app used ESC for its own back step (closing a detail view,
+        // cancelling an edit). Remember it so the release does not pop again.
+        if (ev.down && ev.code == KEY_ESC) gEscClaimed = true;
+        return;
+    }
+
+    // The app did not want the character, so offer the same key as the
+    // navigation code printed beside it. This is what makes the arrows and ESC
+    // work without holding Fn.
+    const uint8_t nav = navFallback(ev.code);
+    if (nav != KEY_NONE) {
+        ev.code = nav;
+        ev.ch   = 0;
+        if (ev.down && nav == KEY_ESC) {
+            gEscHandled = false;
+            gEscClaimed = false;
+        }
+        if (gStack.back()->onKey(ev)) {
+            if (ev.down && nav == KEY_ESC) gEscClaimed = true;
+            return;
+        }
+    }
+
+    // Unclaimed ESC is navigation. Long-press-to-Home stays on the real ESC
+    // (Fn+`) because it depends on the keyboard's held-key clock, and a held
+    // backtick inside a text field must stay a backtick.
+    if (!ev.down && ev.code == KEY_ESC && !gEscHandled && !gEscClaimed) {
+        pop();
+        sfx::select();
+    }
 }
 
 namespace focus {
@@ -378,19 +484,7 @@ void loop() {
     bool     sawInput = false;
     while (KB.pop(e)) {
         sawInput = true;
-        if (e.down) wake();
-        if (notify::active() && e.down) notify::dismiss();
-
-        if (handleGlobalKey(e)) continue;
-        if (gStack.empty()) continue;
-        if (gStack.back()->onKey(e)) continue;
-
-        // Unclaimed ESC is navigation. Long-press goes all the way Home.
-        if (e.down && e.code == KEY_ESC) gEscHandled = false;
-        if (!e.down && e.code == KEY_ESC && !gEscHandled) {
-            pop();
-            sfx::select();
-        }
+        dispatchKey(e);
     }
 
     if (KB.held(KEY_ESC) && KB.heldFor(KEY_ESC) > 600 && !gEscHandled) {
@@ -403,6 +497,7 @@ void loop() {
     tickFocus();
     pollPower();
     voice::update();
+    dictate::update();
     net::update();
     notify::update();
     apps::updateProductServices();

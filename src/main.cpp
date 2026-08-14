@@ -13,60 +13,13 @@
 #include "core/shell.h"
 #include "core/sys.h"
 #include "input/keyboard.h"
+#include "net/control.h"
 #include "net/mazhost.h"
 #include "net/net.h"
 #include "storage/store.h"
 
 using namespace maz;
 
-namespace {
-void handlePairingCommand() {
-    if (!Serial.available()) return;
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line == "MAZSTATUS") {
-        const bool hostOnline = host::health();
-        const host::Assurance fleet = hostOnline ? host::assurance() : host::Assurance{};
-        Serial.printf("MAZSTATUS wifi=%s host=%s nudge=%s agents=%u\n",
-                      Sys.wifiConnected ? "online" : "offline",
-                      hostOnline ? "online" : "offline", fleet.state.c_str(),
-                      static_cast<unsigned>(fleet.agents.size()));
-        return;
-    }
-    if (line == "MAZLAUNCHER") {
-        Serial.println("MAZLAUNCHER OK");
-        delay(100);
-        if (!launcher::reboot()) Serial.println("MAZLAUNCHER ERR handback");
-        return;
-    }
-    if (!line.startsWith("MAZPAIR\t")) return;
-
-    String fields[5];
-    int start = 8;
-    for (int i = 0; i < 5; ++i) {
-        const int tab = line.indexOf('\t', start);
-        fields[i] = tab < 0 ? line.substring(start) : line.substring(start, tab);
-        start = tab < 0 ? line.length() : tab + 1;
-    }
-    if (fields[0].isEmpty() || fields[2].isEmpty() || fields[4].isEmpty()) {
-        Serial.println("MAZPAIR ERR fields");
-        return;
-    }
-
-    Cfg.wifiSsid = fields[0].c_str();
-    Cfg.wifiPass = fields[1].c_str();
-    Cfg.hostAddr = fields[2].c_str();
-    Cfg.hostPort = static_cast<uint16_t>(fields[3].toInt());
-    if (!Cfg.hostPort) Cfg.hostPort = 8787;
-    Cfg.hostToken = fields[4].c_str();
-    Cfg.firstRunComplete = true;
-    Cfg.save();
-    net::begin();
-    const bool connected = net::connect(Cfg.wifiSsid, Cfg.wifiPass);
-    Serial.printf("MAZPAIR OK wifi=%s host=%s\n",
-                  connected ? "connected" : "saved", Cfg.hostAddr.c_str());
-}
-}  // namespace
 
 void setup() {
     Serial.begin(115200);
@@ -99,6 +52,9 @@ void setup() {
     Serial.println("[boot] audio");
     net::begin();
     Serial.println("[boot] network");
+    // The control surface answers on USB immediately and binds its Wi-Fi
+    // listener as soon as there is an address to bind to.
+    control::begin();
 
     // Restore a plausible clock so files stamped before any NTP sync are at
     // least ordered correctly. Sys.timeValid stays false until a real sync.
@@ -128,10 +84,18 @@ void setup() {
     if (!store::ready())
         notify::post(Note::Warn, "No storage",
                      "notes and recordings are disabled");
+    // Both of these used to be log-only, so the device looked healthy while
+    // silently running on volatile storage, or having just erased itself.
+    else if (Sys.internalFormatted)
+        notify::post(Note::Warn, "Internal storage reset",
+                     "previous notes and recordings are gone");
+    if (Sys.sdUnreadable)
+        notify::post(Note::Warn, "SD card unreadable",
+                     "format it as FAT32 to keep data safely");
 }
 
 void loop() {
-    handlePairingCommand();
+    control::update();
     shell::loop();
     // A short yield keeps the watchdog happy and the radio serviced without
     // making input feel laggy.

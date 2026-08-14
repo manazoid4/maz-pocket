@@ -44,6 +44,9 @@ bool health();
 std::string startSession();
 Reply talkText(const std::string& session, const std::string& text);
 Reply talkAudio(const std::string& session, const std::string& wavPath);
+// Speech to text with no model round-trip and no session: this backs typing by
+// voice, where the only correct answer is exactly what was said.
+Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);

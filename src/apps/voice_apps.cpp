@@ -294,16 +294,19 @@ public:
 
     const char* hints() const override {
         if (voice::state() == voice::State::Listening)
-            return "H highlight   P pause   ENTER finish";
-        if (voice::state() == voice::State::Paused) return "P resume   ENTER finish";
-        if (_processing) return "processing on laptop...";
-        if (_ready) return "O process on laptop   P play raw";
+            return "H mark  P pause  ENTER done";
+        if (voice::state() == voice::State::Paused) return "P resume  ENTER done";
+        if (_processing) return "thinking about it...";
+        if (!_result.empty()) return "R again  P play  I inbox";
+        if (_ready) return "O retry  R again  P play raw";
         return "recording saved";
     }
 
     void onEnter() override {
         _highlights.clear();
         _ready = false;
+        _result.clear();
+        _scroll = 0;
         beginVoice();
         invalidate();
     }
@@ -323,8 +326,23 @@ public:
         if (e.code == KEY_P && voice::state() == voice::State::Paused) { voice::resume(); invalidate(); return true; }
         if (e.code == KEY_ENTER && (voice::state() == voice::State::Listening || voice::state() == voice::State::Paused)) { endVoice(); return true; }
         if (e.code == KEY_P && _ready) { voice::play(_path); return true; }
-        if (e.code == KEY_O && _ready) {
+        if (e.code == KEY_O && _ready && !_processing) {
+            // Manual retry, for when the laptop was not there the first time.
             _processing = true; _processAt = millis() + 180; invalidate(); return true;
+        }
+        // One more thought, without walking back out to Home for it.
+        if (e.code == KEY_R && !_processing &&
+            voice::state() != voice::State::Listening) {
+            onEnter();
+            return true;
+        }
+        if (e.code == KEY_I && !_result.empty()) {
+            shell::pushById("inbox");
+            return true;
+        }
+        if (!_result.empty()) {
+            if (e.code == KEY_DOWN) { _scroll++; invalidate(); return true; }
+            if (e.code == KEY_UP)   { if (_scroll) _scroll--; invalidate(); return true; }
         }
         return false;
     }
@@ -338,20 +356,44 @@ public:
         g.fillScreen(BG);
         ui::header(g, "BrainDump", store::backendName());
 
-        if (voice::state() == voice::State::Listening) {
-            drawVoiceFace(g, voice::state(),
-                          ui::hhmmss(voice::elapsedSeconds()).c_str());
+        if (voice::state() == voice::State::Listening ||
+            voice::state() == voice::State::Paused) {
+            // The mark counts your marks: a highlight you cannot see landing is
+            // a highlight you stop trusting mid-thought.
+            std::string caption = ui::hhmmss(voice::elapsedSeconds());
+            if (!_highlights.empty())
+                caption += "   " + std::to_string(_highlights.size()) + " marked";
+            drawVoiceFace(g, voice::state(), caption.c_str());
             return;
         }
 
-        ui::emptyState(g, _processing ? "Processing on laptop" : (_ready ? "Raw thought preserved" : "Ready"),
-                       _processing ? "raw audio remains on device" : (_ready ? "O sends a copy to the laptop" : "recording starts immediately"));
+        if (!_result.empty()) {
+            // Show what came back, on the device, rather than making you walk
+            // to Inbox to find out whether it worked.
+            g.setFont(&fonts::Font0);
+            g.setTextColor(DIM, BG);
+            g.drawString(_resultOk ? "USEFUL OUTPUT" : "QUEUED - LAPTOP OFFLINE",
+                         PAD, BODY_Y + 22);
+            drawShortText(g, _result.substr(std::min(_result.size(),
+                                                     _scroll * size_t(38))),
+                          BODY_Y + 36, 5);
+            return;
+        }
+
+        ui::emptyState(
+            g,
+            _processing ? "Thinking about it" : (_ready ? "Raw thought kept" : "Ready"),
+            _processing ? "raw audio stays on the device"
+                        : (_ready ? "R records another" : "recording starts immediately"));
     }
 
 private:
     void beginVoice() {
         _sink = new voice::WavFileSink("braindumps");
-        if (!voice::start(_sink, 120)) {
+        // Five minutes, not two: a brain dump is the one place on this device
+        // where being cut off mid-thought defeats the point. 16kHz mono is
+        // ~1.9MB/min, so this is still a small file.
+        if (!voice::start(_sink, 300)) {
             notify::post(Note::Error, "Cannot record", voice::lastError());
             delete _sink;
             _sink = nullptr;
@@ -373,6 +415,13 @@ private:
         delete _sink;
         _sink = nullptr;
         _ready = ok;
+        // Finishing a thought is the whole intent; making you press O as well
+        // just meant a queue of unprocessed dumps nobody remembered to send.
+        // The raw WAV is kept either way, so this can never lose the capture.
+        if (ok) {
+            _processing = true;
+            _processAt  = millis() + 180;
+        }
         invalidate();
     }
 
@@ -386,6 +435,11 @@ private:
         item.body = result.ok ? result.text : result.error;
         item.source = "braindump"; item.ref = _path;
         store::addRecord(item);
+        _resultOk = result.ok;
+        _result   = result.ok ? result.text : result.error;
+        if (_result.empty())
+            _result = result.ok ? "(nothing came back)" : "raw audio kept on device";
+        _scroll = 0;
         notify::post(result.ok ? Note::Success : Note::Warn,
                      result.ok ? "Useful output ready" : "Queued offline",
                      result.ok ? result.provider : "raw audio kept");
@@ -395,6 +449,9 @@ private:
     voice::WavFileSink* _sink = nullptr;
     std::string         _path;
     std::vector<uint32_t> _highlights;
+    std::string         _result;
+    bool                _resultOk = false;
+    size_t              _scroll = 0;
     bool                _ready = false;
     bool                _processing = false;
     uint32_t            _processAt = 0;

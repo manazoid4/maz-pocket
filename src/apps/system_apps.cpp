@@ -228,7 +228,7 @@ public:
     const char* id() const override { return "settings"; }
     const char* title() const override { return "Settings"; }
     const char* hints() const override {
-        return "left/right change   ENTER toggle   ESC save";
+        return "left/right change  ENTER toggle";
     }
 
     void onExit() override { Cfg.save(); }
@@ -543,12 +543,22 @@ private:
 const char* HELP_LINES[] = {
     "#GLOBAL",
     "Ctrl+K      command palette",
-    "ESC         back",
-    "hold ESC    home",
+    "Ctrl+L      back to M5Launcher",
+    "ESC         back (the <ESC chip)",
+    "hold ESC    home from anywhere",
     "#HOME",
     "hold SPACE  voice capture",
-    "C X F       call, capture, focus",
-    "N T R       notes, tasks, recorder",
+    "left/right  move, turn the page",
+    "TAB         next page of apps",
+    "1-8         open that cell",
+    "T B I D     talk, braindump,",
+    "            inbox, decision",
+    "F S N R     focus, sprint,",
+    "            nudge, reminders",
+    "C W Q V     calc, stopwatch,",
+    "            qr, viewer",
+    "G P H       generator, snippets,",
+    "            help",
     "/           command palette",
     "#VOICE",
     "hold SPACE  talk (Call, Capture)",

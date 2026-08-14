@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .commands import parse_command
+from .braindump import structure_braindump
 from .device import DeviceMonitor
 from .llm import Models, Route
 from .nudge import NudgeClient
@@ -195,6 +196,34 @@ def create_app(
         finally:
             path.unlink(missing_ok=True)
 
+    @api.post("/transcribe/raw")
+    async def transcribe_raw(request: Request):
+        """Speech to text and nothing else.
+
+        /turn/raw also runs the model, which is the wrong shape for dictation:
+        filling in a field must not cost a model round-trip, must not touch the
+        conversation session, and must hand back exactly what was said.
+        """
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > cfg.max_upload_mb * 1024 * 1024:
+                    Path(target.name).unlink(missing_ok=True)
+                    raise HTTPException(413, "audio_too_large")
+                target.write(chunk)
+            path = Path(target.name)
+        try:
+            security.validate_upload(path, size)
+            started = time.perf_counter()
+            text = speech.transcribe(path)
+            return {
+                "transcript": text,
+                "stt_ms": round((time.perf_counter() - started) * 1000),
+            }
+        finally:
+            path.unlink(missing_ok=True)
+
     @api.post("/extract")
     def extract(body: ExtractRequest):
         prompt = EXTRACT_PROMPTS[body.kind]
@@ -225,7 +254,10 @@ def create_app(
                 [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
                 cfg.default_route,
             )
-            return {"transcript": transcript, "provider": provider, **json.loads(reply), "highlights": marks}
+            structured, fallback = structure_braindump(reply, transcript)
+            if fallback:
+                provider += "+deterministic"
+            return {"transcript": transcript, "provider": provider, **structured, "highlights": marks}
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
@@ -255,7 +287,10 @@ def create_app(
                 [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
                 cfg.default_route,
             )
-            return {"transcript": transcript, "provider": provider, **json.loads(reply), "highlights": marks}
+            structured, fallback = structure_braindump(reply, transcript)
+            if fallback:
+                provider += "+deterministic"
+            return {"transcript": transcript, "provider": provider, **structured, "highlights": marks}
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:

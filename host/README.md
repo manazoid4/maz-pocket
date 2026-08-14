@@ -26,3 +26,8 @@ Monitoring is opt-in so it cannot occupy the COM port during M5Launcher installs
 - `POST /device/monitor/start`
 - `GET /device` and `GET /device/logs`
 - `POST /device/monitor/stop` before installing firmware
+
+The repository-level `scripts/accept-device.py` uses the same bounded USB
+transport to exercise all eight product surfaces on physical hardware. Its
+`MAZOPEN`, `MAZKEY`, `MAZTYPE` and `MAZSCREEN` commands are local-serial only;
+they are deliberately not exposed by MAZ Host over the network.

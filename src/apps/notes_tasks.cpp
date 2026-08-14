@@ -254,7 +254,7 @@ public:
 
     const char* hints() const override {
         if (_adding) return "ENTER add   ESC cancel";
-        return "A add   ENTER done   L later   D delete   TAB view";
+        return "A add  ENTER done  L later  TAB view";
     }
 
     void onEnter() override {
