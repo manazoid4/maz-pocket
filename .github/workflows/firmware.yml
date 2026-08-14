@@ -31,6 +31,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio pytest pyinstaller
           pip install -r host/requirements.txt
+          # uvicorn[standard] currently resolves Click 8.4+, while PlatformIO
+          # 6.1.x requires <8.4. Both are happy on the common 8.3 line.
+          pip install "click>=8.0.4,<8.4"
 
       - name: Test MAZ Host
         run: python -m pytest host/tests -q
