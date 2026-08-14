@@ -48,6 +48,8 @@ App* makeSprint();
 App* makeNudge();
 App* makeAgentsV3();
 App* makeReminders();
+App* makeSnake();
+App* makeHyperdrive();
 void scheduleReminder(store::Record& reminder, uint32_t delaySeconds);
 void updateProductServices();
 
