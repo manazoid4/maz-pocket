@@ -4,6 +4,9 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 
+#include <utility>
+#include <vector>
+
 #include "../core/settings.h"
 #include "../core/sys.h"
 #include "../storage/store.h"
@@ -12,19 +15,39 @@ namespace maz {
 namespace host {
 namespace {
 
-std::string url(const char* path) {
-    return "http://" + Cfg.hostAddr + ":" + std::to_string(Cfg.hostPort) + path;
+bool gRemote = false;
+
+std::vector<std::pair<std::string, bool>> bases() {
+    std::vector<std::pair<std::string, bool>> out;
+    if (!Cfg.hostAddr.empty()) {
+        out.push_back({"http://" + Cfg.hostAddr + ":" +
+                           std::to_string(Cfg.hostPort),
+                       false});
+    }
+    if (!Cfg.hostRemoteUrl.empty()) {
+        std::string remote = Cfg.hostRemoteUrl;
+        while (!remote.empty() && remote.back() == '/') remote.pop_back();
+        if (remote.rfind("https://", 0) == 0) out.push_back({remote, true});
+    }
+    return out;
 }
 
 const char* route() {
     return Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
 }
 
-void beginRequest(HTTPClient& http, const char* path) {
-    http.setConnectTimeout(3000);
+bool beginRequest(HTTPClient& http, const std::string& base, const char* path,
+                  bool remote) {
+    http.setConnectTimeout(remote ? 6500 : 1800);
     http.setTimeout(60000);
-    http.begin(url(path).c_str());
+    if (!http.begin((base + path).c_str())) return false;
     http.addHeader("Authorization", ("Bearer " + Cfg.hostToken).c_str());
+    return true;
+}
+
+void markOnline(bool remote) {
+    gRemote = remote;
+    Sys.hostOnline = true;
 }
 
 Reply decodeReply(HTTPClient& http, int status) {
@@ -36,7 +59,8 @@ Reply decodeReply(HTTPClient& http, int status) {
     if (status >= 200 && status < 300 && !error) {
         out.ok = true;
         out.text = doc["reply"] | "";
-        if (out.text.empty() && doc["result"].is<const char*>()) out.text = doc["result"].as<const char*>();
+        if (out.text.empty() && doc["result"].is<const char*>())
+            out.text = doc["result"].as<const char*>();
         if (out.text.empty()) out.text = doc["summary"] | "";
         out.transcript = doc["text"] | "";
         if (out.transcript.empty()) out.transcript = doc["transcript"] | "";
@@ -48,10 +72,10 @@ Reply decodeReply(HTTPClient& http, int status) {
             out.reminderDelay = commands[0]["delay_seconds"] | 0;
         }
     } else {
-        out.error = error ? "invalid host response" : static_cast<const char*>(doc["detail"] | "host request failed");
+        out.error = error ? "invalid host response"
+                          : static_cast<const char*>(doc["detail"] | "host request failed");
     }
     http.end();
-    Sys.hostOnline = out.ok || status == 400 || status == 404;
     return out;
 }
 
@@ -63,49 +87,108 @@ Reply upload(const char* path, const std::string& wavPath,
         return out;
     }
     File file = store::fs()->open(wavPath.c_str(), FILE_READ);
-    if (!file) { out.error = "recording missing"; return out; }
-    HTTPClient http;
-    beginRequest(http, path);
-    http.addHeader("Content-Type", "audio/wav");
-    for (const auto& header : headers) http.addHeader(header.first.c_str(), header.second.c_str());
-    const int status = http.sendRequest("POST", &file, file.size());
+    if (!file) {
+        out.error = "recording missing";
+        return out;
+    }
+
+    for (const auto& base : bases()) {
+        file.seek(0);
+        HTTPClient http;
+        if (!beginRequest(http, base.first, path, base.second)) continue;
+        http.addHeader("Content-Type", "audio/wav");
+        for (const auto& header : headers)
+            http.addHeader(header.first.c_str(), header.second.c_str());
+        const int status = http.sendRequest("POST", &file, file.size());
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        file.close();
+        markOnline(base.second);
+        return decodeReply(http, status);
+    }
     file.close();
-    return decodeReply(http, status);
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
 }
 
 Reply jsonPost(const char* path, const std::string& json) {
     Reply out;
-    if (!configured() || WiFi.status() != WL_CONNECTED) { out.error = "host offline"; return out; }
-    HTTPClient http;
-    beginRequest(http, path);
-    http.addHeader("Content-Type", "application/json");
-    return decodeReply(http, http.POST(json.c_str()));
+    if (!configured() || WiFi.status() != WL_CONNECTED) {
+        out.error = "host offline";
+        return out;
+    }
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, path, base.second)) continue;
+        http.addHeader("Content-Type", "application/json");
+        const int status = http.POST(json.c_str());
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        markOnline(base.second);
+        return decodeReply(http, status);
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
 }
 
 }  // namespace
 
-bool configured() { return !Cfg.hostAddr.empty() && !Cfg.hostToken.empty(); }
+bool configured() {
+    return !Cfg.hostToken.empty() && (!Cfg.hostAddr.empty() || !Cfg.hostRemoteUrl.empty());
+}
+
+const char* linkName() {
+    if (!Sys.hostOnline) return "OFFLINE";
+    return gRemote ? "REMOTE" : "LAN";
+}
 
 bool health() {
-    if (!configured() || WiFi.status() != WL_CONNECTED) return false;
-    HTTPClient http;
-    beginRequest(http, "/health");
-    const int status = http.GET();
-    http.end();
-    Sys.hostOnline = status == 200;
-    return Sys.hostOnline;
+    if (!configured() || WiFi.status() != WL_CONNECTED) {
+        Sys.hostOnline = false;
+        return false;
+    }
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, "/health", base.second)) continue;
+        const int status = http.GET();
+        http.end();
+        if (status <= 0) continue;
+        if (status == 200) {
+            markOnline(base.second);
+            return true;
+        }
+        Sys.hostOnline = false;
+        return false;
+    }
+    Sys.hostOnline = false;
+    return false;
 }
 
 std::string startSession() {
     if (!configured() || WiFi.status() != WL_CONNECTED) return "";
-    HTTPClient http;
-    beginRequest(http, "/session/start");
-    const int status = http.POST("");
-    const String body = http.getString();
-    http.end();
-    JsonDocument doc;
-    if (status != 200 || deserializeJson(doc, body)) return "";
-    return doc["session_id"] | "";
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, "/session/start", base.second)) continue;
+        const int status = http.POST("");
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        const String body = http.getString();
+        http.end();
+        JsonDocument doc;
+        if (status != 200 || deserializeJson(doc, body)) return "";
+        markOnline(base.second);
+        return doc["session_id"] | "";
+    }
+    Sys.hostOnline = false;
+    return "";
 }
 
 Reply talkText(const std::string& session, const std::string& text) {
@@ -124,57 +207,114 @@ Reply talkAudio(const std::string& session, const std::string& wavPath) {
 }
 
 Reply transcribe(const std::string& wavPath) {
-    // No session header and no route: dictation must not join the
-    // conversation, and must not spend a model call to hand back what was said.
     return upload("/transcribe/raw", wavPath, {});
 }
 
-Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights) {
+Reply brainDump(const std::string& wavPath,
+                const std::vector<uint32_t>& highlights) {
     String marks = "[";
     for (size_t i = 0; i < highlights.size(); ++i) {
         if (i) marks += ',';
         marks += highlights[i];
     }
     marks += ']';
-    return upload("/braindump/raw", wavPath, {{"X-MAZ-Highlights", marks.c_str()}});
+    return upload("/braindump/raw", wavPath,
+                  {{"X-MAZ-Highlights", marks.c_str()}});
+}
+
+bool speak(const std::string& text, const std::string& wavPath) {
+    if (!configured() || WiFi.status() != WL_CONNECTED || !store::ready() ||
+        text.empty())
+        return false;
+
+    JsonDocument doc;
+    doc["text"] = text.size() > 1400 ? text.substr(0, 1400) : text;
+    String body;
+    serializeJson(doc, body);
+
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, "/speak", base.second)) continue;
+        http.addHeader("Content-Type", "application/json");
+        const int status = http.POST(body);
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        if (status != 200) {
+            http.end();
+            return false;
+        }
+        store::remove(wavPath);
+        File out = store::fs()->open(wavPath.c_str(), FILE_WRITE);
+        if (!out) {
+            http.end();
+            return false;
+        }
+        const int written = http.writeToStream(&out);
+        out.close();
+        http.end();
+        if (written > 44) {
+            markOnline(base.second);
+            return true;
+        }
+        store::remove(wavPath);
+        return false;
+    }
+    return false;
 }
 
 Assurance assurance() {
     Assurance out;
-    if (!configured() || WiFi.status() != WL_CONNECTED) { out.error = "host offline"; return out; }
-    HTTPClient http;
-    beginRequest(http, "/nudge");
-    const int status = http.GET();
-    const String body = http.getString();
-    http.end();
-    JsonDocument doc;
-    if (status != 200 || deserializeJson(doc, body)) { out.error = "nudge unavailable"; return out; }
-    out.ok = true;
-    out.state = doc["state"] | "ALL_SYNCED";
-    out.working = doc["counts"]["working"] | 0;
-    out.waiting = doc["counts"]["waiting"] | 0;
-    out.needsNudge = doc["counts"]["needsNudge"] | 0;
-    out.overdue = doc["counts"]["overdue"] | 0;
-    out.attention = doc["counts"]["attention"] | 0;
-    out.questionForMaz = doc["counts"]["questionForMaz"] | 0;
-    for (JsonObject item : doc["agents"].as<JsonArray>()) {
-        Agent a;
-        a.id = item["sessionId"] | "";
-        a.provider = item["provider"] | "agent";
-        a.name = item["projectName"] | "";
-        if (a.name.empty()) a.name = item["projectId"] | a.provider.c_str();
-        a.state = item["state"] | "ALL_SYNCED";
-        a.sessionState = item["sessionState"] | "offline";
-        JsonArray refs = item["evidenceRefs"].as<JsonArray>();
-        if (!refs.isNull() && refs.size()) a.evidence = refs[0].as<const char*>();
-        out.agents.push_back(a);
+    if (!configured() || WiFi.status() != WL_CONNECTED) {
+        out.error = "host offline";
+        return out;
     }
-    Sys.hostOnline = true;
-    Sys.agentsWorking = out.working;
-    Sys.agentsWaiting = out.waiting;
-    Sys.agentsStale = out.needsNudge + out.overdue;
-    Sys.agentQuestion = out.questionForMaz > 0;
-    Sys.nudgeDue = out.needsNudge + out.overdue > 0;
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, "/nudge", base.second)) continue;
+        const int status = http.GET();
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        const String body = http.getString();
+        http.end();
+        JsonDocument doc;
+        if (status != 200 || deserializeJson(doc, body)) {
+            out.error = "nudge unavailable";
+            return out;
+        }
+        markOnline(base.second);
+        out.ok = true;
+        out.state = doc["state"] | "ALL_SYNCED";
+        out.working = doc["counts"]["working"] | 0;
+        out.waiting = doc["counts"]["waiting"] | 0;
+        out.needsNudge = doc["counts"]["needsNudge"] | 0;
+        out.overdue = doc["counts"]["overdue"] | 0;
+        out.attention = doc["counts"]["attention"] | 0;
+        out.questionForMaz = doc["counts"]["questionForMaz"] | 0;
+        for (JsonObject item : doc["agents"].as<JsonArray>()) {
+            Agent a;
+            a.id = item["sessionId"] | "";
+            a.provider = item["provider"] | "agent";
+            a.name = item["projectName"] | "";
+            if (a.name.empty()) a.name = item["projectId"] | a.provider.c_str();
+            a.state = item["state"] | "ALL_SYNCED";
+            a.sessionState = item["sessionState"] | "offline";
+            JsonArray refs = item["evidenceRefs"].as<JsonArray>();
+            if (!refs.isNull() && refs.size()) a.evidence = refs[0].as<const char*>();
+            out.agents.push_back(a);
+        }
+        Sys.agentsWorking = out.working;
+        Sys.agentsWaiting = out.waiting;
+        Sys.agentsStale = out.needsNudge + out.overdue;
+        Sys.agentQuestion = out.questionForMaz > 0;
+        Sys.nudgeDue = out.needsNudge + out.overdue > 0;
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
     return out;
 }
 
