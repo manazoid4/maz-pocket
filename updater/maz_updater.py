@@ -13,7 +13,6 @@ import json
 import os
 import re
 import runpy
-import secrets
 import shutil
 import socket
 import subprocess
@@ -24,7 +23,7 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from tkinter import END, BOTH, LEFT, RIGHT, X, Button, Entry, Frame, Label, StringVar, Text, Tk, messagebox, simpledialog
+from tkinter import END, BOTH, LEFT, RIGHT, X, Button, Entry, Frame, Label, StringVar, Text, Tk, filedialog, messagebox, simpledialog
 from tkinter.ttk import Progressbar
 
 import serial
@@ -68,6 +67,34 @@ def load_config() -> dict:
 
 def save_config(data: dict) -> None:
     config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def token_from_env(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r"(?m)^MAZ_TOKEN=(.+)$", text)
+    if not match:
+        return ""
+    token = match.group(1).strip().strip('"').strip("'")
+    return "" if token == "change-me-before-first-run" else token
+
+
+def current_wifi_ssid() -> str:
+    try:
+        result = subprocess.run(
+            ["netsh", "wlan", "show", "interfaces"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    # Match SSID but not BSSID. Windows localises labels on some systems, so
+    # failure simply falls back to the normal text prompt.
+    match = re.search(r"(?m)^\s*SSID\s*:\s*(.+?)\s*$", result.stdout)
+    return match.group(1).strip() if match else ""
 
 
 def find_usb_port() -> str | None:
@@ -344,11 +371,57 @@ class App:
                 self.root.after(0, self.remember)
         threading.Thread(target=worker, daemon=True).start()
 
+    def find_host_token(self) -> str:
+        existing = self.token.get().strip()
+        if existing:
+            return existing
+
+        remembered = self.cfg.get("host_env", "")
+        candidates = [
+            Path(remembered) if remembered else None,
+            Path.cwd() / "host" / ".env",
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[1] / "host" / ".env",
+            Path.home() / "Desktop" / "maz-pocket" / "host" / ".env",
+            Path.home() / "Documents" / "GitHub" / "maz-pocket" / "host" / ".env",
+            Path.home() / "source" / "repos" / "maz-pocket" / "host" / ".env",
+        ]
+        for path in candidates:
+            if path and path.is_file():
+                token = token_from_env(path)
+                if token:
+                    self.cfg["host_env"] = str(path)
+                    self.token.set(token)
+                    self.write(f"Host token loaded from {path}")
+                    return token
+
+        selected = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select Maz Pocket host/.env",
+            filetypes=[("MAZ Host environment", ".env"), ("All files", "*")],
+        )
+        if not selected:
+            return ""
+        path = Path(selected)
+        token = token_from_env(path)
+        if not token:
+            messagebox.showerror(
+                "Maz Pocket",
+                "That file has no configured MAZ_TOKEN. Run host\\setup.ps1 once, then pair again.",
+            )
+            return ""
+        self.cfg["host_env"] = str(path)
+        self.token.set(token)
+        self.write(f"Host token loaded from {path}")
+        return token
+
     # Snapshot all Tk values and collect dialogs on the main thread. The worker
     # then receives plain strings only; serial/network operations never touch Tk.
     def begin_wifi_update(self) -> None:
         ip = self.device_ip.get().strip()
-        token = self.token.get().strip()
+        token = self.find_host_token()
+        if not token:
+            return
         self.run(lambda: self.wifi_update(ip, token))
 
     def begin_pair(self) -> None:
@@ -356,20 +429,27 @@ class App:
         if not port:
             messagebox.showerror("Maz Pocket", "Pairing needs USB once so Wi-Fi credentials stay off an unauthenticated network")
             return
-        ssid = simpledialog.askstring("Pair Maz Pocket", "2.4 GHz Wi-Fi name:", parent=self.root)
+        token = self.find_host_token()
+        if not token:
+            return
+        suggested = current_wifi_ssid()
+        ssid = simpledialog.askstring(
+            "Pair Maz Pocket",
+            "2.4 GHz Wi-Fi name:",
+            initialvalue=suggested,
+            parent=self.root,
+        )
         if not ssid:
             return
         password = simpledialog.askstring("Pair Maz Pocket", f"Password for {ssid}:", show="•", parent=self.root)
         if password is None:
             return
-        token = self.token.get().strip() or secrets.token_urlsafe(24)
         self.run(lambda: self.pair(port, ssid, password, token))
 
     def begin_remote_call(self) -> None:
-        token = self.token.get().strip()
+        token = self.find_host_token()
         ip = self.device_ip.get().strip()
         if not token:
-            messagebox.showerror("Maz Pocket", "Pair the Cardputer first so it has a host token")
             return
         self.run(lambda: self.remote_call(token, ip))
 
@@ -418,8 +498,6 @@ class App:
                 raise RuntimeError("Device IP is unknown; click FIND or connect USB")
             ip = found[0]
             self.root.after(0, lambda: self.device_ip.set(ip))
-        if not token:
-            raise RuntimeError("Enter the MAZ Host pairing token first")
         self.write(f"Wi-Fi OTA -> {ip}")
         ota_upload(ip, token, self.firmware, self.progress)
         self.write("WI-FI UPDATE OK / device rebooting")
