@@ -123,6 +123,12 @@ Reply talkAudio(const std::string& session, const std::string& wavPath) {
                   {{"X-MAZ-Session", session}, {"X-MAZ-Route", route()}});
 }
 
+Reply transcribe(const std::string& wavPath) {
+    // No session header and no route: dictation must not join the
+    // conversation, and must not spend a model call to hand back what was said.
+    return upload("/transcribe/raw", wavPath, {});
+}
+
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights) {
     String marks = "[";
     for (size_t i = 0; i < highlights.size(); ++i) {

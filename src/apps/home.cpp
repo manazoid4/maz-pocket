@@ -28,7 +28,7 @@ public:
     const char* id() const override { return "home"; }
     const char* title() const override { return "MAZ Pocket"; }
     const char* hints() const override {
-        return "ENTER open  <> page  SPACE talk";
+        return "ENTER open  ,. page  SPACE talk";
     }
 
     void onEnter() override {
@@ -94,10 +94,9 @@ public:
                 return true;
             }
         }
-        if (e.code == KEY_SLASH) {
-            shell::openPalette();
-            return true;
-        }
+        // `/` is deliberately not bound here: it is the RIGHT arrow printed on
+        // the key, and paging Home without holding Fn matters more than a
+        // second way into the palette. Ctrl+K still opens it from anywhere.
         return false;
     }
 

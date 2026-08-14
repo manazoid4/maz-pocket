@@ -31,6 +31,14 @@ uint8_t serialKeyCode(String name) {
         return KEY_1 + (name[0] - '1');
     if (name == "0") return KEY_0;
     if (name == "TAB") return KEY_TAB;
+    // The keys the arrows are printed on. The shell turns these into UP/LEFT/
+    // DOWN/RIGHT/ESC when the focused app does not want the character, so the
+    // harness has to be able to send the raw key to prove that path works.
+    if (name == "SEMICOLON") return KEY_SEMICOLON;
+    if (name == "COMMA") return KEY_COMMA;
+    if (name == "DOT") return KEY_DOT;
+    if (name == "SLASH") return KEY_SLASH;
+    if (name == "GRAVE") return KEY_GRAVE;
     if (name == "ENTER") return KEY_ENTER;
     if (name == "ESC") return KEY_ESC;
     if (name == "SPACE") return KEY_SPACE;
