@@ -34,11 +34,19 @@ struct SysState {
     std::string wifiSsid;
     std::string ip;
 
-    // MAZ Host (the future OpenFlowKit / MAZos endpoint). Never faked: if it
-    // is not configured we say so rather than showing a hopeful green dot.
+    // MAZ Host compute endpoint. Never faked: if it is not configured we say
+    // so rather than showing a hopeful green dot.
     std::string hostAddr;
     uint16_t    hostPort   = 0;
     bool        hostOnline = false;
+
+    // Agent assurance summary. These are deterministic host facts, never LLM guesses.
+    uint8_t     agentsWorking = 0;
+    uint8_t     agentsWaiting = 0;
+    uint8_t     agentsStale   = 0;
+    bool        agentQuestion = false;
+    bool        nudgeDue      = false;
+    uint32_t    nudgeCheckedAt = 0;
 
     // live activity, surfaced in the status bar
     bool        recording    = false;

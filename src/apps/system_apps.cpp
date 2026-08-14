@@ -13,6 +13,7 @@
 #include "../audio/voice.h"
 #include "../core/notify.h"
 #include "../core/settings.h"
+#include "../core/launcher.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
@@ -175,7 +176,8 @@ private:
             case 8:
                 notify::post(Note::Info, "Rebooting", "back to M5Launcher");
                 delay(600);
-                ESP.restart();
+                if (!launcher::reboot())
+                    notify::post(Note::Error, "Launcher", "hand-back failed");
                 return;
             default:
                 break;
@@ -350,13 +352,33 @@ public:
     const char* id() const override { return "wifi"; }
     const char* title() const override { return "Connections"; }
     const char* hints() const override {
+        if (_hostSetup) return "ENTER next/save   ESC cancel";
         if (_entering) return "ENTER connect   ESC cancel";
         if (_scanning) return "ENTER pick network";
-        return "W wifi   S scan   H test host   T time";
+        return "W wifi   S scan   C host setup   H test";
     }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;
+
+        if (_hostSetup) {
+            if (e.code == KEY_ESC) { _hostSetup = 0; _field.text.clear(); invalidate(); return true; }
+            if (e.code == KEY_ENTER && !_field.text.empty()) {
+                if (_hostSetup == 1) {
+                    const size_t colon = _field.text.find(':');
+                    Cfg.hostAddr = _field.text.substr(0, colon);
+                    if (colon != std::string::npos) Cfg.hostPort = atoi(_field.text.substr(colon + 1).c_str());
+                    _field.text.clear(); _hostSetup = 2;
+                } else {
+                    Cfg.hostToken = _field.text; Cfg.firstRunComplete = true; Cfg.save();
+                    _field.text.clear(); _hostSetup = 0;
+                    notify::post(Note::Success, "MAZ Host saved", Cfg.hostAddr);
+                }
+                invalidate(); return true;
+            }
+            if (_field.onKey(e)) { invalidate(); return true; }
+            return false;
+        }
 
         if (_entering) {
             if (e.code == KEY_ENTER) {
@@ -417,6 +439,9 @@ public:
             invalidate();
             return true;
         }
+        if (e.code == KEY_C) {
+            _hostSetup = 1; _field.text.clear(); invalidate(); return true;
+        }
         if (e.code == KEY_H) {
             const bool ok = net::probeHost();
             notify::post(ok ? Note::Success : Note::Warn,
@@ -437,6 +462,13 @@ public:
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
+
+        if (_hostSetup) {
+            ui::header(g, "MAZ Host setup", _hostSetup == 1 ? "ADDRESS" : "TOKEN");
+            _field.draw(g, PAD, BODY_Y + 30, SCREEN_W - PAD * 2,
+                        _hostSetup == 1 ? "192.168.1.20:8787" : "token from host setup");
+            return;
+        }
 
         if (_entering) {
             ui::header(g, "Password", _pending.c_str());
@@ -504,6 +536,7 @@ private:
     std::string          _pending;
     bool                 _scanning = false;
     bool                 _entering = false;
+    uint8_t              _hostSetup = 0;
 };
 
 // ------------------------------------------------------------------- Help

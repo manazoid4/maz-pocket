@@ -42,6 +42,21 @@ struct Task {
     std::string text;
 };
 
+// One compact durable contract backs Inbox, decisions, sprints, reminders and
+// offline results. New surfaces reuse it instead of inventing more databases.
+struct Record {
+    std::string id;
+    std::string kind;    // inbox, decision, sprint, reminder, result, outbox
+    std::string status;  // open, queued, done, snoozed, failed
+    uint32_t    created = 0;
+    uint32_t    due     = 0;
+    bool        dueIsUptime = false;  // relative reminder before wall-clock sync
+    std::string title;
+    std::string body;
+    std::string source;
+    std::string ref;
+};
+
 // Mounts SD (preferred when Cfg.preferSd) then internal LittleFS, creates the
 // /maz tree, and sets Sys.storage / Sys.sdPresent.
 bool begin();
@@ -71,6 +86,11 @@ bool               rename(const std::string& from, const std::string& to);
 //   done<TAB>created_epoch<TAB>bucket<TAB>text
 std::vector<Task> loadTasks();
 bool              saveTasks(const std::vector<Task>& tasks);
+
+std::vector<Record> loadRecords(const char* kind = nullptr, size_t limit = 64);
+bool                saveRecords(const std::vector<Record>& records);
+bool                addRecord(Record& record);
+bool                updateRecord(const Record& record);
 
 // Snippets: name<TAB>value
 std::vector<std::pair<std::string, std::string>> loadSnippets();

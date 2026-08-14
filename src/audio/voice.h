@@ -24,7 +24,7 @@ namespace voice {
 constexpr uint32_t SAMPLE_RATE = 16000;
 constexpr size_t   BLOCK       = 512;  // samples per DMA block, about 32ms
 
-enum class State : uint8_t { Idle, Listening, Saving, Playing, Error };
+enum class State : uint8_t { Idle, Listening, Paused, Saving, Playing, Error };
 
 // Where captured audio goes. Implement this to add a destination.
 class Sink {
@@ -62,6 +62,8 @@ bool begin();  // one-time audio bring-up
 bool        start(Sink* sink, uint32_t maxSeconds);
 void        update();  // pump: call every loop while listening or playing
 bool        stop();
+bool        pause();
+bool        resume();
 State       state();
 float       level();  // 0..1 smoothed peak, drives the listening animation
 uint32_t    elapsedSeconds();

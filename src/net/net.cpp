@@ -18,12 +18,23 @@ bool     gWasConnected = false;
 }  // namespace
 
 void begin() {
-    WiFi.mode(WIFI_OFF);
     WiFi.persistent(false);
-    Sys.wifiOn        = false;
     Sys.wifiConnected = false;
     Sys.hostAddr      = Cfg.hostAddr;
     Sys.hostPort      = Cfg.hostPort;
+    if (Cfg.wifiSsid.empty()) {
+        WiFi.mode(WIFI_OFF);
+        Sys.wifiOn = false;
+        return;
+    }
+
+    // Start association without holding up the first screen. update() mirrors
+    // the result and applies bounded retry/backoff in the normal event loop.
+    WiFi.mode(WIFI_STA);
+    Sys.wifiOn   = true;
+    Sys.wifiSsid = Cfg.wifiSsid;
+    WiFi.begin(Cfg.wifiSsid.c_str(), Cfg.wifiPass.c_str());
+    gNextRetry = millis() + 12000;
 }
 
 bool connect(const std::string& ssid, const std::string& pass) {

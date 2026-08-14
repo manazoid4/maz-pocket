@@ -1,0 +1,18 @@
+# MAZ Host — runs on the laptop, never on the Cardputer.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.1
+httpx==0.28.1
+pyserial==3.5
+
+# Local speech-to-text. faster-whisper is the least painful reliable option on
+# Windows: pip-installable CTranslate2 wheels, no compiler, CPU works fine.
+faster-whisper==1.1.1
+# faster-whisper 1.1.1 imports requests at runtime but does not declare it.
+requests==2.32.4
+esptool==4.8.1
+
+# Optional local text-to-speech (MAZ_TTS_ENABLED=true). Windows SAPI, offline.
+pyttsx3==2.98

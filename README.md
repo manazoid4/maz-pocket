@@ -1,104 +1,67 @@
 # MAZ Pocket
 
-Standalone firmware for the **M5Stack Cardputer ADV**. A pocket capture device
-that installs and launches through M5Launcher alongside Bruce, Nemo and the
-rest — and the hardware front end for the MAZ assistant stack.
+MAZ Pocket turns the M5Stack Cardputer ADV into a dedicated physical interface
+to intelligence running on a laptop. The device stays focused on fast capture,
+visible state, shortcuts, timers, reminders and agent assurance; MAZ Host does
+STT and local/cloud model work.
 
-**v0.1 is local only.** Nothing talks to a network service yet. The voice,
-audio, storage and networking foundations are built so that v0.2 can replace
-`record -> local playback` with `record -> Wi-Fi -> OpenFlowKit -> MAZos -> TTS`
-without rewriting the Call screen.
+The glanceable Home surface is rendered with pinned LVGL 9.5.0 over the
+existing M5Unified framebuffer. This adds reusable embedded widgets and styles
+without replacing the proven ADV keyboard, storage, audio or Launcher paths.
+The official sources and retained MIT notice are recorded in
+[docs/research/LVGL.md](docs/research/LVGL.md).
 
-```
-┌──────────────────────┐
-│ ◉ 14:32      WiFi 87%│
-│ ┌──────────────────┐ │
-│ │ NEXT             │ │
-│ │ Finish FlowLens  │ │
-│ └──────────────────┘ │
-│ ┌─────┐┌─────┐┌─────┐│
-│ │Call ││Capt ││Focus││
-│ └─────┘└─────┘└─────┘│
-│ ┌─────┐┌─────┐┌─────┐│
-│ │Notes││Tasks││Recor││
-│ └─────┘└─────┘└─────┘│
-│ hold SPACE   ^K cmd  │
-└──────────────────────┘
-```
+## The eight fast surfaces
 
-## What it does
+| Key | Surface | Purpose |
+|---|---|---|
+| `T` | MAZ Talk | Hold SPACE, speak, receive a visible laptop-generated answer. |
+| `B` | BrainDump | Records immediately; `H` highlights, `P` pauses, raw audio always survives. |
+| `I` | Inbox | Useful answers and processed outputs, not another notes app. |
+| `D` | Decision | Captures both what and why. |
+| `F` | Focus | A deliberately small timer. |
+| `S` | Sprint | Intended outcome, 25-minute timer, then voice debrief entry. |
+| `N` | Nudge | Evidence-backed agent state and explicit nudging. |
+| `R` | Reminders | Local reminders with done and snooze actions. |
 
-| App | What it is for |
-|---|---|
-| **Call** | Hold SPACE, talk, release. Plays the take back; keep or bin it. The screen v0.2 wires to the assistant. |
-| **Capture** | Fastest thought to stored. Hold SPACE for voice, or just start typing. |
-| **Notes** | Local notes: write, read, edit, delete. |
-| **Focus** | 10/25/45/60 min sessions with a label. Keeps running when you leave the screen. |
-| **Tasks** | Today / Later. Home shows the next open one. |
-| **Recorder** | Long-form recording with playback and file management. |
-| **Command palette** | `Ctrl+K` anywhere. Type `rec`, `note`, `focus`. |
-| **Utilities** | Calculator, Stopwatch, QR, Text Viewer, Generator, Snippets — see [the research](docs/research/COMMUNITY_FEATURES.md) for why these six and not others. |
-| **Tools** | Mic/speaker/keyboard tests, Wi-Fi scan, battery, memory, storage, device info, reboot. Diagnostics only. |
-| **Connections** | Wi-Fi, and the MAZ Host placeholder. Shows `NOT CONFIGURED` rather than pretending. |
+`Ctrl+K` opens every secondary utility. Captures and queued turns use SD when
+available and internal LittleFS otherwise. Audio is streamed; the ADV has no
+PSRAM and never buffers a whole WAV in memory.
 
-## Keys
+## Run the laptop compute layer
 
-| Key | Does |
-|---|---|
-| hold **SPACE** | Voice capture, from anywhere on Home |
-| **Ctrl+K** | Command palette |
-| **ESC** / hold **ESC** | Back / straight Home |
-| **C X F / N T R** | Call, Capture, Focus / Notes, Tasks, Recorder |
-| **D** twice | Delete (no modal, no accidents) |
-
-## Build
-
-```bash
-pio run                      # build
-pio run -t upload            # flash over USB-C
-pio device monitor           # serial log at 115200
+```powershell
+cd host
+.\setup.ps1
+Start-Process powershell -ArgumentList '-File', '.\run.ps1' -WindowStyle Hidden
+.\pair.ps1
 ```
 
-Output: `.pio/build/cardputer-adv/firmware.bin`
+`pair.ps1` finds the Cardputer and laptop address automatically and asks for the
+Wi-Fi password in a private prompt. Agent Nudge remains loopback-only; MAZ Host
+reads its owner-only local credential and acts as the authenticated LAN proxy.
 
-## Install through M5Launcher
+## Build and install
 
-1. Copy `firmware.bin` to the microSD card (FAT32).
-2. On the Cardputer, hold **ENTER** at boot to enter M5Launcher.
-3. Choose **SD**, pick `firmware.bin`, install.
-4. Bruce, Nemo and anything else stay exactly where they were.
-
-MAZ Pocket is an app-only binary and does not claim ownership of the launcher.
-Tools then Reboot returns you to it.
-
-## Hardware notes that matter
-
-The ADV is **not** a Cardputer with a bigger battery. The keyboard moved behind
-a **TCA8418 I2C expander** — which is why firmware built for the original
-Cardputer boots on an ADV with a dead keyboard — and audio moved to an **ES8311
-codec**. MAZ Pocket ships its own TCA8418 driver and pins M5Unified 0.2.19, the
-first release with ADV support. Full detail in
-[docs/research/HARDWARE_ADV.md](docs/research/HARDWARE_ADV.md).
-
-There is **no PSRAM**. Audio is streamed to storage, never buffered whole.
-
-## Storage
-
-```
-/maz/notes/       /maz/recordings/   /maz/captures/
-/maz/tasks/       /maz/snippets/     /maz/logs/    /maz/cache/
+```powershell
+.\scripts\install.ps1
 ```
 
-SD when present, internal LittleFS otherwise, and it still boots and runs with
-neither — settings live in NVS, which survives being flashed by any launcher.
+- This is the only supported install path. It builds MAZ Pocket, hands control
+  back to M5Launcher when needed, prepares isolated MAZ storage, uses
+  M5Launcher's pinned official serial flasher, and verifies the real boot banner.
+- `Ctrl+L` or **Tools → Back to M5Launcher** returns to Launcher. Re-running the
+  same command replaces the old MAZ slot instead of filling flash with copies.
 
-## Docs
+MAZ Pocket never formats shared Launcher storage. The installer creates a named
+2 MB LittleFS partition for settings, queues and metadata. Use a FAT32 SDHC card
+for longer audio capture; offline text/timers/reminders still use internal storage.
 
-- [Community research](docs/research/COMMUNITY_FEATURES.md) — what shipped and what was rejected
-- [Hardware notes](docs/research/HARDWARE_ADV.md) — ADV pin map and traps
-- [Licences](docs/research/LICENCES.md) — what was read, what was used
-- [Verification](docs/VERIFICATION.md) — what is tested and what still needs the device
+## Verification truth
 
-## Licence
+Host tests and the Cardputer ADV target build run in CI. Physical-device results
+are recorded separately in [docs/VERIFICATION.md](docs/VERIFICATION.md); a compile
+is never presented as a hardware demonstration.
 
-MIT. No Bruce or Nemo code or branding is used; all artwork is drawn in code.
+MIT licensed. The MAZ UI and assets are original; third-party references and
+licence decisions are listed under `docs/research/`.
