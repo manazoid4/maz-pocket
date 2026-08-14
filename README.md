@@ -1,80 +1,90 @@
-# MAZ Pocket
+# MAZ Pocket v0.3
 
-MAZ Pocket turns the M5Stack Cardputer ADV into a dedicated physical interface
-to intelligence running on a laptop. The device stays focused on fast capture,
-visible state, shortcuts, timers, reminders and agent assurance; MAZ Host does
-STT and local/cloud model work.
+MAZ Pocket turns the M5Stack Cardputer ADV into a small physical remote for the
+intelligence and agents running on your PC. v0.3 deliberately reduces the Home
+screen to three jobs instead of presenting every utility at once:
 
-The glanceable Home surface is rendered with pinned LVGL 9.5.0 over the
-existing M5Unified framebuffer. This adds reusable embedded widgets and styles
-without replacing the proven ADV keyboard, storage, audio or Launcher paths.
-The official sources and retained MIT notice are recorded in
-[docs/research/LVGL.md](docs/research/LVGL.md).
+- **CALL** — hold SPACE, speak to MAZ Host, keep the conversation alive across
+  visits, read the reply and optionally hear it through the Cardputer speaker.
+- **CAPTURE** — record a thought immediately, preserve the raw audio first, then
+  structure it through MAZ Host when the PC is available.
+- **AGENTS** — see Agent Nudge state, inspect evidence, and explicitly nudge an
+  agent from the handheld.
 
-## Try it today
+Home is a three-icon retro launcher. LEFT/RIGHT selects a tile and ENTER opens
+it. Existing Notes, Tasks, Focus, Sprint, Reminders, Inbox, Recorder and other
+utilities are still installed; use `Ctrl+K` or their keyboard shortcuts when
+you need them. They no longer compete for the first screen.
 
-Start MAZ Host with `host/run.ps1`, then use the eight Home tiles or their
-single-letter shortcuts: **T** Talk, **B** BrainDump, **I** Inbox, **D**
-Decision, **F** Focus, **S** Sprint, **N** Nudge and **R** Reminders. Hold
-SPACE from Home to speak. `/` opens every additional utility.
+## Call PC
 
-For a repeatable physical acceptance run, connect the Cardputer over USB and
-run `host/.venv/Scripts/python.exe scripts/accept-device.py`. It opens and
-renders every first-class screen, drives the actual app key handlers, records
-through the device mic, exercises the live host, and returns the device Home.
-The control commands exist only on the local USB serial interface.
+MAZ Pocket tries the local MAZ Host address first for minimum latency. An
+optional HTTPS remote address can be configured as a fallback, so the same
+Call screen can work away from home when the PC is exposed through a secure
+remote tunnel such as Tailscale Funnel.
 
-## The eight fast surfaces
+The Cardputer records and uploads audio; the PC performs STT, local/cloud model
+routing, Agent Nudge access and TTS. API keys never live on the ESP32. Spoken
+replies use Windows speech through MAZ Host by default and are returned as WAV
+audio for playback on the Cardputer.
 
-| Key | Surface | Purpose |
-|---|---|---|
-| `T` | MAZ Talk | Hold SPACE, speak, receive a visible laptop-generated answer. |
-| `B` | BrainDump | Records immediately; `H` highlights, `P` pauses, raw audio always survives. |
-| `I` | Inbox | Useful answers and processed outputs, not another notes app. |
-| `D` | Decision | Captures both what and why. |
-| `F` | Focus | A deliberately small timer. |
-| `S` | Sprint | Intended outcome, 25-minute timer, then voice debrief entry. |
-| `N` | Nudge | Evidence-backed agent state and explicit nudging. |
-| `R` | Reminders | Local reminders with done and snooze actions. |
+## Lowest-friction Windows updates
 
-`Ctrl+K` opens every secondary utility. Captures and queued turns use SD when
-available and internal LittleFS otherwise. Audio is streamed; the ADV has no
-PSRAM and never buffers a whole WAV in memory.
+CI builds a single **`MazPocketUpdater-v0.3.exe`** containing the exact firmware
+image from the same build. The updater provides four actions:
 
-## Run the laptop compute layer
+- **USB UPDATE** — preserves M5Launcher, prepares the MAZ app/storage slot,
+  installs v0.3 and verifies the real `READY` boot banner.
+- **WI-FI UPDATE** — sends the bundled image directly through authenticated
+  ArduinoOTA once the device has been paired.
+- **PAIR** — one USB setup for Wi-Fi, MAZ Host address and the shared token.
+- **REMOTE CALL** — configures a Tailscale Funnel on the PC and stores the HTTPS
+  fallback on the Cardputer; LAN stays preferred.
 
-```powershell
-cd host
-.\setup.ps1
-Start-Process powershell -ArgumentList '-File', '.\run.ps1' -WindowStyle Hidden
-.\pair.ps1
-```
-
-`pair.ps1` finds the Cardputer and laptop address automatically and asks for the
-Wi-Fi password in a private prompt. Agent Nudge remains loopback-only; MAZ Host
-reads its owner-only local credential and acts as the authenticated LAN proxy.
-
-## Build and install
+The existing PowerShell paths remain available for development:
 
 ```powershell
 .\scripts\install.ps1
+cd host
+.\setup.ps1
+.\run.ps1
 ```
 
-- This is the only supported install path. It builds MAZ Pocket, hands control
-  back to M5Launcher when needed, prepares isolated MAZ storage, uses
-  M5Launcher's pinned official serial flasher, and verifies the real boot banner.
-- `Ctrl+L` or **Tools → Back to M5Launcher** returns to Launcher. Re-running the
-  same command replaces the old MAZ slot instead of filling flash with copies.
+## Why no on-device generative model
 
-MAZ Pocket never formats shared Launcher storage. The installer creates a named
-2 MB LittleFS partition for settings, queues and metadata. Use a FAT32 SDHC card
-for longer audio capture; offline text/timers/reminders still use internal storage.
+`slvDev/esp32-ai` is a useful reference for tiny-model deployment and
+quantisation, but its showcased 28.9M model targets an ESP32-S3 configuration
+with PSRAM and substantially more model storage. Cardputer ADV has 8 MB flash
+and no PSRAM. v0.3 therefore uses the useful architectural lesson rather than
+forcing that model onto unsuitable hardware: deterministic/local device work
+stays on the ESP32, while STT, generative reasoning and agent tools run on the
+PC. A future on-device classifier/router should be designed specifically for
+the ADV memory budget rather than pretending it is a chat LLM.
 
-## Verification truth
+## Architecture
 
-Host tests and the Cardputer ADV target build run in CI. Physical-device results
-are recorded separately in [docs/VERIFICATION.md](docs/VERIFICATION.md); a compile
-is never presented as a hardware demonstration.
+```text
+Cardputer ADV
+  CALL / CAPTURE / AGENTS
+        |
+        | LAN first, HTTPS fallback
+        v
+MAZ Host (Windows)
+  STT -> local/cloud models
+  TTS -> WAV reply
+  Agent Nudge -> agent state/actions
+```
 
-MIT licensed. The MAZ UI and assets are original; third-party references and
-licence decisions are listed under `docs/research/`.
+Audio is written to storage and streamed rather than buffering whole recordings
+in RAM. SD is preferred when present; internal storage remains the fallback.
+M5Launcher hand-back and authenticated Wi-Fi OTA remain first-class paths.
+
+## Verification
+
+GitHub Actions runs the MAZ Host tests, syntax-checks the updater, builds the
+Cardputer ADV target and packages the Windows updater. Physical-device results
+remain separate in `docs/VERIFICATION.md`: a successful compile is not claimed
+as proof that mic, speaker, remote access or flashing worked on real hardware.
+
+MIT licensed. Third-party references and licence decisions are recorded under
+`docs/research/`.
