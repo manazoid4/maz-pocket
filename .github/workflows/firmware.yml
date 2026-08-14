@@ -9,8 +9,11 @@ on:
 permissions:
   contents: read
 
+# Push and pull_request events for the same feature branch are the same build.
+# Keying on the source branch avoids burning two Windows runners and cancelling
+# useful firmware compiles every time a file changes.
 concurrency:
-  group: maz-pocket-${{ github.ref }}
+  group: maz-pocket-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
