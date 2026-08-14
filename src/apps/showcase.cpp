@@ -64,7 +64,8 @@ public:
 
     void update() override {
         if (_dead || _paused) return;
-        const uint32_t interval = std::max<uint32_t>(70, 145 - _score * 3);
+        const int intervalMs = std::max(70, 145 - static_cast<int>(_score) * 3);
+        const uint32_t interval = static_cast<uint32_t>(intervalMs);
         if (millis() - _lastStep < interval) return;
         _lastStep = millis();
         step();
