@@ -8,7 +8,6 @@ user to install a toolchain.
 from __future__ import annotations
 
 import hashlib
-import os
 import random
 import socket
 from pathlib import Path
@@ -31,9 +30,8 @@ def upload(ip: str, password: str, firmware: Path, progress: Progress | None = N
     firmware = Path(firmware)
     if not firmware.exists():
         raise RuntimeError(f"Firmware not found: {firmware}")
-    payload = firmware.read_bytes()
-    size = len(payload)
-    digest = hashlib.md5(payload).hexdigest()
+    size = firmware.stat().st_size
+    digest = hashlib.md5(firmware.read_bytes()).hexdigest()
     local_ip = _local_ip_for(ip)
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -64,6 +62,7 @@ def upload(ip: str, password: str, firmware: Path, progress: Progress | None = N
             if not password:
                 raise RuntimeError("OTA password/token is required")
             nonce = reply.split(maxsplit=1)[1]
+            # Arduino ESP32 2.x derives its client nonce from these four values.
             cnonce_text = f"{firmware}{size}{digest}{ip}"
             cnonce = hashlib.md5(cnonce_text.encode()).hexdigest()
             pass_md5 = hashlib.md5(password.encode()).hexdigest()
@@ -81,28 +80,35 @@ def upload(ip: str, password: str, firmware: Path, progress: Progress | None = N
         connection.settimeout(15)
         try:
             sent = 0
+            last_ack = ""
             with firmware.open("rb") as source:
                 while True:
                     chunk = source.read(1024)
                     if not chunk:
                         break
                     connection.sendall(chunk)
-                    ack = connection.recv(32).decode(errors="replace")
-                    if "OK" not in ack:
-                        raise RuntimeError(f"OTA write rejected: {ack.strip() or 'no ACK'}")
+                    last_ack = connection.recv(32).decode(errors="replace").strip()
+                    if not last_ack:
+                        raise RuntimeError("Cardputer stopped acknowledging OTA writes")
                     sent += len(chunk)
                     if progress:
                         progress(sent / max(1, size), f"Wi-Fi update {sent * 100 // max(1, size)}%")
 
-            # Older ArduinoOTA images may send the final OK as the last chunk's
-            # acknowledgement; newer builds may send one more result frame.
-            connection.settimeout(3)
-            try:
-                final = connection.recv(64).decode(errors="replace").strip()
-                if final and "OK" not in final:
-                    raise RuntimeError(f"OTA final response: {final}")
-            except socket.timeout:
-                pass
+            # During transfer ArduinoOTA may acknowledge with byte counts; the
+            # success marker is OK either on the final chunk or in the result
+            # frame immediately following it.
+            if "OK" not in last_ack:
+                connection.settimeout(12)
+                final = ""
+                for _ in range(5):
+                    try:
+                        final = connection.recv(64).decode(errors="replace").strip()
+                    except socket.timeout:
+                        continue
+                    if "OK" in final:
+                        break
+                if "OK" not in final:
+                    raise RuntimeError(f"OTA did not report success: {final or last_ack}")
         finally:
             connection.close()
     finally:
