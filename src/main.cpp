@@ -28,7 +28,10 @@ void setup() {
     auto cfg          = M5.config();
     cfg.internal_spk  = true;
     cfg.internal_mic  = true;
-    cfg.internal_imu  = false;  // BMI270 is unused in v0.1; skip the probe
+    // v0.3.1 uses the ADV's BMI270 for the tiny Hyperdrive showcase. Keeping
+    // the hardware enabled also gives future gesture shortcuts somewhere real
+    // to start without adding another driver stack.
+    cfg.internal_imu  = true;
     cfg.clear_display = true;
     M5.begin(cfg);
     M5.Display.setRotation(1);
