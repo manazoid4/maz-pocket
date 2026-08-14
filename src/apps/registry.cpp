@@ -11,9 +11,9 @@ namespace {
 // deleting working utilities.
 const Descriptor TABLE[] = {
     {"home",      "Home",        nullptr, "home menu",                              0,     false, makeHome},
-    {"talk",      "Call PC",     "CALL",  "call pc voice assistant remote talk",    KEY_T, true,  makeCallV3},
-    {"braindump", "Capture",     "CAPTURE","capture thought highlight voice",        KEY_B, true,  makeCapture},
-    {"nudge",     "Agents",      "AGENTS","agent fleet nudge assurance sync waiting",KEY_N, true,  makeAgentsV3},
+    {"talk",      "Call PC",     "COMM",  "call pc voice communicator remote control",KEY_T, true,  makeCallV3},
+    {"braindump", "Field Log",   "LOG",   "capture thought field log highlight voice", KEY_B, true,  makeCapture},
+    {"nudge",     "Agent Ops",   "OPS",   "agent fleet operations nudge assurance sync",KEY_N, true,  makeAgentsV3},
 
     {"inbox",     "Inbox",       nullptr, "answers results useful outputs",          KEY_I, false, makeInbox},
     {"focus",     "Focus",       nullptr, "focus timer pomodoro session",            KEY_F, false, makeFocus},
