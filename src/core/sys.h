@@ -27,6 +27,14 @@ struct SysState {
     Storage storage    = Storage::None;
     bool    sdPresent  = false;
     bool    internalFs = false;
+    // A card answered on the bus but carried no usable filesystem. Distinct
+    // from "no card": an unformatted card silently demotes you to internal
+    // flash, which is the volatile backend, and you would never know.
+    bool    sdUnreadable = false;
+    // Internal LittleFS came up empty because it had to be formatted — which
+    // means whatever was stored there is gone. Flashing a different partition
+    // table (M5Launcher's vs ours) moves the data region and triggers this.
+    bool    internalFormatted = false;
 
     // network
     bool        wifiOn        = false;

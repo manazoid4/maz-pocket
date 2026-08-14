@@ -13,6 +13,22 @@ if (-not $Binary) {
 }
 if (-not (Test-Path $Binary)) { throw "Firmware not found: $Binary" }
 
+# Refuse to install an image older than the current build. An agent or a stale
+# shell re-running this with a hand-rolled -Binary would otherwise quietly
+# overwrite freshly flashed firmware with whatever was last packaged, and the
+# device gives no sign at all that it happened.
+$Built = Join-Path $Root ".pio\build\cardputer-adv\firmware.bin"
+if (Test-Path $Built) {
+    $BuiltAt = (Get-Item $Built).LastWriteTimeUtc
+    $ImageAt = (Get-Item $Binary).LastWriteTimeUtc
+    if ($BuiltAt -gt $ImageAt.AddSeconds(1)) {
+        throw ("Refusing to flash a stale image. '$Binary' was packaged at " +
+               "$ImageAt UTC, but .pio\build\cardputer-adv\firmware.bin is " +
+               "from $BuiltAt UTC. Run scripts\package-release.ps1 first, or " +
+               "pass -Binary .pio\build\cardputer-adv\firmware.bin.")
+    }
+}
+
 if (-not (Test-Path $HostPython)) {
     & (Join-Path $Root "host\setup.ps1")
 }

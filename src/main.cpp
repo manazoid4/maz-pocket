@@ -59,10 +59,12 @@ void handlePairingCommand() {
         const bool recording = voice::state() == voice::State::Listening ||
                                voice::state() == voice::State::Paused;
         Serial.printf(
-            "MAZSCREEN screen=%s recording=%u focus=%u braindumps=%u "
+            "MAZSCREEN screen=%s recording=%u focus=%u storage=%s "
+            "sdbad=%u wiped=%u braindumps=%u "
             "inbox=%u decisions=%u reminders=%u sprints=%u\n",
             shell::currentId(), recording ? 1 : 0,
-            shell::focus::running() ? 1 : 0,
+            shell::focus::running() ? 1 : 0, store::backendName(),
+            Sys.sdUnreadable ? 1 : 0, Sys.internalFormatted ? 1 : 0,
             static_cast<unsigned>(store::list("braindumps", "wav", 1000).size()),
             static_cast<unsigned>(store::loadRecords("inbox", 1000).size()),
             static_cast<unsigned>(store::loadRecords("decision", 1000).size()),
@@ -202,6 +204,14 @@ void setup() {
     if (!store::ready())
         notify::post(Note::Warn, "No storage",
                      "notes and recordings are disabled");
+    // Both of these used to be log-only, so the device looked healthy while
+    // silently running on volatile storage, or having just erased itself.
+    else if (Sys.internalFormatted)
+        notify::post(Note::Warn, "Internal storage reset",
+                     "previous notes and recordings are gone");
+    if (Sys.sdUnreadable)
+        notify::post(Note::Warn, "SD card unreadable",
+                     "format it as FAT32 to keep data safely");
 }
 
 void loop() {

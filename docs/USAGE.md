@@ -117,6 +117,29 @@ Settings live in NVS, so they survive being re-flashed by a launcher.
 **T** syncs the clock from NTP. Until a host is configured the line reads
 `NOT CONFIGURED`.
 
+## Where your data lives
+
+MAZ Pocket writes to an SD card when one is present and readable, and to
+internal flash otherwise. The status bar shows `SD` when the card is the
+backend; Tools reports the backend by name.
+
+**Internal flash is the volatile option.** It lives in a partition, and a
+partition table is set by whoever flashed the device — M5Launcher uses its own,
+`pio run -t upload` writes the one in `partitions.csv`. Switching between those
+two moves the data region, the old filesystem no longer mounts, and it has to
+be reformatted before it can be used again.
+
+That used to happen in silence. It now announces itself:
+
+- **"Internal storage reset"** — the internal filesystem had to be formatted,
+  so notes and recordings stored there are gone. Expected after changing how
+  the device is flashed; not expected on an ordinary power cycle.
+- **"SD card unreadable"** — a card is in the slot but carries no FAT volume.
+  Format it as FAT32 and it will be picked up on the next boot.
+
+If you want data that survives reflashing, keep a FAT32 card in the slot. That
+is the only backend a firmware install cannot disturb.
+
 ## Getting back to Bruce
 
 Tools then Reboot, or power cycle and hold **ENTER** to land in M5Launcher.
