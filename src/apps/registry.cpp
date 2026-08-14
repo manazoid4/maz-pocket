@@ -15,6 +15,11 @@ const Descriptor TABLE[] = {
     {"braindump", "Field Log",   "LOG",   "capture thought field log highlight voice", KEY_B, true,  makeCapture},
     {"nudge",     "Agent Ops",   "OPS",   "agent fleet operations nudge assurance sync",KEY_N, true,  makeAgentsV3},
 
+    // Showcase extras stay out of Home by design. They are there when you want
+    // to hand the device to someone, not every time you need to get work done.
+    {"snake",     "Snake",       nullptr, "snake game arcade retro fun",               0, false, makeSnake},
+    {"hyperdrive","Hyperdrive",  nullptr, "hyperdrive starfield imu tilt motion demo", 0, false, makeHyperdrive},
+
     {"inbox",     "Inbox",       nullptr, "answers results useful outputs",          KEY_I, false, makeInbox},
     {"focus",     "Focus",       nullptr, "focus timer pomodoro session",            KEY_F, false, makeFocus},
     {"reminders", "Reminders",   nullptr, "reminder schedule done snooze",           KEY_R, false, makeReminders},
@@ -25,7 +30,7 @@ const Descriptor TABLE[] = {
     {"recorder",  "Recorder",    nullptr, "recorder record memo audio wav",          0,     false, makeRecorder},
     {"calc",      "Calculator",  "Calc",  "calculator calc math sum",                KEY_C, false, makeCalculator},
     {"stopwatch", "Stopwatch",   nullptr, "stopwatch timer lap count",               KEY_W, false, makeStopwatch},
-    {"qr",        "QR Code",     "QR",    "qr code share url wifi",                  KEY_Q, false, makeQr},
+    {"qr",        "Beam",        "Beam",  "beam qr code share phone url text wifi",   KEY_Q, false, makeQr},
     {"viewer",    "Text Viewer", "Viewer","viewer read file text md txt",            KEY_V, false, makeViewer},
     {"gen",       "Generator",   nullptr, "generator password passphrase random",    KEY_G, false, makeGenerator},
     {"snippets",  "Snippets",    nullptr, "snippets text clip email phrase",         KEY_P, false, makeSnippets},
