@@ -15,10 +15,17 @@ namespace apps {
 struct Descriptor {
     const char* id;
     const char* title;
+    // What the Home table shows. A cell is 92px wide at montserrat_14, so a
+    // long `title` would ellipsise into something you cannot recognise at a
+    // glance. The palette keeps the full title, where the extra words help you
+    // search. nullptr means the title already fits.
+    const char* shortTitle;
     const char* keywords;  // space separated, lower case
     uint8_t     shortcut;  // HID code that opens it from Home, 0 = none
-    bool        onHome;    // shown in the Home grid
+    bool        onHome;    // sorts onto Home's first page
     App* (*make)();
+
+    const char* cellTitle() const { return shortTitle ? shortTitle : title; }
 };
 
 const Descriptor* table(size_t& count);

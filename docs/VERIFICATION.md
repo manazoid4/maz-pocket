@@ -8,10 +8,11 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
 |---|---|
 | Cardputer ADV release build | PASS — PlatformIO 6.1.19, espressif32 6.9.0 |
 | Static memory | 126,756 B / 327,680 B (38.7%), including LVGL's 64 KiB pool and 6,720 B partial draw buffer |
-| App flash | 1,525,621 B / 3,145,728 B (48.5%) |
-| MAZ Host | 13 Python tests pass, including authenticated streamed WAV, Agent Nudge credential discovery and deterministic voice reminders |
+| App flash | 1,527,969 B / 3,145,728 B (48.6%) |
+| MAZ Host | 16 Python tests pass, including authenticated streamed WAV, Agent Nudge credential discovery, deterministic voice reminders and malformed BrainDump-output recovery |
 | Agent Nudge | Typecheck, 65 unit tests, 39 integration tests, 2 end-to-end tests and production build pass |
-| Release packaging | Produces only a Launcher-safe app binary; the destructive merged web image was removed |
+| Live BrainDump host flow | PASS — generated speech was transcribed, highlighted, structured by the installed local model and returned in 6.64 s |
+| Release packaging | Produces only a 1,528,336 B Launcher-safe app binary (`SHA-256 41EB8A09AB769C168B71EA4BA08EDE34C8E8E4CA71317B859C84EAF478E8F620`); the destructive merged web image was removed |
 
 ## Observed on the physical Cardputer ADV
 
@@ -38,7 +39,12 @@ Updated 2026-08-14. Compiling is not counted as a product demonstration.
   upload 16 ms, STT 906 ms, model 929 ms, total 1.85 s. First cold run was
   12.16 s, so the shipped laptop default uses the installed `gemma3:1b` model.
 
-## Physical acceptance still required
+## Physical acceptance still required for the new build
+
+The Cardputer is currently absent from Windows USB (`303A:1001` is recorded
+but `Present=False`), so the new binary has not been installed or accepted on
+hardware yet. The prior Launcher-installed build remains the last physical
+proof described above.
 
 1. Confirm the LVGL-rendered home screen visually and press each Home shortcut.
 2. Confirm storage. The card observed during boot was not a valid FAT

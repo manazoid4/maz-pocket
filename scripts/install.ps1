@@ -19,21 +19,23 @@ if (-not (Test-Path $HostPython)) {
 & $HostPython -m pip install -q -r (Join-Path $Root "host\requirements.txt")
 
 if (-not $Port) {
-    $Port = Get-CimInstance Win32_SerialPort | Where-Object {
-        $_.PNPDeviceID -match 'VID_303A&PID_1001'
-    } | Select-Object -First 1 -ExpandProperty DeviceID
+    for ($attempt = 0; $attempt -lt 20 -and -not $Port; $attempt++) {
+        $Port = Get-CimInstance Win32_SerialPort | Where-Object {
+            $_.PNPDeviceID -match 'VID_303A&PID_1001'
+        } | Select-Object -First 1 -ExpandProperty DeviceID
+        if (-not $Port) { Start-Sleep -Seconds 1 }
+    }
 }
-if (-not $Port) { throw "Cardputer ADV not found over USB." }
+if (-not $Port) {
+    throw "Cardputer ADV not found over USB after 20 seconds. Connect its data cable and tap RESET."
+}
 
-# If MAZ Pocket is currently open, ask it to hand back to Launcher first.
+# If MAZ Pocket is currently open, wait through the serial-open reset and then
+# ask it to hand back to Launcher. A Launcher already running simply ignores
+# this best-effort step and is accepted by `prepare` below.
 try {
-    $Serial = [System.IO.Ports.SerialPort]::new($Port, 115200)
-    $Serial.Open()
-    $Serial.WriteLine("MAZLAUNCHER")
-    Start-Sleep -Seconds 2
-    $Serial.Close()
+    & $HostPython (Join-Path $Root "scripts\launcher-device.py") handoff --port $Port
 } catch {
-    if ($Serial -and $Serial.IsOpen) { $Serial.Close() }
 }
 
 & $HostPython (Join-Path $Root "scripts\launcher-device.py") prepare --port $Port

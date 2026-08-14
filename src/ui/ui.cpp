@@ -114,16 +114,40 @@ void hintBar(M5Canvas& g, const char* hints) {
     g.fillRect(0, y, SCREEN_W, HINT_H, PANEL);
     g.drawFastHLine(0, y, SCREEN_W, LINE);
     g.setFont(&fonts::Font0);
-    g.setTextColor(DIM, PANEL);
     g.setTextDatum(top_left);
-    g.drawString(hints, PAD, y + 3);
+
+    // The back affordance. This device has no pointer, so "back button" has to
+    // mean a fixed, always-present label of the key that goes back. Filled
+    // amber when there is somewhere to return to, hairline grey on Home when
+    // there is not — a control that vanishes is a control you stop trusting.
+    const bool canBack = Sys.navDepth > 1;
+    g.fillRoundRect(2, y + 1, 32, 11, 2, canBack ? ACCENT : LINE);
+    g.setTextColor(canBack ? BG : DIM, canBack ? ACCENT : LINE);
+    g.drawString("<ESC", 6, y + 3);
+    // Two or more deep: a tick past the chip says there is still more behind
+    // this screen, so you hold ESC for Home rather than mashing it.
+    if (Sys.navDepth > 2) g.fillRect(36, y + 1, 2, 11, ACCENT);
+
+    // 33 chars is what fits beside the chip at Font0's 6px advance. Hints used
+    // to run off the right edge silently; now they are cut where they land.
+    char buf[34];
+    snprintf(buf, sizeof(buf), "%.33s", hints ? hints : "");
+    g.setTextColor(HINT, PANEL);
+    g.drawString(buf, 41, y + 3);
 }
 
 void header(M5Canvas& g, const char* title, const char* right) {
     g.setFont(&fonts::Font2);
-    g.setTextColor(ACCENT, BG);
     g.setTextDatum(top_left);
-    g.drawString(title, PAD, BODY_Y + 2);
+    // The chip says how to go back; this chevron says there is a back at all,
+    // inside the body where the eye already is.
+    const int titleX = Sys.navDepth > 1 ? PAD + 10 : PAD;
+    if (Sys.navDepth > 1) {
+        g.setTextColor(DIM, BG);
+        g.drawString("<", PAD, BODY_Y + 2);
+    }
+    g.setTextColor(ACCENT, BG);
+    g.drawString(title, titleX, BODY_Y + 2);
     if (right) {
         g.setFont(&fonts::Font0);
         g.setTextColor(DIM, BG);

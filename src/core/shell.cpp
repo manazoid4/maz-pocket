@@ -31,6 +31,10 @@ bool              gDimmed      = false;
 bool              gScreenOff   = false;
 uint32_t          gLastPowerMs = 0;
 bool              gEscHandled  = false;
+// Set when the focused app claims the ESC *press*. Without it the matching
+// release falls through to the shell and pops the app as well, so one ESC in
+// a sub-mode both cancelled the edit and left the screen.
+bool              gEscClaimed  = false;
 
 // ------------------------------------------------------------- Focus timer
 struct FocusTimer {
@@ -261,6 +265,9 @@ bool handleGlobalKey(const KeyEvent& e) {
 // -------------------------------------------------------------------- API
 M5Canvas& canvas() { return gCanvas; }
 int       depth() { return static_cast<int>(gStack.size()); }
+const char* currentId() {
+    return gStack.empty() ? "none" : gStack.back()->id();
+}
 
 void invalidate() {
     if (!gStack.empty()) gStack.back()->invalidate();
@@ -280,6 +287,7 @@ void push(App* app) {
     if (!app) return;
     if (!gStack.empty()) gStack.back()->onExit();
     gStack.push_back(app);
+    Sys.navDepth = static_cast<uint8_t>(gStack.size());
     app->onEnter();
     app->invalidate();
 }
@@ -299,6 +307,7 @@ void pop() {
     gStack.back()->onExit();
     delete gStack.back();
     gStack.pop_back();
+    Sys.navDepth = static_cast<uint8_t>(gStack.size());
     gStack.back()->onEnter();
     gStack.back()->invalidate();
 }
@@ -310,6 +319,32 @@ void goHome() {
 void openPalette() {
     if (!gStack.empty() && !strcmp(gStack.back()->id(), "palette")) return;
     push(new Palette());
+}
+
+void dispatchKey(const KeyEvent& e) {
+    if (e.down) wake();
+    if (notify::active() && e.down) notify::dismiss();
+
+    if (handleGlobalKey(e)) return;
+    if (gStack.empty()) return;
+
+    if (e.down && e.code == KEY_ESC) {
+        gEscHandled = false;
+        gEscClaimed = false;
+    }
+    if (gStack.back()->onKey(e)) {
+        // The app used ESC for its own back step (closing a detail view,
+        // cancelling an edit). Remember it so the release does not pop again.
+        if (e.down && e.code == KEY_ESC) gEscClaimed = true;
+        return;
+    }
+
+    // Unclaimed ESC is navigation. Long-press-to-Home remains physical-only
+    // because it depends on the keyboard's held-key clock.
+    if (!e.down && e.code == KEY_ESC && !gEscHandled && !gEscClaimed) {
+        pop();
+        sfx::select();
+    }
 }
 
 namespace focus {
@@ -378,19 +413,7 @@ void loop() {
     bool     sawInput = false;
     while (KB.pop(e)) {
         sawInput = true;
-        if (e.down) wake();
-        if (notify::active() && e.down) notify::dismiss();
-
-        if (handleGlobalKey(e)) continue;
-        if (gStack.empty()) continue;
-        if (gStack.back()->onKey(e)) continue;
-
-        // Unclaimed ESC is navigation. Long-press goes all the way Home.
-        if (e.down && e.code == KEY_ESC) gEscHandled = false;
-        if (!e.down && e.code == KEY_ESC && !gEscHandled) {
-            pop();
-            sfx::select();
-        }
+        dispatchKey(e);
     }
 
     if (KB.held(KEY_ESC) && KB.heldFor(KEY_ESC) > 600 && !gEscHandled) {

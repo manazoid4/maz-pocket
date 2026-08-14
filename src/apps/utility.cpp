@@ -371,7 +371,7 @@ public:
     const char* id() const override { return "gen"; }
     const char* title() const override { return "Generator"; }
     const char* hints() const override {
-        return "up/down type   ENTER generate   S snippet";
+        return "up/down type  ENTER make  S snippet";
     }
 
     void onEnter() override { generate(); }

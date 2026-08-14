@@ -20,6 +20,28 @@
 using namespace maz;
 
 namespace {
+uint8_t serialKeyCode(String name) {
+    name.toUpperCase();
+    if (name.length() == 1 && name[0] >= 'A' && name[0] <= 'Z')
+        return KEY_A + (name[0] - 'A');
+    // Home pages with TAB and opens cells by their digit badge, so the
+    // acceptance harness has to be able to send both. Without these the whole
+    // paging path is undrivable over USB and simply looks like it does nothing.
+    if (name.length() == 1 && name[0] >= '1' && name[0] <= '9')
+        return KEY_1 + (name[0] - '1');
+    if (name == "0") return KEY_0;
+    if (name == "TAB") return KEY_TAB;
+    if (name == "ENTER") return KEY_ENTER;
+    if (name == "ESC") return KEY_ESC;
+    if (name == "SPACE") return KEY_SPACE;
+    if (name == "UP") return KEY_UP;
+    if (name == "DOWN") return KEY_DOWN;
+    if (name == "LEFT") return KEY_LEFT;
+    if (name == "RIGHT") return KEY_RIGHT;
+    if (name == "BACKSPACE") return KEY_BACKSPACE;
+    return KEY_NONE;
+}
+
 void handlePairingCommand() {
     if (!Serial.available()) return;
     String line = Serial.readStringUntil('\n');
@@ -31,6 +53,58 @@ void handlePairingCommand() {
                       Sys.wifiConnected ? "online" : "offline",
                       hostOnline ? "online" : "offline", fleet.state.c_str(),
                       static_cast<unsigned>(fleet.agents.size()));
+        return;
+    }
+    if (line == "MAZSCREEN") {
+        const bool recording = voice::state() == voice::State::Listening ||
+                               voice::state() == voice::State::Paused;
+        Serial.printf(
+            "MAZSCREEN screen=%s recording=%u focus=%u braindumps=%u "
+            "inbox=%u decisions=%u reminders=%u sprints=%u\n",
+            shell::currentId(), recording ? 1 : 0,
+            shell::focus::running() ? 1 : 0,
+            static_cast<unsigned>(store::list("braindumps", "wav", 1000).size()),
+            static_cast<unsigned>(store::loadRecords("inbox", 1000).size()),
+            static_cast<unsigned>(store::loadRecords("decision", 1000).size()),
+            static_cast<unsigned>(store::loadRecords("reminder", 1000).size()),
+            static_cast<unsigned>(store::loadRecords("sprint", 1000).size()));
+        return;
+    }
+    if (line.startsWith("MAZOPEN\t")) {
+        const String target = line.substring(8);
+        shell::goHome();
+        const bool ok = target == "home" || shell::pushById(target.c_str());
+        Serial.printf("MAZOPEN %s screen=%s\n", ok ? "OK" : "ERR",
+                      shell::currentId());
+        return;
+    }
+    if (line.startsWith("MAZTYPE\t")) {
+        String text = line.substring(8);
+        if (text.length() > 120) text.remove(120);
+        for (size_t i = 0; i < text.length(); ++i) {
+            KeyEvent event;
+            event.ch = text[i];
+            event.down = true;
+            shell::dispatchKey(event);
+        }
+        Serial.printf("MAZTYPE OK chars=%u screen=%s\n",
+                      static_cast<unsigned>(text.length()), shell::currentId());
+        return;
+    }
+    if (line.startsWith("MAZKEY\t")) {
+        const int split = line.indexOf('\t', 7);
+        if (split < 0) { Serial.println("MAZKEY ERR fields"); return; }
+        const uint8_t code = serialKeyCode(line.substring(7, split));
+        const String state = line.substring(split + 1);
+        if (code == KEY_NONE || (state != "DOWN" && state != "UP")) {
+            Serial.println("MAZKEY ERR key");
+            return;
+        }
+        KeyEvent event;
+        event.code = code;
+        event.down = state == "DOWN";
+        shell::dispatchKey(event);
+        Serial.printf("MAZKEY OK screen=%s\n", shell::currentId());
         return;
     }
     if (line == "MAZLAUNCHER") {

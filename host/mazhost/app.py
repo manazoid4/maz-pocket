@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .commands import parse_command
+from .braindump import structure_braindump
 from .device import DeviceMonitor
 from .llm import Models, Route
 from .nudge import NudgeClient
@@ -225,7 +226,10 @@ def create_app(
                 [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
                 cfg.default_route,
             )
-            return {"transcript": transcript, "provider": provider, **json.loads(reply), "highlights": marks}
+            structured, fallback = structure_braindump(reply, transcript)
+            if fallback:
+                provider += "+deterministic"
+            return {"transcript": transcript, "provider": provider, **structured, "highlights": marks}
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
@@ -255,7 +259,10 @@ def create_app(
                 [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
                 cfg.default_route,
             )
-            return {"transcript": transcript, "provider": provider, **json.loads(reply), "highlights": marks}
+            structured, fallback = structure_braindump(reply, transcript)
+            if fallback:
+                provider += "+deterministic"
+            return {"transcript": transcript, "provider": provider, **structured, "highlights": marks}
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:

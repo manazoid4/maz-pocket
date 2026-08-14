@@ -294,7 +294,7 @@ public:
 
     const char* hints() const override {
         if (voice::state() == voice::State::Listening)
-            return "H highlight   P pause   ENTER finish";
+            return "H highlight  P pause  ENTER finish";
         if (voice::state() == voice::State::Paused) return "P resume   ENTER finish";
         if (_processing) return "processing on laptop...";
         if (_ready) return "O process on laptop   P play raw";

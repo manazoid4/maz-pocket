@@ -32,6 +32,28 @@ def read_line(device: serial.Serial, deadline: float) -> str:
     return ""
 
 
+def handoff(port: str) -> None:
+    """Wait through USB-open reset, then ask a running MAZ app for Launcher."""
+    with serial.Serial(port, 115200, timeout=0.2) as device:
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            line = read_line(device, deadline)
+            if READY_BANNER in line:
+                break
+        device.write(b"MAZLAUNCHER\n")
+        device.flush()
+        deadline = time.time() + 4
+        while time.time() < deadline:
+            if read_line(device, deadline).startswith("MAZLAUNCHER OK"):
+                # The acknowledgement is deliberately printed before the app
+                # invalidates its OTA slot. Let that terminal flash write and
+                # reboot finish before `prepare` issues another hard reset.
+                time.sleep(2)
+                print("[+] MAZ Pocket handed control back to M5Launcher.")
+                return
+        raise RuntimeError("MAZ Pocket did not acknowledge Launcher hand-back")
+
+
 def prepare(port: str) -> None:
     reset(port)
     with serial.Serial(port, 115200, timeout=0.2) as device:
@@ -97,10 +119,10 @@ def verify(port: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("prepare", "verify"))
+    parser.add_argument("mode", choices=("handoff", "prepare", "verify"))
     parser.add_argument("--port", required=True)
     args = parser.parse_args()
-    (prepare if args.mode == "prepare" else verify)(args.port)
+    {"handoff": handoff, "prepare": prepare, "verify": verify}[args.mode](args.port)
 
 
 if __name__ == "__main__":

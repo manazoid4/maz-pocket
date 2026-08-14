@@ -7,14 +7,48 @@ Home in under a second. There is no splash to sit through.
 
 ## Home
 
-The top panel shows one thing, in priority order: a running Focus session, else
-your next open task, else the MAZ mark. Below it, six tiles.
+A strip across the top shows one thing, in priority order: a running Focus
+session, else your next open task, else the MAZ mark. Under it is the app
+table — two columns, four rows, eight apps to a page.
 
-- Arrows move, **ENTER** opens.
-- **C** Call, **X** Capture, **F** Focus, **N** Notes, **T** Tasks, **R** Recorder.
-- **/** or **Ctrl+K** opens the command palette.
+Every app in the firmware sits on one of the pages. Nothing is hidden behind
+already knowing its name.
+
+- **Arrows** move. Pushing left or right off the edge of a row turns the page
+  and lands you on the column you came in from, so it reads as one wide table
+  rather than a jump.
+- **TAB** goes straight to the next page, **Shift+TAB** the previous one.
+- **ENTER** opens the selected app.
+- The page shows as `1/3` and as dots at the right of the strip.
+- Each cell carries a badge: the **letter** that opens that app from anywhere on
+  Home, or the **digit** of its slot on this page.
 - **Hold SPACE** anywhere on Home drops straight into a voice capture, already
   recording. This is the gesture the device exists for.
+- **/** or **Ctrl+K** opens the command palette, which searches full names.
+
+### Page 1 — the assistant
+
+**T** Talk, **B** BrainDump, **I** Inbox, **D** Decision,
+**F** Focus, **S** Sprint, **N** Nudge, **R** Reminders.
+
+### Page 2 — tools
+
+Notes, Tasks, Recorder (digits **1**-**3**), **C** Calculator, **W** Stopwatch,
+**Q** QR Code, **V** Viewer, **G** Generator.
+
+### Page 3 — system
+
+**P** Snippets, Connections, Tools, Settings (digits **2**-**4**), **H** Help.
+
+## Going back
+
+The bottom left of every screen shows the **`<ESC`** chip. It is filled amber
+whenever there is somewhere to go back to, and grey on Home where there is not.
+
+- **ESC** goes back one step. Inside an editor or a detail view it cancels that
+  first, and only leaves the app on a second press.
+- **Hold ESC** returns to Home from anywhere.
+- A small amber tick beside the chip means you are more than one screen deep.
 
 ## Call
 
@@ -60,7 +94,7 @@ Two ways in, both fast:
 
 ## Utilities
 
-Reachable from the command palette (`Ctrl+K`).
+On page 2 of Home, or from the command palette (`Ctrl+K`).
 
 - **Calculator** — type `1250*0.2`, **ENTER**. `A` appends the last answer.
 - **Stopwatch** — **ENTER** start/stop, **L** lap, **R** reset.

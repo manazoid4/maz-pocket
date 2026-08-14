@@ -48,6 +48,10 @@ struct SysState {
     bool        nudgeDue      = false;
     uint32_t    nudgeCheckedAt = 0;
 
+    // Navigation. The chrome draws the back affordance from this, so it stays
+    // correct on every screen without each app remembering to say so itself.
+    uint8_t navDepth = 1;  // shell stack size; 1 == Home, nothing behind it
+
     // live activity, surfaced in the status bar
     bool        recording    = false;
     uint32_t    recSeconds   = 0;

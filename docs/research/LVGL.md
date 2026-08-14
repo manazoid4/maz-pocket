@@ -25,9 +25,39 @@ Release `v9.5.0` points to upstream commit `85aa60d` and was published on
 - A 14-row (6,720-byte) partial draw buffer, slightly above one tenth of the
   screen, explicitly aligned to LVGL's 4-byte requirement and copied into the
   existing M5Canvas framebuffer by a flush callback.
-- Original MAZ labels, panels, ring mark, connection state and eight app tiles
-  built from LVGL objects and styles.
+- Original MAZ labels, the context strip, the ring mark, and the eight-cell
+  paged app table, all built from LVGL objects and styles.
 - `lv_timer_handler()` while the LVGL Home screen is active.
+
+## Why the Home table is hand-built rather than `lv_table`
+
+`lv_table` was the obvious candidate for "lay the apps out as a table" and was
+rejected on this hardware:
+
+- Its cells are drawn, not objects, so a cell cannot own a badge chip and a
+  leading selection bar as children. Both are needed here, because selection
+  has to stay legible by shape once the backlight dims to 12/255 and the amber
+  fill converges with the panel fill.
+- `lv_table`'s keyboard selection arrives through an `lv_indev` of type
+  `LV_INDEV_TYPE_KEYPAD` bound to an `lv_group`, reporting via
+  `LV_EVENT_VALUE_CHANGED` and `lv_table_get_selected_cell`. Adopting it would
+  mean a second input path running alongside the existing TCA8418 driver and
+  the `App::onKey` contract — exactly the parallel implementation this
+  integration set out not to create.
+- A fixed eight-cell object tree is allocated once in `buildHome()` and only
+  re-labelled on a page turn, so paging costs no allocation at all.
+
+`lv_tileview` was likewise considered for the page transition and rejected: an
+animated slide is a full-screen redraw per frame against a 14-row partial
+buffer, and `lv_refr_now` on the shell's 100 ms repaint cadence cannot carry
+that without tearing. Paging is therefore instant, and orientation is carried
+by the page counter and dots rather than by motion.
+
+Upstream reference for both, at the pinned version:
+
+- https://docs.lvgl.io/9.5/widgets/table.html
+- https://docs.lvgl.io/9.5/widgets/tileview.html
+- https://docs.lvgl.io/9.5/main-modules/indev/keypad.html
 
 The existing Cardputer ADV TCA8418 driver remains the only keyboard source.
 Navigation continues through the established MAZ app contract, so adopting
