@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import wave
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -40,9 +41,28 @@ class FakeNudge:
         return {"sessionId": session_id, "queued": True}
 
 
-def client():
+class FakePC:
+    available = True
+
+    def __init__(self):
+        self.actions: list[str] = []
+
+    def perform(self, action: str):
+        self.actions.append(action)
+        return SimpleNamespace(action=action, label=f"did {action}")
+
+
+def client(pc=None):
     settings = Settings(token="test-token-that-is-not-default", _env_file=None)
-    return TestClient(create_app(settings, stt=FakeStt(), models=FakeModels(), nudge=FakeNudge()))
+    return TestClient(
+        create_app(
+            settings,
+            stt=FakeStt(),
+            models=FakeModels(),
+            nudge=FakeNudge(),
+            pc=pc or FakePC(),
+        )
+    )
 
 
 def test_requires_bearer_token():
@@ -72,6 +92,27 @@ def test_text_turn_keeps_session_context_and_nudge_is_evidence_backed():
     assert api.get("/nudge", headers=headers).json()["state"] == "ALL_SYNCED"
 
 
+def test_pc_control_is_allowlisted_and_can_skip_the_llm():
+    pc = FakePC()
+    api = client(pc)
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+
+    direct = api.post("/pc/action", headers=headers, json={"action": "mute"})
+    spoken = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "auto", "text": "show desktop"},
+    )
+
+    assert direct.status_code == 200
+    assert direct.json()["provider"] == "pc-local"
+    assert spoken.status_code == 200
+    assert spoken.json()["provider"] == "pc-local"
+    assert spoken.json()["timings"]["llm_ms"] == 0
+    assert pc.actions == ["mute", "desktop"]
+
+
 def test_transcribe_raw_returns_only_the_words():
     """Dictation must not answer, and must not join the conversation.
 
@@ -97,7 +138,6 @@ def test_transcribe_raw_returns_only_the_words():
     assert response.status_code == 200
     body = response.json()
     assert body["transcript"] == "what should I focus on"
-    # The model's reply must appear nowhere in this response.
     assert "reply" not in body
     assert "Focus on the hardware test" not in str(body)
 
