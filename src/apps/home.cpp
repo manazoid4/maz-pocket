@@ -1,11 +1,13 @@
 #include <array>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "../audio/sfx.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
+#include "../net/mazhost.h"
 #include "../ui/lvgl_ui.h"
 #include "apps.h"
 #include "common.h"
@@ -82,9 +84,15 @@ public:
             cells[i].badge = iconFor(*_primary[i]);
         }
 
-        const char* state = Sys.hostOnline ? "PC ONLINE" : "PC STANDBY";
+        std::string state = std::string("PC ") + host::linkName();
+        if (Sys.agentQuestion) state += " / NEEDS MAZ";
+        else if (Sys.agentsStale) state += " / " + std::to_string(Sys.agentsStale) + " STALE";
+        else if (Sys.agentsWaiting) state += " / " + std::to_string(Sys.agentsWaiting) + " WAIT";
+        else if (Sys.agentsWorking) state += " / " + std::to_string(Sys.agentsWorking) + " WORK";
+        else if (Sys.hostOnline) state += " / CLEAR";
+
         lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "MAZ 0.3", state, 0, 1);
+                         "MAZ 0.3", state.c_str(), 0, 1);
     }
 
 private:
@@ -99,9 +107,9 @@ private:
     }
 
     static char iconFor(const Descriptor& d) {
-        if (!strcmp(d.id, "talk")) return 'P';     // PC / phone
-        if (!strcmp(d.id, "braindump")) return 'R'; // record
-        if (!strcmp(d.id, "nudge")) return 'A';    // agents
+        if (!strcmp(d.id, "talk")) return 'C';      // communicator
+        if (!strcmp(d.id, "braindump")) return 'L'; // field log
+        if (!strcmp(d.id, "nudge")) return 'O';     // operations
         return '*';
     }
 
