@@ -14,6 +14,8 @@ void select();     // menu move
 void confirm();    // enter / open
 void recStart();   // microphone live
 void recStop();    // microphone released
+void lineOpen();   // remote PC session established
+void lineClose();  // remote PC session cleared
 void saved();      // written to storage
 void timerDone();  // Focus complete — the one sound allowed to be insistent
 void error();
