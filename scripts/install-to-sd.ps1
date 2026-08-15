@@ -46,12 +46,12 @@ if (-not $Drive) {
     }
 }
 
-$Drive = $Drive.Trim().TrimEnd('\\')
+$Drive = $Drive.Trim().TrimEnd([char]92)
 if ($Drive -notmatch '^[A-Za-z]:$') {
     Fail "drive must look like E:"
 }
 
-$root = "$Drive\\"
+$root = "$Drive\"
 if (-not (Test-Path $root -PathType Container)) {
     Fail "drive $Drive is not mounted"
 }
