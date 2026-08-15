@@ -27,6 +27,7 @@ App*              create(const char* id);
 App* makeHome();
 App* makeCall();
 App* makeCallV3();
+App* makeComm();
 App* makeCapture();
 App* makeDesk();
 App* makeRecall();
