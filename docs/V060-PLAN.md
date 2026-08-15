@@ -9,9 +9,9 @@ This pass reconciles Audit A (daily usefulness/friction) and Audit B (technical 
 | One-click unified Windows setup | 10/10 | Low | Medium | **SHIP** |
 | Phone-first firmware staging as normal update path | 10/10 | Low — already implemented | Low | **SHIP / PROMOTE** |
 | Canonical version + CI consistency | 9/10 | Very low | Low | **SHIP** |
-| Trusted-browser pair persistence + forget button | 9/10 | Low | Low | **SHIP** |
 | Core-only USB pairing without Wi-Fi password | 9/10 | Low | Low | **SHIP** |
 | Local Ollama primary→backup failover | 9/10 | Low-medium | Low | **SHIP** |
+| Persistent browser bearer token | 8/10 | Medium security cost | Low | **DEFER — keep session-only token** |
 | Full realtime COMM streaming | 10/10 potential | High | High | **DEFER TO v0.6.x after hardware proof** |
 | Generated action-ID protocol schema | 5/10 user-visible | Medium | Medium | Defer |
 | More apps/games | 2/10 | Low | Medium | Reject |
@@ -19,7 +19,7 @@ This pass reconciles Audit A (daily usefulness/friction) and Audit B (technical 
 
 ## v0.6 product promise
 
-**MAZ Pocket v0.6 is the friction release.** It should make the existing useful system easier to install, pair, update and keep online rather than expanding the menu.
+**MAZ Pocket v0.6 is the friction release.** It makes the existing useful system easier to install, pair, update and keep online rather than expanding the menu.
 
 ### Fresh install
 1. Download one `MAZ-Pocket-v0.6-Install.zip`.
@@ -28,10 +28,10 @@ This pass reconciles Audit A (daily usefulness/friction) and Audit B (technical 
 4. The setup installs/updates MAZ Core in a durable per-user location, starts it, preserves existing configuration, detects optional USB Cardputer pairing, detects a single removable microSD when present, and opens the local device portal.
 5. M5Launcher remains the only firmware installer.
 
-### Existing v0.5.2+ device
+### Existing hardened-portal device
 1. Download `Maz-Pocket-v0.6-M5Launcher.bin` on phone.
 2. Open `http://mazpocket.local` on the same LAN.
-3. Browser stays paired if previously trusted.
+3. Unlock for the current browser session with the MAZ pairing token.
 4. Select the `.bin` → verify/stage to SD → M5Launcher → Install → Launch.
 
 ### AI behavior
@@ -44,6 +44,7 @@ This pass reconciles Audit A (daily usefulness/friction) and Audit B (technical 
 - No arbitrary remote shell.
 - No firmware self-flash or partition writer.
 - No secret committed into Maz Works.
+- Browser portal bearer tokens remain session-only in v0.6 instead of being persisted long-term on a phone/browser.
 - No claim of physical ADV validation until physical acceptance is run.
 - No app-count expansion in v0.6.
 
@@ -53,8 +54,8 @@ This pass reconciles Audit A (daily usefulness/friction) and Audit B (technical 
 - One release ZIP contains `START-HERE.cmd`, unified PowerShell setup, firmware, Core bundle, legacy safe SD helper, Quickstart, release notes and checksums.
 - Existing `.env` survives Core upgrade.
 - Core runs from `%LOCALAPPDATA%\MAZ Core`, not a disposable Downloads extraction.
-- USB-connected Cardputer can receive Core address/token without re-entering Wi-Fi credentials.
-- `mazpocket.local` remembers pairing on a trusted browser and exposes a forget action.
+- USB-connected v0.6 Cardputer can receive Core address/token without re-entering Wi-Fi credentials.
+- Portal controls remain pairing-token protected and session-scoped.
 - Host tests prove local failover order and LOCAL no-cloud rule.
 - Cardputer build remains below the known M5Launcher slot ceiling.
 - CI is green before merge/release.
