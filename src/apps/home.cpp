@@ -23,7 +23,7 @@ class HomeApp : public App {
 public:
     const char* id() const override { return "home"; }
     const char* title() const override { return "MAZ Pocket"; }
-    const char* hints() const override { return "< > choose   ENTER open   SPACE call"; }
+    const char* hints() const override { return "< > move   ENTER open   SPACE call"; }
 
     void onEnter() override {
         buildPrimary();
@@ -55,9 +55,6 @@ public:
         if (e.code == KEY_RIGHT) { move(+1); return true; }
         if (e.code == KEY_LEFT)  { move(-1); return true; }
 
-        // Direct letter shortcuts remain available for every registered app,
-        // including utilities intentionally removed from Home. Ctrl+K remains
-        // the discoverable route to the full command palette.
         size_t n = 0;
         const Descriptor* t = apps::table(n);
         for (size_t i = 0; i < n; ++i) {
@@ -79,20 +76,27 @@ public:
 
     void render(M5Canvas& g) override {
         std::array<lvui::Cell, TABLE_PAGE> cells{};
-        for (size_t i = 0; i < _primary.size() && i < cells.size(); ++i) {
-            cells[i].title = _primary[i]->cellTitle();
-            cells[i].badge = iconFor(*_primary[i]);
+        const int pageStart = (_sel / TABLE_PAGE) * TABLE_PAGE;
+        size_t visible = 0;
+        for (int i = 0; i < TABLE_PAGE; ++i) {
+            const int idx = pageStart + i;
+            if (idx >= static_cast<int>(_primary.size())) break;
+            cells[i].title = _primary[idx]->cellTitle();
+            cells[i].badge = iconFor(*_primary[idx]);
+            ++visible;
         }
 
-        std::string state = std::string("PC ") + host::linkName();
+        const int page = pageStart / TABLE_PAGE + 1;
+        const int pages = (_primary.size() + TABLE_PAGE - 1) / TABLE_PAGE;
+        std::string state = std::to_string(page) + "/" + std::to_string(pages) + "  PC " + host::linkName();
         if (Sys.agentQuestion) state += " / NEEDS MAZ";
         else if (Sys.agentsStale) state += " / " + std::to_string(Sys.agentsStale) + " STALE";
         else if (Sys.agentsWaiting) state += " / " + std::to_string(Sys.agentsWaiting) + " WAIT";
         else if (Sys.agentsWorking) state += " / " + std::to_string(Sys.agentsWorking) + " WORK";
         else if (Sys.hostOnline) state += " / CLEAR";
 
-        lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "MAZ 0.3", state.c_str(), 0, 1);
+        lvui::renderHome(g, cells.data(), visible, _sel - pageStart,
+                         "MAZ 0.3.1", state.c_str(), pageStart, pages);
     }
 
 private:
@@ -107,9 +111,12 @@ private:
     }
 
     static char iconFor(const Descriptor& d) {
-        if (!strcmp(d.id, "talk")) return 'C';      // communicator
-        if (!strcmp(d.id, "braindump")) return 'L'; // field log
-        if (!strcmp(d.id, "nudge")) return 'O';     // operations
+        if (!strcmp(d.id, "talk")) return 'C';
+        if (!strcmp(d.id, "braindump")) return '+';
+        if (!strcmp(d.id, "nudge")) return 'O';
+        if (!strcmp(d.id, "desk")) return 'D';
+        if (!strcmp(d.id, "recall")) return 'R';
+        if (!strcmp(d.id, "flow")) return 'F';
         return '*';
     }
 
