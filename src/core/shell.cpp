@@ -12,7 +12,6 @@
 #include "../net/net.h"
 #include "../storage/store.h"
 #include "../ui/ui.h"
-#include "../ui/lvgl_ui.h"
 #include "notify.h"
 #include "settings.h"
 #include "launcher.h"
@@ -32,16 +31,12 @@ bool              gDimmed      = false;
 bool              gScreenOff   = false;
 uint32_t          gLastPowerMs = 0;
 bool              gEscHandled  = false;
-// Set when the focused app claims the ESC *press*. Without it the matching
-// release falls through to the shell and pops the app as well, so one ESC in
-// a sub-mode both cancelled the edit and left the screen.
 bool              gEscClaimed  = false;
 
-// ------------------------------------------------------------- Focus timer
 struct FocusTimer {
     bool        running  = false;
     bool        paused   = false;
-    uint32_t    total    = 0;  // seconds
+    uint32_t    total    = 0;
     uint32_t    left     = 0;
     uint32_t    lastTick = 0;
     std::string label;
@@ -52,10 +47,9 @@ void tickFocus() {
     if (millis() - gFocus.lastTick < 1000) return;
     gFocus.lastTick = millis();
     if (gFocus.left > 0) gFocus.left--;
-
     Sys.focusRemain = gFocus.left;
     if (gFocus.left == 0) {
-        gFocus.running   = false;
+        gFocus.running = false;
         Sys.focusRunning = false;
         sfx::timerDone();
         notify::post(Note::Success, "Focus complete",
@@ -63,14 +57,11 @@ void tickFocus() {
     }
 }
 
-// -------------------------------------------------------- power / display
 void pollPower() {
     if (millis() - gLastPowerMs < 5000) return;
     gLastPowerMs = millis();
-
     Sys.batteryPct = M5.Power.getBatteryLevel();
-    Sys.charging   = M5.Power.isCharging() == m5::Power_Class::is_charging;
-
+    Sys.charging = M5.Power.isCharging() == m5::Power_Class::is_charging;
     if (Sys.batteryPct >= 0 && Sys.batteryPct <= 10 && !Sys.charging &&
         !Sys.lowBatteryWarned) {
         Sys.lowBatteryWarned = true;
@@ -80,11 +71,7 @@ void pollPower() {
 }
 
 void applyScreenTimeout() {
-    if (Cfg.screenTimeout == 0) return;
-    // Recording keeps the screen honest: you should be able to glance down
-    // and see that MAZ is still listening.
-    if (Sys.recording) return;
-
+    if (Cfg.screenTimeout == 0 || Sys.recording) return;
     const uint32_t idle = (millis() - gLastInput) / 1000;
     if (!gDimmed && idle >= Cfg.screenTimeout) {
         M5.Display.setBrightness(12);
@@ -96,14 +83,10 @@ void applyScreenTimeout() {
     }
 }
 
-// -------------------------------------------------------- command palette
-// Subsequence matching, not Levenshtein: "rec" should find Recorder, "cal"
-// should find both Calculator and Call, and it must never be slow enough to
-// notice between keystrokes.
 int score(const char* haystack, const std::string& needle) {
     if (needle.empty()) return 1;
     size_t hi = 0, ni = 0;
-    int    hits = 0, streak = 0, best = 0;
+    int hits = 0, streak = 0, best = 0;
     while (haystack[hi] && ni < needle.size()) {
         if (tolower(haystack[hi]) == tolower(needle[ni])) {
             ni++;
@@ -131,9 +114,6 @@ public:
     }
 
     bool onKey(const KeyEvent& e) override {
-        // Say the name of the app instead of spelling it. The palette is the
-        // fastest route to anything on the device, so it is the last place
-        // that should require the keyboard.
         if (e.code == KEY_SPACE && (e.mods & MOD_CTRL)) {
             if (e.down) {
                 if (!dictate::active(this)) dictate::start(this);
@@ -165,8 +145,8 @@ public:
         if (e.code == KEY_ENTER) {
             if (_hits.empty()) return true;
             const char* target = _hits[_sel]->id;
-            pop();             // close the palette first...
-            pushById(target);  // ...so ESC from the app lands where it was
+            pop();
+            pushById(target);
             sfx::confirm();
             return true;
         }
@@ -179,16 +159,13 @@ public:
     }
 
     void render(M5Canvas& g) override {
-        // Pick up anything that was dictated into the query.
         std::string spoken;
         if (dictate::take(this, spoken)) {
             _query += spoken;
             rebuild();
         }
-
         g.fillScreen(BG);
         ui::header(g, "Command", store::backendName());
-
         ui::panel(g, PAD, BODY_Y + 22, SCREEN_W - PAD * 2, 18);
         g.setFont(&fonts::Font2);
         g.setTextDatum(top_left);
@@ -229,13 +206,12 @@ public:
 private:
     void rebuild() {
         _hits.clear();
-        size_t                  n = 0;
+        size_t n = 0;
         const apps::Descriptor* t = apps::table(n);
         std::vector<std::pair<int, const apps::Descriptor*>> ranked;
         for (size_t i = 0; i < n; ++i) {
             if (!strcmp(t[i].id, "home")) continue;
-            const int s =
-                std::max(score(t[i].title, _query), score(t[i].keywords, _query));
+            const int s = std::max(score(t[i].title, _query), score(t[i].keywords, _query));
             if (s > 0) ranked.emplace_back(s, &t[i]);
         }
         std::sort(ranked.begin(), ranked.end(),
@@ -248,20 +224,17 @@ private:
         invalidate();
     }
 
-    std::string                          _query;
+    std::string _query;
     std::vector<const apps::Descriptor*> _hits;
-    int                                  _sel = 0;
+    int _sel = 0;
 };
 
-// ------------------------------------------------------------- boot screen
 void bootScreen() {
     M5.Display.fillScreen(BG);
     const uint32_t t0 = millis();
     while (millis() - t0 < T_BOOT) {
         const float p = (millis() - t0) / static_cast<float>(T_BOOT);
         gCanvas.fillScreen(BG);
-        // The mark draws itself in, then the wordmark fades up. Under a
-        // second, because a splash you wait for is a splash you resent.
         ui::mark(gCanvas, SCREEN_W / 2, 44, 12, ACCENT, p < 0.7f ? p : 0.f);
         if (p > 0.35f) ui::wordmark(gCanvas, SCREEN_W / 2, 62, TEXT);
         if (p > 0.8f) {
@@ -276,35 +249,23 @@ void bootScreen() {
     }
 }
 
-// ------------------------------------------------------------- nav layer
-// The ADV prints the arrows and ESC on the Fn layer, so every menu was a
-// two-handed operation: Fn+; Fn+, Fn+. Fn+/ to move, Fn+` to go back.
-//
-// Rather than steal those characters outright, the shell offers the key to the
-// focused app as itself first. Only if the app does not want the character do
-// we re-offer it as the navigation code printed beside it. A text field
-// consumes the comma and keeps typing; a menu ignores it and gets LEFT. No app
-// needs a flag, and no screen can get it wrong.
 uint8_t navFallback(uint8_t code) {
     switch (code) {
-        case KEY_SEMICOLON:  return KEY_UP;
-        case KEY_COMMA:      return KEY_LEFT;
-        case KEY_DOT:        return KEY_DOWN;
-        case KEY_SLASH:      return KEY_RIGHT;
-        case KEY_GRAVE:      return KEY_ESC;
-        default:             return KEY_NONE;
+        case KEY_SEMICOLON: return KEY_UP;
+        case KEY_COMMA: return KEY_LEFT;
+        case KEY_DOT: return KEY_DOWN;
+        case KEY_SLASH: return KEY_RIGHT;
+        case KEY_GRAVE: return KEY_ESC;
+        default: return KEY_NONE;
     }
 }
 
-// -------------------------------------------------------- global shortcuts
 bool handleGlobalKey(const KeyEvent& e) {
     if (!e.down) return false;
-    // Ctrl+K anywhere: the palette is the one thing that must always answer.
     if ((e.mods & MOD_CTRL) && e.code == KEY_K) {
         openPalette();
         return true;
     }
-    // Ctrl+L always hands control back to M5Launcher.
     if ((e.mods & MOD_CTRL) && e.code == KEY_L) {
         launcher::reboot();
         return true;
@@ -314,12 +275,9 @@ bool handleGlobalKey(const KeyEvent& e) {
 
 }  // namespace
 
-// -------------------------------------------------------------------- API
 M5Canvas& canvas() { return gCanvas; }
-int       depth() { return static_cast<int>(gStack.size()); }
-const char* currentId() {
-    return gStack.empty() ? "none" : gStack.back()->id();
-}
+int depth() { return static_cast<int>(gStack.size()); }
+const char* currentId() { return gStack.empty() ? "none" : gStack.back()->id(); }
 
 void invalidate() {
     if (!gStack.empty()) gStack.back()->invalidate();
@@ -329,7 +287,7 @@ void wake() {
     gLastInput = millis();
     if (gDimmed || gScreenOff) {
         Cfg.applyToHardware();
-        gDimmed    = false;
+        gDimmed = false;
         gScreenOff = false;
         invalidate();
     }
@@ -355,7 +313,7 @@ bool pushById(const char* id) {
 }
 
 void pop() {
-    if (gStack.size() <= 1) return;  // Home is the floor
+    if (gStack.size() <= 1) return;
     gStack.back()->onExit();
     delete gStack.back();
     gStack.pop_back();
@@ -376,7 +334,6 @@ void openPalette() {
 void dispatchKey(const KeyEvent& e) {
     if (e.down) wake();
     if (notify::active() && e.down) notify::dismiss();
-
     if (handleGlobalKey(e)) return;
     if (gStack.empty()) return;
 
@@ -386,19 +343,14 @@ void dispatchKey(const KeyEvent& e) {
         gEscClaimed = false;
     }
     if (gStack.back()->onKey(ev)) {
-        // The app used ESC for its own back step (closing a detail view,
-        // cancelling an edit). Remember it so the release does not pop again.
         if (ev.down && ev.code == KEY_ESC) gEscClaimed = true;
         return;
     }
 
-    // The app did not want the character, so offer the same key as the
-    // navigation code printed beside it. This is what makes the arrows and ESC
-    // work without holding Fn.
     const uint8_t nav = navFallback(ev.code);
     if (nav != KEY_NONE) {
         ev.code = nav;
-        ev.ch   = 0;
+        ev.ch = 0;
         if (ev.down && nav == KEY_ESC) {
             gEscHandled = false;
             gEscClaimed = false;
@@ -409,9 +361,6 @@ void dispatchKey(const KeyEvent& e) {
         }
     }
 
-    // Unclaimed ESC is navigation. Long-press-to-Home stays on the real ESC
-    // (Fn+`) because it depends on the keyboard's held-key clock, and a held
-    // backtick inside a text field must stay a backtick.
     if (!ev.down && ev.code == KEY_ESC && !gEscHandled && !gEscClaimed) {
         pop();
         sfx::select();
@@ -420,56 +369,44 @@ void dispatchKey(const KeyEvent& e) {
 
 namespace focus {
 void start(uint32_t seconds, const std::string& lbl) {
-    gFocus.running   = true;
-    gFocus.paused    = false;
-    gFocus.total     = seconds;
-    gFocus.left      = seconds;
-    gFocus.label     = lbl;
-    gFocus.lastTick  = millis();
+    gFocus.running = true;
+    gFocus.paused = false;
+    gFocus.total = seconds;
+    gFocus.left = seconds;
+    gFocus.label = lbl;
+    gFocus.lastTick = millis();
     Sys.focusRunning = true;
-    Sys.focusRemain  = seconds;
-    Sys.focusLabel   = lbl;
+    Sys.focusRemain = seconds;
+    Sys.focusLabel = lbl;
 }
 void pause() { gFocus.paused = true; }
 void resume() {
-    gFocus.paused   = false;
+    gFocus.paused = false;
     gFocus.lastTick = millis();
 }
 void cancel() {
-    gFocus.running   = false;
-    gFocus.paused    = false;
-    gFocus.left      = 0;
+    gFocus.running = false;
+    gFocus.paused = false;
+    gFocus.left = 0;
     Sys.focusRunning = false;
-    Sys.focusRemain  = 0;
+    Sys.focusRemain = 0;
 }
-bool               running() { return gFocus.running; }
-bool               paused() { return gFocus.paused; }
-uint32_t           remaining() { return gFocus.left; }
-uint32_t           total() { return gFocus.total; }
+bool running() { return gFocus.running; }
+bool paused() { return gFocus.paused; }
+uint32_t remaining() { return gFocus.left; }
+uint32_t total() { return gFocus.total; }
 const std::string& label() { return gFocus.label; }
 }  // namespace focus
 
-// ------------------------------------------------------------------- loop
 bool begin() {
-    Serial.printf("[boot] shell canvas heap=%u\n",
-                  static_cast<unsigned>(ESP.getFreeHeap()));
+    Serial.printf("[boot] shell canvas heap=%u\n", static_cast<unsigned>(ESP.getFreeHeap()));
     gCanvas.setColorDepth(16);
     if (!gCanvas.createSprite(SCREEN_W, SCREEN_H)) {
-        // 64KB of a 512KB part. If this fails something else has eaten the
-        // heap and we would rather say so than draw a corrupted frame.
         ESP_LOGE("shell", "canvas allocation failed");
         return false;
     }
-    Serial.printf("[boot] canvas ready heap=%u\n",
-                  static_cast<unsigned>(ESP.getFreeHeap()));
+    Serial.printf("[boot] canvas ready heap=%u\n", static_cast<unsigned>(ESP.getFreeHeap()));
     bootScreen();
-    Serial.println("[boot] lvgl begin");
-    if (!lvui::begin(gCanvas)) {
-        ESP_LOGE("shell", "LVGL display allocation failed");
-        return false;
-    }
-    Serial.printf("[boot] lvgl ready heap=%u\n",
-                  static_cast<unsigned>(ESP.getFreeHeap()));
     push(apps::makeHome());
     gLastInput = millis();
     sfx::boot();
@@ -481,7 +418,7 @@ void loop() {
     KB.update();
 
     KeyEvent e;
-    bool     sawInput = false;
+    bool sawInput = false;
     while (KB.pop(e)) {
         sawInput = true;
         dispatchKey(e);
@@ -501,17 +438,14 @@ void loop() {
     net::update();
     notify::update();
     apps::updateProductServices();
-    lvui::tick();
     applyScreenTimeout();
 
     if (gStack.empty()) return;
     App* top = gStack.back();
     top->update();
 
-    // Chrome animates (clock, level meter, timers) so we repaint on a fixed
-    // cadence, but only when something asked for it or 100ms has passed.
     static uint32_t lastPaint = 0;
-    const bool      due       = millis() - lastPaint > 100;
+    const bool due = millis() - lastPaint > 100;
     if (!top->dirty() && !due) return;
     if (gScreenOff) return;
 
