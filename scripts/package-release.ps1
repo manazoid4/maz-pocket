@@ -11,15 +11,14 @@ try {
     $Firmware = Join-Path $Build "firmware.bin"
     $FirmwareBytes = (Get-Item $Firmware).Length
 
-    # The physically accepted v0.02 preview binary was 1,525,984 bytes. Current
-    # M5Launcher app partitions are aligned to 0x10000, so that installation has
-    # a 0x180000 (1,572,864 byte) slot. v0.03 MUST fit that live slot: the safe
-    # web flasher never repartitions the user's device or deletes sibling apps.
-    $V02LauncherSlotBytes = 0x180000
-    if ($FirmwareBytes -gt $V02LauncherSlotBytes) {
-        throw "v0.02 compatibility gate failed: $FirmwareBytes bytes > $V02LauncherSlotBytes byte live Launcher slot. Slim firmware; do not repartition the user's device."
+    # Preserve the known live M5Launcher app-slot ceiling. MAZ Pocket is an app
+    # image: releases must slim down rather than repartitioning a user's device
+    # or deleting sibling Launcher apps to make a build fit.
+    $LauncherSlotBytes = 0x180000
+    if ($FirmwareBytes -gt $LauncherSlotBytes) {
+        throw "M5Launcher compatibility gate failed: $FirmwareBytes bytes > $LauncherSlotBytes byte app slot. Slim firmware; do not repartition the user's device."
     }
-    Write-Host "v0.02 Launcher slot: $FirmwareBytes / $V02LauncherSlotBytes bytes"
+    Write-Host "M5Launcher app slot: $FirmwareBytes / $LauncherSlotBytes bytes"
 
     $Dist = Join-Path $Root "dist"
     New-Item -ItemType Directory -Force $Dist | Out-Null
