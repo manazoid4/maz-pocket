@@ -1,17 +1,23 @@
 MAZ POCKET — QUICK START
 
-FIRST INSTALL / RECOVERY
+UPGRADING FROM v0.02
 1. Extract this ZIP on Windows.
-2. Run MazPocketUpdater-v0.3.exe.
+2. Run MazPocketUpdater-v0.3.exe (title should say Updater 0.3.1).
 3. Connect Cardputer ADV by USB data cable.
-4. Use USB UPDATE.
-5. Use PAIR once if Wi-Fi/MAZ Host is not already configured.
+4. Click FIND if you want; v0.02 may show as a legacy USB device instead of an IP.
+5. Click USB UPDATE. A host token is NOT required for this transition.
+6. Let the updater finish and verify the v0.3 boot.
+7. Use PAIR once only if Wi-Fi/MAZ Host is not already configured.
 
-NORMAL UPDATE AFTER PAIRING
-- Same Wi-Fi: run the updater -> FIND -> WI-FI UPDATE.
-- After this build is installed you can also open http://mazpocket.local,
-  enter the MAZ pairing token, choose the new maz-pocket-app.bin under
-  Browser OTA, and upload it directly.
+FIRST INSTALL / RECOVERY
+- Connect Cardputer ADV by USB data cable and use USB UPDATE.
+- If M5Launcher is not observed, open Launcher once on the Cardputer and retry.
+
+NORMAL UPDATE AFTER v0.3 IS INSTALLED
+- Same Wi-Fi: open http://mazpocket.local on your phone/PC.
+- Enter the MAZ pairing token, choose the new maz-pocket-app.bin under Browser OTA,
+  and upload it directly.
+- The Windows updater remains available as a recovery path.
 
 MAZPOCKET.LOCAL
 - Device-hosted local dashboard, not a public Internet site.
@@ -26,6 +32,7 @@ DEVICE
 
 IMPORTANT
 - Browser and Wi-Fi OTA require the existing MAZ pairing token.
-- Keep the PC and Cardputer on the same LAN for local OTA.
+- Keep the PC/phone and Cardputer on the same LAN for local OTA.
+- USB UPDATE does not need the host token.
 - This CI build is compile/test verified; physical mic/speaker/OTA/Launcher
   acceptance still needs the real Cardputer.
