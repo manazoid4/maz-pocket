@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/shell.h"
+#include "../net/host_async.h"
 #include "../net/mazhost.h"
 #include "apps.h"
 #include "common.h"
@@ -24,27 +25,32 @@ public:
     const char* id() const override { return "core"; }
     const char* title() const override { return "MAZ CORE"; }
     const char* hints() const override {
-        if (_view == View::Result) return "R refresh job  ESC actions";
-        if (_view == View::Actions) return "ENTER run  ESC projects";
-        return "R refresh  ENTER project  ESC back";
+        if (_view == View::Result) return _jobReq ? "checking job...  ESC actions" : "R refresh job  ESC actions";
+        if (_view == View::Actions) return _jobReq ? "starting...  ESC projects" : "ENTER run  ESC projects";
+        return (_statusReq || _projectsReq) ? "refreshing...  ESC back" : "R refresh  ENTER project  ESC back";
     }
 
     void onEnter() override { refresh(); }
+    void onExit() override {
+        if (_statusReq) host_async::cancel(_statusReq);
+        if (_projectsReq) host_async::cancel(_projectsReq);
+        if (_jobReq) host_async::cancel(_jobReq);
+    }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;
         if (_view == View::Result) {
-            if (e.code == KEY_R) { pollJob(); return true; }
+            if (e.code == KEY_R && !_jobReq) { requestJobPoll(); return true; }
             if (e.code == KEY_ESC) { _view = View::Actions; invalidate(); return true; }
             return false;
         }
         if (_view == View::Actions) {
             if (e.code == KEY_ESC) { _view = View::Projects; invalidate(); return true; }
             if (_cursor.onKey(e, ACTION_COUNT)) { sfx::select(); invalidate(); return true; }
-            if (e.code == KEY_ENTER) { startAction(_cursor.sel); return true; }
+            if (e.code == KEY_ENTER && !_jobReq) { startAction(_cursor.sel); return true; }
             return false;
         }
-        if (e.code == KEY_R) { refresh(); return true; }
+        if (e.code == KEY_R && !_statusReq && !_projectsReq) { refresh(); return true; }
         if (_cursor.onKey(e, static_cast<int>(_projects.size()))) { sfx::select(); invalidate(); return true; }
         if (e.code == KEY_ENTER && !_projects.empty()) {
             _project = _projects[_cursor.sel].name;
@@ -58,8 +64,11 @@ public:
     }
 
     void update() override {
+        pumpRefresh();
+        pumpJobRequest();
         if (_view == View::Result && !_job.id.empty() && _job.state != "done" &&
-            millis() - _lastPoll > 1500) pollJob(false);
+            !_jobReq && millis() - _lastPoll > 1500)
+            requestJobPoll();
     }
 
     void render(M5Canvas& g) override {
@@ -71,30 +80,64 @@ public:
 
 private:
     enum class View : uint8_t { Projects, Actions, Result };
+    enum class JobRequest : uint8_t { None, Start, Poll };
 
     void refresh() {
-        _status = host::coreStatus();
-        _projects = host::coreProjects(_error);
+        _error.clear();
+        _statusReq = host_async::coreStatus();
+        _projectsReq = host_async::coreProjects();
+        if (!_statusReq || !_projectsReq) _error = "Host queue busy";
         _cursor.sel = _cursor.first = 0;
         _view = View::Projects;
-        sfx::confirm();
         invalidate();
     }
 
+    void pumpRefresh() {
+        if (_statusReq) {
+            host_async::Result result;
+            if (host_async::poll(_statusReq, result)) {
+                _statusReq = 0;
+                if (!result.cancelled) {
+                    _status = result.coreStatus;
+                    if (!_status.ok && !result.error.empty()) _error = result.error;
+                }
+                invalidate();
+            }
+        }
+        if (_projectsReq) {
+            host_async::Result result;
+            if (host_async::poll(_projectsReq, result)) {
+                _projectsReq = 0;
+                if (!result.cancelled) {
+                    _projects = result.projects;
+                    if (!result.error.empty()) _error = result.error;
+                    _cursor.clamp(static_cast<int>(_projects.size()));
+                }
+                invalidate();
+            }
+        }
+    }
+
     void renderProjects(M5Canvas& g) {
-        std::string right = _status.ok ? (_status.ollama ? "AI + PC" : "PC / AI OFF") : "OFFLINE";
+        std::string right = (_statusReq || _projectsReq) ? "REFRESHING" :
+                            (_status.ok ? (_status.ollama ? "AI + PC" : "PC / AI OFF") : "OFFLINE");
         ui::header(g, "MAZ CORE", right.c_str());
-        if (!_status.ok) {
-            line(g, 0, _status.error.c_str(), WARN);
+        if (!_status.ok && !_statusReq) {
+            line(g, 0, _error.empty() ? _status.error.c_str() : _error.c_str(), WARN);
             line(g, 2, "Configure CONTROL > MAZ CORE", DIM);
             line(g, 3, "then press R to refresh", DIM);
             return;
         }
-        char meta[96];
-        snprintf(meta, sizeof(meta), "%s / %d projects", _status.hostname.c_str(), _status.projects);
-        line(g, 0, meta, ACCENT);
+        if (_statusReq || _projectsReq) {
+            line(g, 0, "Reading PC state...", ACCENT);
+            line(g, 2, "Keyboard + UI remain live", DIM);
+        } else {
+            char meta[96];
+            snprintf(meta, sizeof(meta), "%s / %d projects", _status.hostname.c_str(), _status.projects);
+            line(g, 0, meta, ACCENT);
+        }
         if (_projects.empty()) {
-            line(g, 2, _error.empty() ? "No projects found" : _error.c_str(), WARN);
+            if (!_projectsReq) line(g, 3, _error.empty() ? "No projects found" : _error.c_str(), WARN);
             return;
         }
         constexpr int visible = 4;
@@ -112,17 +155,21 @@ private:
     }
 
     void renderActions(M5Canvas& g) {
-        ui::header(g, _project.c_str(), "CORE ACTIONS");
+        ui::header(g, _project.c_str(), _jobReq ? "STARTING" : "CORE ACTIONS");
         for (int row = 0; row < ACTION_COUNT; ++row)
-            ui::listRow(g, row + 1, row == _cursor.sel, ACTION_LABELS[row], row >= 1 && row <= 2 ? "job" : "safe");
+            ui::listRow(g, row + 1, row == _cursor.sel, ACTION_LABELS[row],
+                        row >= 1 && row <= 2 ? "job" : "safe");
     }
 
     void startAction(int idx) {
-        if (idx < 0 || idx >= ACTION_COUNT) return;
-        _job = host::coreStartJob(ACTION_IDS[idx], _project);
+        if (idx < 0 || idx >= ACTION_COUNT || _jobReq) return;
         _result.clear();
-        if (_job.id.empty()) {
-            _result = _job.error.empty() ? "Could not start Core job" : _job.error;
+        _job = {};
+        _jobReq = host_async::coreStartJob(ACTION_IDS[idx], _project);
+        _jobRequestKind = JobRequest::Start;
+        if (!_jobReq) {
+            _result = "Host queue busy";
+            _jobRequestKind = JobRequest::None;
         }
         _view = View::Result;
         _lastPoll = millis();
@@ -130,26 +177,47 @@ private:
         invalidate();
     }
 
-    void pollJob(bool sound = true) {
+    void requestJobPoll() {
         _lastPoll = millis();
-        if (_job.id.empty()) { invalidate(); return; }
-        _job = host::coreJob(_job.id);
+        if (_jobReq || _job.id.empty()) { invalidate(); return; }
+        _jobReq = host_async::coreJob(_job.id);
+        _jobRequestKind = JobRequest::Poll;
+        if (!_jobReq) {
+            _result = "Host queue busy";
+            _jobRequestKind = JobRequest::None;
+        }
+        invalidate();
+    }
+
+    void pumpJobRequest() {
+        if (!_jobReq) return;
+        host_async::Result result;
+        if (!host_async::poll(_jobReq, result)) return;
+        _jobReq = 0;
+        const auto kind = _jobRequestKind;
+        _jobRequestKind = JobRequest::None;
+        if (result.cancelled) return;
+        _job = result.coreJob;
+        if (!_job.error.empty() && _job.id.empty()) _result = _job.error;
         if (_job.state == "done") {
             _result = !_job.output.empty() ? _job.output : (_job.ok ? "Completed" : _job.error);
-            if (sound) sfx::confirm();
+            sfx::confirm();
+        } else if (kind == JobRequest::Start && !_job.id.empty()) {
+            _lastPoll = millis();
         }
         invalidate();
     }
 
     void renderResult(M5Canvas& g) {
-        std::string right = _job.state.empty() ? "ERROR" : _job.state;
+        std::string right = _jobReq ? (_jobRequestKind == JobRequest::Start ? "STARTING" : "CHECKING") :
+                            (_job.state.empty() ? (_result.empty() ? "JOB" : "ERROR") : _job.state);
         ui::header(g, _project.c_str(), right.c_str());
         std::string heading = _job.action.empty() ? "CORE JOB" : _job.action;
         line(g, 0, heading.c_str(), ACCENT);
-        if (_job.state != "done" && !_job.id.empty()) {
-            line(g, 2, "Running on PC...", TEXT);
+        if (_jobReq || (_job.state != "done" && !_job.id.empty())) {
+            line(g, 2, _jobReq ? "Talking to Core..." : "Running on PC...", TEXT);
             line(g, 3, "You can leave this screen.", DIM);
-            line(g, 4, "R checks now; auto-refreshes.", DIM);
+            line(g, 4, "No network call blocks UI.", DIM);
             return;
         }
         const std::string text = !_result.empty() ? _result : (!_job.error.empty() ? _job.error : "No output");
@@ -181,6 +249,10 @@ private:
     std::string _error;
     std::string _result;
     uint32_t _lastPoll = 0;
+    uint32_t _statusReq = 0;
+    uint32_t _projectsReq = 0;
+    uint32_t _jobReq = 0;
+    JobRequest _jobRequestKind = JobRequest::None;
 };
 
 }  // namespace
