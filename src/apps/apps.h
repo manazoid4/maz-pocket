@@ -34,6 +34,7 @@ App* makeFlow();
 App* makeControlCenter();
 App* makeNetworkV5();
 App* makeCoreConsole();
+App* makeRuntimeMetrics();
 App* makeNotes();
 App* makeFocus();
 App* makeTasks();
