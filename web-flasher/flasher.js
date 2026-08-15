@@ -1,5 +1,5 @@
 import { PARTITION_OFFSET, PARTITION_SIZE, parsePartitions, findMazPartition } from "./partition.js";
-import { romReadFlashSlow, romFlashMd5 } from "./rom.js";
+import { romReadFlashSlow } from "./rom.js";
 
 const ESPTOOL_URL = "https://unpkg.com/esptool-js@0.6.0/bundle.js";
 const POLYFILL_URL = "https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js";
@@ -111,6 +111,15 @@ async function readPartitionTable() {
   });
 }
 
+async function verifyFlashMd5(address, size, expectedMd5) {
+  loader.IS_STUB = false;
+  const actual = String(await loader.flashMd5sum(address, size)).toLowerCase();
+  if (actual !== String(expectedMd5).toLowerCase()) {
+    throw new Error(`Flash verification failed (${actual} != ${expectedMd5}).`);
+  }
+  return actual;
+}
+
 async function writeImage(data, address, expectedMd5, from, to, label) {
   loader.IS_STUB = false;
   loader.FLASH_WRITE_SIZE = loader.chip.FLASH_WRITE_SIZE || 0x400;
@@ -125,10 +134,7 @@ async function writeImage(data, address, expectedMd5, from, to, label) {
       setStage(from + (to - from) * (total ? written / total : 0), label);
     },
   });
-  const flashed = await romFlashMd5(loader, address, data.byteLength);
-  if (flashed.toLowerCase() !== String(expectedMd5).toLowerCase()) {
-    throw new Error(`Flash verification failed (${flashed} != ${expectedMd5}).`);
-  }
+  await verifyFlashMd5(address, data.byteLength, expectedMd5);
 }
 
 async function rollback(target, recovery, manifest) {
@@ -163,7 +169,7 @@ async function runUpdate() {
 
     setStage(22, "Checking existing Maz slot…");
     try {
-      const oldMd5 = await romFlashMd5(loader, target.offset, recovery.byteLength);
+      const oldMd5 = String(await loader.flashMd5sum(target.offset, recovery.byteLength)).toLowerCase();
       if (oldMd5 === String(manifest.recovery_md5).toLowerCase()) log("Current Maz slot matches the known-good v0.02 release.");
       else log("Current Maz slot differs from pristine v0.02 (expected after the failed old updater); recovery is ready.");
     } catch (e) {
