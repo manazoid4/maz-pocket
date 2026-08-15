@@ -8,6 +8,7 @@
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../net/mazhost.h"
+#include "../net/net.h"
 #include "../ui/lvgl_ui.h"
 #include "apps.h"
 #include "common.h"
@@ -23,7 +24,7 @@ class HomeApp : public App {
 public:
     const char* id() const override { return "home"; }
     const char* title() const override { return "MAZ Pocket"; }
-    const char* hints() const override { return "< > move   ENTER open   SPACE call"; }
+    const char* hints() const override { return "< > move  ENTER open  W Wi-Fi  SPACE call"; }
 
     void onEnter() override {
         buildPrimary();
@@ -81,15 +82,18 @@ public:
             cells[i].badge = iconFor(*_primary[i]);
         }
 
-        std::string state = std::string("PC ") + host::linkName();
+        std::string state;
+        if (Sys.wifiConnected) state = "WiFi " + Sys.wifiSsid;
+        else if (net::setupApActive()) state = "WiFi SETUP AP";
+        else state = "WiFi OFFLINE";
+        state += std::string(" / PC ") + host::linkName();
         if (Sys.agentQuestion) state += " / NEEDS MAZ";
         else if (Sys.agentsStale) state += " / " + std::to_string(Sys.agentsStale) + " STALE";
         else if (Sys.agentsWaiting) state += " / " + std::to_string(Sys.agentsWaiting) + " WAIT";
         else if (Sys.agentsWorking) state += " / " + std::to_string(Sys.agentsWorking) + " WORK";
-        else if (Sys.hostOnline) state += " / CLEAR";
 
         lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "MAZ 0.4", state.c_str(), 0, 1);
+                         "MAZ 0.5", state.c_str(), 0, 1);
     }
 
 private:
@@ -107,7 +111,7 @@ private:
         if (!strcmp(d.id, "talk")) return 'C';
         if (!strcmp(d.id, "braindump")) return '+';
         if (!strcmp(d.id, "nudge")) return 'O';
-        if (!strcmp(d.id, "desk")) return 'D';
+        if (!strcmp(d.id, "desk")) return '#';
         if (!strcmp(d.id, "recall")) return 'R';
         if (!strcmp(d.id, "flow")) return 'F';
         return '*';

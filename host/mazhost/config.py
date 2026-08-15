@@ -1,7 +1,8 @@
-"""MAZ Host configuration. Secrets and model routing stay on the laptop."""
+"""MAZ Core configuration. Secrets and model routing stay on the laptop."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -20,8 +21,7 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute: str = "int8"
 
-    # v0.4 local-first brain. This exact Ollama tag is present on the target
-    # workstation and is the canonical model for MAZ Pocket's local assistant.
+    # v0.5 local-first brain.
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
 
@@ -45,11 +45,23 @@ class Settings(BaseSettings):
     device_vid: int = 0x303A
     device_pid: int = 0x1001
 
+    # MAZ Core: factual PC/project context and safe allow-listed actions.
+    core_enabled: bool = True
+    project_roots: str = ""
+    obsidian_root: str = ""
+    cardputer_url: str = "http://mazpocket.local"
+    web_origins: str = "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
+
+    # Optional GitHub command bridge. When enabled, MAZ Core watches a private
+    # repo for issues titled `[MAZ CORE] ...`, executes only its allow-list and
+    # writes evidence back as a comment. It can reuse `gh auth token` locally.
+    bridge_enabled: bool = False
+    bridge_repo: str = "manazoid4/maz-pocket"
+    github_token: str = ""
+    bridge_poll_seconds: int = Field(default=15, ge=5, le=300)
+
     @model_validator(mode="after")
     def migrate_legacy_shipped_defaults(self):
-        # v0.3's generated .env shipped gemma3:1b. Upgrade only that known old
-        # default so existing installations do not silently keep the weak model.
-        # Any other explicit user-selected model remains respected.
         if self.ollama_model == "gemma3:1b":
             self.ollama_model = "lfm2.5-8b-a1b-gpu:latest"
         return self
@@ -57,3 +69,20 @@ class Settings(BaseSettings):
     @property
     def token_configured(self) -> bool:
         return bool(self.token and self.token != "change-me-before-first-run")
+
+    @property
+    def project_root_paths(self) -> list[Path]:
+        values = [p.strip() for p in self.project_roots.split(";") if p.strip()]
+        if not values:
+            home = Path.home()
+            values = [str(home / "Desktop"), str(home / "Projects")]
+        result: list[Path] = []
+        for value in values:
+            path = Path(value).expanduser()
+            if path.exists() and path not in result:
+                result.append(path)
+        return result
+
+    @property
+    def web_origin_list(self) -> list[str]:
+        return [x.strip() for x in self.web_origins.split(",") if x.strip()]

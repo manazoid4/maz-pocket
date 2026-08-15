@@ -9,13 +9,17 @@ from typing import Annotated, Literal
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.background import BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from .config import Settings
-from .commands import parse_command
 from .braindump import structure_braindump
+from .bridge import BridgeWorker
+from .commands import parse_command
+from .config import Settings
+from .core import CoreError, MazCore
 from .device import DeviceMonitor
+from .jobs import CoreJobs
 from .llm import Models, Route
 from .nudge import NudgeClient
 from .pc import PCController
@@ -30,7 +34,7 @@ from .tts import SpeechOut
 class TextTurn(BaseModel):
     text: str = Field(min_length=1, max_length=8_000)
     session_id: str
-    route: Route = "auto"
+    route: Route = "local"
 
 
 class ExtractRequest(BaseModel):
@@ -55,6 +59,11 @@ class PCActionRequest(BaseModel):
     ]
 
 
+class CoreActionRequest(BaseModel):
+    action: Literal["git_status", "git_fetch", "git_pull_ff", "tests", "build", "open_folder"]
+    project: str = Field(min_length=1, max_length=160)
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -63,6 +72,8 @@ def create_app(
     nudge: NudgeClient | None = None,
     device: DeviceMonitor | None = None,
     pc: PCController | None = None,
+    core: MazCore | None = None,
+    bridge: BridgeWorker | None = None,
 ) -> FastAPI:
     cfg = settings or Settings()
     security = Security(cfg)
@@ -72,24 +83,56 @@ def create_app(
     nudge_client = nudge or NudgeClient(cfg)
     device_monitor = device or DeviceMonitor(cfg)
     pc_controller = pc or PCController()
+    core_service = core or MazCore(cfg)
+    core_jobs = CoreJobs(core_service)
+    bridge_worker = bridge or BridgeWorker(cfg, core_service)
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
+
     api = FastAPI(
-        title="MAZ Host",
-        version="0.3.0",
+        title="MAZ Core",
+        version="0.5.0",
         dependencies=[Depends(security.authorize)],
     )
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=cfg.web_origin_list,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-MAZ-Token"],
+        expose_headers=["X-MAZ-Width", "X-MAZ-Height", "X-MAZ-Format"],
+    )
+
+    @api.on_event("startup")
+    def start_bridge() -> None:
+        bridge_worker.start()
+
+    @api.on_event("shutdown")
+    def stop_bridge() -> None:
+        bridge_worker.stop()
 
     def grounded_messages(session_id: str, text: str) -> list[dict[str, str]]:
         history = sessions.messages(session_id)
         if not history and not sessions.has(session_id):
             raise HTTPException(404, "session_not_found")
+
         context = ""
+        if cfg.core_enabled:
+            try:
+                context += core_service.context_for_prompt(text)
+            except (CoreError, OSError, ValueError) as error:
+                context += f"\nMAZ Core evidence unavailable: {error}. Say this plainly if relevant."
+
         if any(word in text.lower() for word in ("agent", "sync", "nudge", "stale", "working")):
             try:
-                context = "\nAgent Nudge evidence:\n" + json.dumps(nudge_client.summary())
+                context += "\nAgent Nudge factual evidence:\n" + json.dumps(nudge_client.summary())
             except (RuntimeError, httpx.HTTPError):
-                context = "\nAgent Nudge is unavailable; say that plainly."
-        return [{"role": "system", "content": SYSTEM_PROMPT + context}, *history, {"role": "user", "content": text}]
+                context += "\nAgent Nudge is unavailable; say that plainly."
+
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT + context},
+            *history,
+            {"role": "user", "content": text},
+        ]
 
     def deterministic_command(session_id: str, text: str, command: dict, actions: list) -> dict:
         if command["type"] == "reminder.create":
@@ -137,20 +180,102 @@ def create_app(
 
     @api.get("/health")
     def health():
+        core_status = core_service.status() if cfg.core_enabled else {"ok": False, "disabled": True}
         return {
             "ok": True,
-            "version": "0.3.0",
+            "version": "0.5.0",
             "stt": speech.available(),
             "llm": model_router.status(),
             "nudge": nudge_client.status(),
             "tts": speech_out.available(),
             "pc_control": pc_controller.available,
+            "core": core_status,
+            "bridge": bridge_worker.status(),
         }
 
     @api.get("/models")
     def models_status():
         return {**model_router.status(), "default_route": cfg.default_route}
 
+    # ------------------------------------------------------------- MAZ Core
+    @api.get("/core/status")
+    def core_status():
+        return core_service.status()
+
+    @api.get("/core/projects")
+    def core_projects():
+        return {"ok": True, "projects": core_service.projects()}
+
+    @api.get("/core/project/{name}")
+    def core_project(name: str):
+        try:
+            return {"ok": True, "project": core_service.project(name)}
+        except CoreError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @api.get("/core/search")
+    def core_search(query: str, project: str = ""):
+        try:
+            return core_service.search(query, project)
+        except CoreError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @api.get("/core/file")
+    def core_file(project: str, path: str):
+        try:
+            return core_service.read_file(project, path)
+        except CoreError as error:
+            raise HTTPException(400, str(error)) from error
+
+    # Synchronous endpoint remains useful for machine callers/bridge. The
+    # handheld and Maz Works UI use /core/job so long builds never block them.
+    @api.post("/core/action")
+    def core_action(body: CoreActionRequest):
+        try:
+            return core_service.action(body.action, body.project)
+        except CoreError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @api.post("/core/job")
+    def core_job_start(body: CoreActionRequest):
+        try:
+            return core_jobs.start(body.action, body.project)
+        except CoreError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @api.get("/core/job/{job_id}")
+    def core_job_status(job_id: str):
+        try:
+            return core_jobs.status(job_id)
+        except CoreError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @api.get("/core/jobs")
+    def core_jobs_recent(limit: int = 20):
+        return {"ok": True, "jobs": core_jobs.recent(limit)}
+
+    @api.get("/core/cardputer/status")
+    def core_cardputer_status():
+        return core_service.cardputer_status()
+
+    @api.get("/core/cardputer/screen")
+    def core_cardputer_screen():
+        try:
+            frame = core_service.cardputer_screen()
+        except CoreError as error:
+            raise HTTPException(503, str(error)) from error
+        return Response(
+            content=frame,
+            media_type="application/octet-stream",
+            headers={
+                "X-MAZ-Width": "240",
+                "X-MAZ-Height": "135",
+                "X-MAZ-Format": "RGB565LE",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    # ----------------------------------------------------------- device USB
     @api.get("/device")
     def device_status():
         return device_monitor.status()
@@ -167,6 +292,7 @@ def create_app(
     def device_monitor_stop():
         return device_monitor.stop()
 
+    # ------------------------------------------------------------- sessions
     @api.post("/session/start")
     def session_start():
         return {"session_id": sessions.start()}
@@ -179,14 +305,21 @@ def create_app(
     def turn_text(turn: TextTurn):
         return answer(turn.session_id, turn.text, turn.route)
 
+    # ----------------------------------------------------------- PC control
     @api.post("/pc/action")
     def pc_action(body: PCActionRequest):
         try:
             result = pc_controller.perform(body.action)
         except RuntimeError as error:
             raise HTTPException(503, str(error)) from error
-        return {"ok": True, "action": result.action, "reply": result.label, "provider": "pc-local"}
+        return {
+            "ok": True,
+            "action": result.action,
+            "reply": result.label,
+            "provider": "pc-local",
+        }
 
+    # --------------------------------------------------------------- speech
     @api.post("/speak")
     def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
         try:
@@ -200,7 +333,7 @@ def create_app(
     async def turn_audio(
         audio: Annotated[UploadFile, File()],
         session_id: Annotated[str, Form()],
-        route: Annotated[Route, Form()] = "auto",
+        route: Annotated[Route, Form()] = "local",
     ):
         upload_started = time.perf_counter()
         suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
@@ -229,7 +362,7 @@ def create_app(
     async def turn_audio_raw(
         request: Request,
         x_maz_session: Annotated[str, Header()],
-        x_maz_route: Annotated[Route, Header()] = "auto",
+        x_maz_route: Annotated[Route, Header()] = "local",
     ):
         upload_started = time.perf_counter()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
@@ -268,19 +401,20 @@ def create_app(
             security.validate_upload(path, size)
             started = time.perf_counter()
             text = speech.transcribe(path)
-            return {
-                "transcript": text,
-                "stt_ms": round((time.perf_counter() - started) * 1000),
-            }
+            return {"transcript": text, "stt_ms": round((time.perf_counter() - started) * 1000)}
         finally:
             path.unlink(missing_ok=True)
 
+    # ---------------------------------------------------------- extraction
     @api.post("/extract")
     def extract(body: ExtractRequest):
         prompt = EXTRACT_PROMPTS[body.kind]
         try:
             reply, provider = model_router.chat(
-                [{"role": "system", "content": prompt + " Return JSON only."}, {"role": "user", "content": body.text}],
+                [
+                    {"role": "system", "content": prompt + " Return JSON only."},
+                    {"role": "user", "content": body.text},
+                ],
                 cfg.default_route,
             )
             return {"kind": body.kind, "provider": provider, "result": json.loads(reply)}
@@ -308,7 +442,12 @@ def create_app(
             structured, fallback = structure_braindump(reply, transcript)
             if fallback:
                 provider += "+deterministic"
-            return {"transcript": transcript, "provider": provider, **structured, "highlights": marks}
+            return {
+                "transcript": transcript,
+                "provider": provider,
+                **structured,
+                "highlights": marks,
+            }
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
@@ -340,12 +479,18 @@ def create_app(
             structured, fallback = structure_braindump(reply, transcript)
             if fallback:
                 provider += "+deterministic"
-            return {"transcript": transcript, "provider": provider, **structured, "highlights": marks}
+            return {
+                "transcript": transcript,
+                "provider": provider,
+                **structured,
+                "highlights": marks,
+            }
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
             path.unlink(missing_ok=True)
 
+    # ----------------------------------------------------------- Agent Nudge
     @api.get("/nudge")
     def nudge_summary():
         try:

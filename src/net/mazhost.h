@@ -39,20 +39,50 @@ struct Assurance {
     std::string error;
 };
 
+struct CoreProject {
+    std::string name;
+    std::string branch;
+    std::string kind;
+    int dirty = 0;
+};
+
+struct CoreStatus {
+    bool ok = false;
+    std::string hostname;
+    std::string model;
+    int projects = 0;
+    bool ollama = false;
+    std::string error;
+};
+
+struct CoreJob {
+    bool ok = false;
+    std::string id;
+    std::string state;
+    std::string action;
+    std::string project;
+    std::string output;
+    std::string error;
+};
+
 bool configured();
 bool health();
-const char* linkName();  // LAN / REMOTE / OFFLINE
+const char* linkName();
 std::string startSession();
 Reply talkText(const std::string& session, const std::string& text);
 Reply talkAudio(const std::string& session, const std::string& wavPath);
 Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
 Reply pcAction(const std::string& action);
-// Ask MAZ Host to synthesize a short reply and save the WAV directly into the
-// existing storage abstraction. No cloud TTS key ever reaches the Cardputer.
 bool speak(const std::string& text, const std::string& wavPath);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);
+
+CoreStatus coreStatus();
+std::vector<CoreProject> coreProjects(std::string& error);
+Reply coreAction(const std::string& action, const std::string& project);
+CoreJob coreStartJob(const std::string& action, const std::string& project);
+CoreJob coreJob(const std::string& id);
 
 }  // namespace host
 }  // namespace maz
