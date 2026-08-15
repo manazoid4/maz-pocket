@@ -1,8 +1,9 @@
 // COMM — responsive voice conversation with MAZ Core.
 //
 // Recording stays on the UI task because microphone feedback is immediate.
-// Host session creation, WAV upload and optional TTS run on the one bounded
-// host_worker task so a sleeping PC or slow network cannot freeze navigation.
+// Host session creation, WAV upload, optional TTS and allow-listed PC actions
+// run on one bounded host_worker task so a sleeping PC or slow network cannot
+// freeze navigation.
 #include <algorithm>
 #include <array>
 #include <string>
@@ -54,6 +55,12 @@ constexpr ControlAction CONTROLS[] = {
     {"lock",        "LOCK",    "lock Windows"},
 };
 constexpr int CONTROL_COUNT = sizeof(CONTROLS) / sizeof(CONTROLS[0]);
+
+const char* controlLabel(const std::string& action) {
+    for (const auto& item : CONTROLS)
+        if (action == item.key) return item.label;
+    return "PC COMMAND";
+}
 
 class CommApp : public App {
 public:
@@ -298,17 +305,18 @@ private:
     void runControl() {
         // This control deck is intentionally tiny and allow-listed. Keep it
         // deterministic; never turn COMM into a remote shell.
-        const auto& control = CONTROLS[_controlSel];
-        const auto result = host::pcAction(control.key);
-        if (result.ok) {
-            sfx::confirm();
-            notify::post(Note::Success, control.label,
-                         result.text.empty() ? "PC acknowledged" : result.text);
-        } else {
-            sfx::error();
-            notify::post(Note::Error, "Command failed",
-                         result.error.empty() ? "PC unavailable" : result.error);
+        if (host_worker::busy()) {
+            notify::post(Note::Info, "PC busy", "wait for current action");
+            return;
         }
+        const auto& control = CONTROLS[_controlSel];
+        if (!host_worker::submitPcAction(control.key)) {
+            notify::post(Note::Error, "Command not queued", host_worker::stateName());
+            return;
+        }
+        _controlMode = false;
+        _sending = true;
+        sfx::confirm();
         invalidate();
     }
 
@@ -368,12 +376,31 @@ private:
     }
 
     void consumeWorkerResult() {
-        host_worker::TalkResult result;
-        if (!host_worker::takeTalkResult(result)) {
+        if (host_worker::state() != host_worker::State::Done) {
             _sending = host_worker::busy();
             return;
         }
 
+        if (host_worker::jobKind() == host_worker::JobKind::PcAction) {
+            host_worker::PcActionResult result;
+            if (!host_worker::takePcActionResult(result)) return;
+            _sending = false;
+            const char* label = controlLabel(result.action);
+            if (result.reply.ok) {
+                sfx::confirm();
+                notify::post(Note::Success, label,
+                             result.reply.text.empty() ? "PC acknowledged" : result.reply.text);
+            } else {
+                sfx::error();
+                notify::post(Note::Error, "Command failed",
+                             result.reply.error.empty() ? "PC unavailable" : result.reply.error);
+            }
+            invalidate();
+            return;
+        }
+
+        host_worker::TalkResult result;
+        if (!host_worker::takeTalkResult(result)) return;
         _sending = false;
         if (!result.session.empty()) gCommSession = result.session;
 
