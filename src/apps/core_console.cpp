@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/shell.h"
+#include "../net/action_ids.generated.h"
 #include "../net/host_async.h"
 #include "../net/mazhost.h"
 #include "apps.h"
@@ -17,8 +18,14 @@ using namespace theme;
 namespace {
 
 constexpr const char* ACTION_LABELS[] = {"GIT STATUS", "TESTS", "BUILD", "GIT FETCH", "PULL FF-ONLY"};
-constexpr const char* ACTION_IDS[] = {"git_status", "tests", "build", "git_fetch", "git_pull_ff"};
-constexpr int ACTION_COUNT = 5;
+constexpr const char* ACTION_IDS[] = {
+    action_ids::CORE_GIT_STATUS,
+    action_ids::CORE_TESTS,
+    action_ids::CORE_BUILD,
+    action_ids::CORE_GIT_FETCH,
+    action_ids::CORE_GIT_PULL_FF,
+};
+constexpr int ACTION_COUNT = sizeof(ACTION_IDS) / sizeof(ACTION_IDS[0]);
 
 class CoreConsoleApp final : public App {
 public:
