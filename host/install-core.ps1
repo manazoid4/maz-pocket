@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $HostRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EnvPath = Join-Path $HostRoot ".env"
 
-Write-Host "MAZ Core v0.5 - installing..."
+Write-Host "MAZ Core v0.5.1 - installing..."
 & (Join-Path $HostRoot "setup.ps1")
 
 function Set-MazEnv([string]$Name, [string]$Value) {
@@ -50,7 +50,7 @@ $Shortcut = $Shell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "powershell.exe"
 $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $HostRoot 'run.ps1')`""
 $Shortcut.WorkingDirectory = $HostRoot
-$Shortcut.Description = "MAZ Core v0.5"
+$Shortcut.Description = "MAZ Core v0.5.1"
 $Shortcut.Save()
 
 # Open the LAN port automatically when the script is elevated. Otherwise the
@@ -70,7 +70,7 @@ if (-not $Listening) {
     Start-Sleep -Seconds 2
 }
 
-# Optional private HTTPS endpoint for the hidden Maz Works console. Tailscale
+# Optional private HTTPS endpoint for the Maz Works capability clients. Tailscale
 # Serve stays tailnet-private; this script never writes the URL into the public site.
 $Tail = Get-Command tailscale -ErrorAction SilentlyContinue
 if ($Tail) {
@@ -85,9 +85,9 @@ $Address = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
 $Token = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
 
 Write-Host ""
-Write-Host "MAZ Core v0.5 READY"
+Write-Host "MAZ Core v0.5.1 READY"
 Write-Host "PC address: ${Address}:8787"
 Write-Host "Pair token: $Token"
-Write-Host "GitHub bridge: $(if ($Bridge) { 'ON' } else { 'OFF - sign into gh if you want ChatGPT -> PC commands' })"
+Write-Host "GitHub bridge: $(if ($Bridge) { 'ON' } else { 'OFF - sign into gh if you want AI -> private GitHub -> PC commands' })"
 Write-Host "Cardputer: CONTROL > MAZ CORE, enter the address/token if not already paired."
-Write-Host "Hidden Maz Works console: enter your private Core/Tailscale URL there; it is never stored in the site source."
+Write-Host "Maz Works: /maz-core for the human console, /maz-pocket-ai for the private AI capability client."
