@@ -9,12 +9,18 @@ namespace maz {
 namespace host_worker {
 
 enum class State : uint8_t { Idle, Queued, Running, Done, FailedToStart };
+enum class JobKind : uint8_t { None, TalkAudio, PcAction };
 
 struct TalkResult {
     std::string session;
     std::string wavPath;
     std::string speechPath;
     bool speechReady = false;
+    host::Reply reply;
+};
+
+struct PcActionResult {
+    std::string action;
     host::Reply reply;
 };
 
@@ -25,12 +31,15 @@ struct TalkResult {
 // MAZ Host on the worker task so TTS cannot stall the UI task either.
 bool submitTalkAudio(const std::string& session, const std::string& wavPath,
                      const std::string& speechPath = "");
+bool submitPcAction(const std::string& action);
 
-// Takes ownership of the one completed result and returns the worker to Idle.
-// The result contains copied data only; no App pointer crosses task boundaries.
+// Takes ownership of the matching completed result and returns the worker to
+// Idle. Results contain copied data only; no App pointer crosses task bounds.
 bool takeTalkResult(TalkResult& result);
+bool takePcActionResult(PcActionResult& result);
 
 State state();
+JobKind jobKind();
 bool busy();
 const char* stateName();
 uint32_t stackHighWaterBytes();
