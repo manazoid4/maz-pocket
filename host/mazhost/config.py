@@ -1,14 +1,10 @@
-"""Configuration. Every secret lives here, on the laptop, and nowhere else.
-
-The Cardputer only ever learns a host address, a port and a bearer token. It
-never sees an API key, which is the whole reason the split exists.
-"""
+"""MAZ Host configuration. Secrets and model routing stay on the laptop."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,19 +19,21 @@ class Settings(BaseSettings):
     whisper_model: str = "base.en"
     whisper_device: str = "cpu"
     whisper_compute: str = "int8"
+
+    # v0.4 local-first brain. This exact Ollama tag is present on the target
+    # workstation and is the canonical model for MAZ Pocket's local assistant.
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "gemma3:1b"
+    ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
+
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"
-    default_route: Literal["local", "auto", "cloud"] = "auto"
+    default_route: Literal["local", "auto", "cloud"] = "local"
+
     max_upload_mb: int = Field(default=12, ge=1, le=64)
     max_audio_seconds: int = Field(default=900, ge=1, le=3600)
     session_ttl_minutes: int = Field(default=120, ge=1, le=1440)
     max_turns: int = Field(default=24, ge=1, le=100)
-    # A bare process stays text-first. The shipped .env.example explicitly
-    # enables this for the normal Windows v0.3 install, preserving the original
-    # invariant that an unconfigured TTS engine can never delay text answers.
     tts_enabled: bool = False
     tts_rate: int = Field(default=180, ge=80, le=300)
     nudge_url: str = "http://127.0.0.1:47831"
@@ -46,6 +44,15 @@ class Settings(BaseSettings):
     device_baud: int = Field(default=115200, ge=1200, le=3_000_000)
     device_vid: int = 0x303A
     device_pid: int = 0x1001
+
+    @model_validator(mode="after")
+    def migrate_legacy_shipped_defaults(self):
+        # v0.3's generated .env shipped gemma3:1b. Upgrade only that known old
+        # default so existing installations do not silently keep the weak model.
+        # Any other explicit user-selected model remains respected.
+        if self.ollama_model == "gemma3:1b":
+            self.ollama_model = "lfm2.5-8b-a1b-gpu:latest"
+        return self
 
     @property
     def token_configured(self) -> bool:
