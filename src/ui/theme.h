@@ -17,14 +17,13 @@ constexpr int ROW_H    = 17;
 constexpr int ROWS_VISIBLE = BODY_H / ROW_H;
 constexpr int LIST_ROWS = ROWS_VISIBLE - 1;
 
-// v0.3 Home is deliberately not an app table. Three large launcher tiles are
-// the product: Call PC, Capture and Agents. Everything else remains searchable
-// through Ctrl+K without competing for the first screen.
-constexpr int TABLE_Y      = BODY_Y + 29;
+// v0.03.1 Home is the six-surface MAZ Pocket dashboard: COMM, CAPTURE, OPS,
+// DESK, RECALL and FLOW. Utilities remain in Ctrl+K rather than bloating Home.
+constexpr int TABLE_Y      = BODY_Y + 27;
 constexpr int TABLE_COLS   = 3;
-constexpr int TABLE_ROWS   = 1;
+constexpr int TABLE_ROWS   = 2;
 constexpr int TABLE_CELL_W = SCREEN_W / TABLE_COLS;
-constexpr int TABLE_CELL_H = 70;
+constexpr int TABLE_CELL_H = 34;
 constexpr int TABLE_PAGE   = TABLE_COLS * TABLE_ROWS;
 
 // RGB565 — dark terminal body with phosphor-like amber/cyan state accents.
