@@ -1,48 +1,53 @@
-# MAZ Pocket v0.5
+# MAZ Pocket v0.5.1
 
-The **control + real local intelligence** milestone for Cardputer ADV.
+The **daily-driver hardening** release for Cardputer ADV. It keeps the v0.5 six-surface product model and focuses on responsiveness, recovery, safer installation and private AI access rather than adding more apps.
 
-## Why v0.4 missed
+## What changed from v0.5
 
-v0.4 added capability but hid too much behind menus and still gave the model too little factual PC/project context. Wi-Fi existed but did not feel first-class, and the web UI duplicated controls rather than acting as one coherent system.
+- Active **COMM** no longer performs session creation, voice upload, optional TTS, or its small allow-listed PC command deck on the UI task. One bounded low-priority Host worker serialises those network operations.
+- Leaving COMM while the PC is slow is safe: no `App*` crosses task boundaries, and failed/offline voice remains durable in the outbox.
+- USB/LAN control no longer waits on `readStringUntil()` and `MAZSTATUS` no longer triggers synchronous Host network requests.
+- Runtime evidence now records free heap, minimum free heap, largest contiguous allocation, main-task stack headroom and worst foreground-loop duration. The Host worker also records minimum remaining stack after HTTP/TLS/TTS work.
+- Partition/update comments now match reality: **M5Launcher owns firmware installation and rollback**. MAZ Pocket does not self-flash arbitrary partitions.
+- A new Windows install bundle gives the normal path: **extract ZIP → insert microSD → double-click `INSTALL-MAZ-POCKET.cmd` → M5Launcher Install**. The helper validates the ESP32 app image, refuses fixed disks and verifies SHA-256 after copying.
+- Maz Works now has an unlinked/noindex `/maz-pocket-ai` capability client. Private Core URLs/tokens are supplied at runtime and are never committed into the public site. Trusted AI clients can use authenticated HTTPS, while AI clients with GitHub access can use MAZ Core's existing private `[MAZ CORE]` issue queue.
 
-## v0.5
+## Product surfaces
 
-- Home remains six focused surfaces but **DESK is replaced by CONTROL**: COMM / CAPTURE / OPS / CONTROL / RECALL / FLOW.
-- **W opens Wi-Fi directly from Home.** CONTROL exposes Wi-Fi, MAZ Core, PC/COMM, diagnostics, settings and M5Launcher.
-- New full on-device Wi-Fi manager: status, reconnect, scan/connect primary, scan/save backup, disconnect, forget networks and setup hotspot.
-- If no saved network works, the device exposes **MAZ-Pocket-Setup** so Wi-Fi is always repairable from the Cardputer/phone.
-- `mazpocket.local` is now a real device control plane with Wi-Fi provisioning, surface launchers, Core configuration, PC controls, diagnostics, recovery and a **~2 FPS live LCD stream**.
-- Cardputer ADV has no built-in camera; v0.5 streams the device screen. External camera video remains a hardware extension, not a fake software claim.
-
-## MAZ Core
-
-`MAZ-Core-v0.5.zip` turns the Windows PC into the persistent brain behind the Cardputer without requiring Codex:
-
-- local AI: `lfm2.5-8b-a1b-gpu:latest` via Ollama;
-- real project discovery across configured local roots;
-- branch / dirty / recent-commit evidence;
-- safe project search and non-secret file reads;
-- allow-listed project actions: git status, fetch, fast-forward pull, detected tests, detected build, open folder;
-- tests/builds are background jobs so the handheld does not freeze;
-- Cardputer status + live screen proxy;
-- Agent Nudge remains factual evidence, not an LLM guess;
-- optional private GitHub issue bridge enables ChatGPT → private GitHub → MAZ Core → local PC without a generic remote shell.
-
-## Hidden Maz Works console
-
-A `/maz-core` client is added to Maz Works but is **not linked publicly and is `noindex`**. It contains no private URL/token. Your browser supplies its own private HTTPS Core endpoint and pairing token at runtime.
+- **COMM** — voice assistant + safe PC controls.
+- **CAPTURE** — voice/field capture + BrainDump.
+- **OPS** — Agent Nudge evidence + nudges.
+- **CONTROL** — Wi-Fi, MAZ Core, PC, diagnostics, settings and M5Launcher.
+- **RECALL** — inbox, notes, snippets and viewer.
+- **FLOW** — reminders, focus, sprint and tasks.
 
 ## Install
 
-1. Copy `Maz-Pocket-v0.5-M5Launcher.bin` to SD.
-2. M5Launcher → select `.bin` → Install → Launch.
-3. Extract `MAZ-Core-v0.5.zip` on the PC and run `install-core.ps1` once.
+1. Download `MAZ-Pocket-v0.5.1-Install.zip` and extract it.
+2. Insert the Cardputer microSD card into Windows.
+3. Double-click `INSTALL-MAZ-POCKET.cmd`.
+4. Safely eject the card, boot M5Launcher, select `Maz-Pocket-v0.5.1-M5Launcher.bin`, Install, then Launch.
+5. Extract `MAZ-Core-v0.5.1.zip` on the PC and run `install-core.ps1` once if Core is not already installed/configured.
 
-## Safety
+Manual copying of the `.bin` to microSD remains supported.
 
-- Firmware is an app-only M5Launcher image; never flash it at address `0x0`.
+## Safety boundaries
+
+- The firmware is an **app-only M5Launcher image**. Never flash it at address `0x0`.
 - CI enforces the known `0x180000` Launcher slot ceiling.
-- Generic ArduinoOTA stays disabled so MAZ cannot overwrite another Launcher app.
-- MAZ Core has no arbitrary remote shell and blocks direct reads of common secret-file types.
-- The GitHub bridge is private-repo + explicit-prefix + allow-list only.
+- Generic ArduinoOTA remains disabled.
+- MAZ Core exposes fixed capabilities; there is no arbitrary remote shell.
+- AI capability links are secrets. Rotate the Core token if one is exposed.
+- This release intentionally keeps durable WAV/HTTP for voice. It does **not** claim realtime microphone-frame streaming yet.
+
+## Physical validation gate
+
+CI validates build/tests/image/package integrity, but a real Cardputer ADV still has to prove the hardware path. Before treating v0.5.1 as fully field-proven, run:
+
+- 30+ minute soak with no reset/watchdog event;
+- 20+ COMM turns, including exiting/re-entering COMM mid-request;
+- Wi-Fi and MAZ Core loss/reconnect;
+- SD absent/unreadable/near-full behavior;
+- repeated microphone record/playback cycles;
+- M5Launcher reinstall and rollback;
+- inspect `[health]` and `[host-worker]` serial measurements for heap/stack/loop headroom.
