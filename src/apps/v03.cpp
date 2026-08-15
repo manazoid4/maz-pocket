@@ -1,5 +1,4 @@
-// MAZ Pocket v0.3 — the two product surfaces that replace generic Talk/Nudge
-// on Home. Capture keeps its existing proven BrainDump implementation.
+// MAZ Pocket COMM + OPS product surfaces.
 #include <algorithm>
 #include <array>
 #include <string>
@@ -10,6 +9,8 @@
 #include "../core/settings.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
+#include "../net/comm_stream.h"
+#include "../net/host_async.h"
 #include "../net/mazhost.h"
 #include "../storage/store.h"
 #include "apps.h"
@@ -23,6 +24,10 @@ using namespace theme;
 namespace {
 
 std::string gCallSession;
+
+void streamPcmTap(const int16_t* samples, size_t count) {
+    comm_stream::pushPcm(samples, count);
+}
 
 void drawWrapped(M5Canvas& g, const std::string& text, int y, int first = 0) {
     constexpr size_t W = 37;
@@ -59,7 +64,7 @@ public:
     const char* hints() const override {
         if (_controlMode) return "< > choose   ENTER send   C voice";
         if (voice::state() == voice::State::Listening) return "release SPACE to send";
-        if (_sending) return "PC is thinking...";
+        if (_sending) return "SPACE cancel   N new line";
         if (voice::isPlaying()) return "SPACE interrupt   P replay";
         if (!_reply.empty()) return "SPACE reply   C controls   N new";
         return "hold SPACE call   C controls   N new";
@@ -67,17 +72,27 @@ public:
 
     void onEnter() override {
         _sending = false;
-        _haveTake = false;
+        _usingStream = false;
         _scroll = 0;
         _controlMode = false;
+        _queuedTake = false;
+        voice::setCaptureTap(nullptr);
         if (KB.held(KEY_SPACE)) beginTake();
         invalidate();
     }
 
     void onExit() override {
+        voice::setCaptureTap(nullptr);
         if (voice::state() == voice::State::Listening) voice::stop();
         voice::stopPlayback();
-        discardTake();
+        comm_stream::cancel();
+        if (_restReq) host_async::cancel(_restReq);
+        if (_controlReq) host_async::cancel(_controlReq);
+        if (_ttsReq) host_async::cancel(_ttsReq);
+        if (_sending && !_takePath.empty())
+            queueTake("screen closed before host finished");
+        else
+            discardTake();
     }
 
     bool onKey(const KeyEvent& e) override {
@@ -114,8 +129,15 @@ public:
         }
 
         if (e.down && e.code == KEY_SPACE) {
-            if (voice::isPlaying()) voice::stopPlayback();
-            if (voice::state() != voice::State::Listening && !_sending) beginTake();
+            if (voice::isPlaying()) {
+                voice::stopPlayback();
+                return true;
+            }
+            if (_sending) {
+                cancelPending(true);
+                return true;
+            }
+            if (voice::state() != voice::State::Listening) beginTake();
             return true;
         }
         if (!e.down && e.code == KEY_SPACE) {
@@ -131,7 +153,8 @@ public:
             invalidate();
             return true;
         }
-        if (e.code == KEY_N && !_sending) {
+        if (e.code == KEY_N) {
+            cancelPending(false);
             gCallSession.clear();
             _reply.clear();
             voice::stopPlayback();
@@ -164,8 +187,12 @@ public:
     }
 
     void update() override {
-        if (_sending && millis() >= _sendAt) sendTurn();
-        if (voice::state() == voice::State::Listening || voice::isPlaying()) invalidate();
+        pumpStream();
+        pumpRest();
+        pumpControl();
+        pumpTts();
+        if (voice::state() == voice::State::Listening || voice::isPlaying() || _sending)
+            invalidate();
     }
 
     void render(M5Canvas& g) override {
@@ -175,7 +202,8 @@ public:
             return;
         }
 
-        ui::header(g, "COMM / PC", host::linkName());
+        const char* link = _usingStream ? "WS LIVE" : host::linkName();
+        ui::header(g, "COMM / PC", link);
 
         if (voice::state() == voice::State::Listening) {
             ui::panel(g, 71, BODY_Y + 19, 98, 52);
@@ -186,12 +214,14 @@ public:
             g.setTextDatum(top_left);
             g.setFont(&fonts::Font0);
             g.setTextColor(DIM, BG);
-            g.drawString(("TX 00:" + two(voice::elapsedSeconds())).c_str(), 98, BODY_Y + 78);
+            const char* path = _usingStream ? "WS+SD" : "SD";
+            g.drawString((std::string(path) + " 00:" + two(voice::elapsedSeconds())).c_str(),
+                         91, BODY_Y + 78);
             return;
         }
 
-        if (_sending) {
-            retroPhone(g, "DIALING PC", WARN);
+        if (_sending && _reply.empty()) {
+            retroPhone(g, _usingStream ? "STREAMING" : "REST FALLBACK", WARN);
             return;
         }
         if (voice::isPlaying()) {
@@ -201,7 +231,9 @@ public:
         if (!_reply.empty()) {
             g.setFont(&fonts::Font0);
             g.setTextColor(ACCENT, BG);
-            g.drawString((std::string("PC> ") + host::linkName() + " / " + routeName()).c_str(), PAD, BODY_Y + 18);
+            const std::string mode = _usingStream ? "STREAM" : host::linkName();
+            g.drawString((std::string("PC> ") + mode + " / " + routeName()).c_str(),
+                         PAD, BODY_Y + 18);
             drawWrapped(g, _reply, BODY_Y + 34, _scroll);
             return;
         }
@@ -216,6 +248,9 @@ private:
 
     const char* routeName() const {
         return Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO");
+    }
+    const char* routeWire() const {
+        return Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
     }
 
     void retroPhone(M5Canvas& g, const char* status, uint16_t colour) {
@@ -234,7 +269,7 @@ private:
     }
 
     void renderControl(M5Canvas& g) {
-        ui::header(g, "COMMAND DECK", host::linkName());
+        ui::header(g, "COMMAND DECK", _controlReq ? "SENDING" : host::linkName());
         const int prev = (_controlSel + CONTROL_COUNT - 1) % CONTROL_COUNT;
         const int next = (_controlSel + 1) % CONTROL_COUNT;
 
@@ -258,13 +293,29 @@ private:
     }
 
     void runControl() {
+        if (_controlReq) {
+            notify::post(Note::Info, "Command pending", "wait for PC acknowledgement");
+            return;
+        }
+        _controlReq = host_async::pcAction(CONTROLS[_controlSel].key);
+        if (!_controlReq) {
+            sfx::error();
+            notify::post(Note::Warn, "Host queue busy", "try again in a moment");
+        }
+        invalidate();
+    }
+
+    void pumpControl() {
+        if (!_controlReq) return;
+        host_async::Result result;
+        if (!host_async::poll(_controlReq, result)) return;
+        _controlReq = 0;
         const auto& control = CONTROLS[_controlSel];
-        const auto result = host::pcAction(control.key);
-        if (result.ok) {
+        if (!result.cancelled && result.reply.ok) {
             sfx::confirm();
             notify::post(Note::Success, control.label,
-                         result.text.empty() ? "PC acknowledged" : result.text);
-        } else {
+                         result.reply.text.empty() ? "PC acknowledged" : result.reply.text);
+        } else if (!result.cancelled) {
             sfx::error();
             notify::post(Note::Error, "Command failed",
                          result.error.empty() ? "PC unavailable" : result.error);
@@ -274,8 +325,15 @@ private:
 
     void beginTake() {
         discardTake();
+        _reply.clear();
+        _queuedTake = false;
+        _usingStream = comm_stream::start(gCallSession, routeWire());
+        voice::setCaptureTap(_usingStream ? streamPcmTap : nullptr);
         _sink = new voice::WavFileSink("outbox");
         if (!voice::start(_sink, 60)) {
+            voice::setCaptureTap(nullptr);
+            comm_stream::cancel();
+            _usingStream = false;
             notify::post(Note::Error, "Mic failed", voice::lastError());
             delete _sink;
             _sink = nullptr;
@@ -287,80 +345,181 @@ private:
 
     void endTake() {
         if (!voice::stop()) {
+            voice::setCaptureTap(nullptr);
+            comm_stream::cancel();
+            _usingStream = false;
             notify::post(Note::Error, "Recording failed", voice::lastError());
             delete _sink;
             _sink = nullptr;
             return;
         }
+        voice::setCaptureTap(nullptr);
         sfx::recStop();
         _takePath = _sink->path();
-        _haveTake = true;
         delete _sink;
         _sink = nullptr;
         _sending = true;
-        _sendAt = millis() + 120;
+
+        if (_usingStream && !comm_stream::failed()) {
+            comm_stream::finish();
+        } else {
+            startRestFallback("stream unavailable");
+        }
         invalidate();
     }
 
-    void sendTurn() {
+    void pumpStream() {
+        if (!_usingStream) return;
+        comm_stream::Event event;
+        while (comm_stream::poll(event)) {
+            if (!event.sessionId.empty()) gCallSession = event.sessionId;
+            switch (event.type) {
+                case comm_stream::EventType::Ready:
+                    break;
+                case comm_stream::EventType::Transcript:
+                    _transcript = event.text;
+                    break;
+                case comm_stream::EventType::Delta:
+                    _reply += event.text;
+                    _scroll = 0;
+                    break;
+                case comm_stream::EventType::Done:
+                    finishReply(event.text.empty() ? _reply : event.text,
+                                event.provider.empty() ? "ws" : event.provider);
+                    _usingStream = false;
+                    _sending = false;
+                    return;
+                case comm_stream::EventType::Error:
+                case comm_stream::EventType::Disconnected:
+                    startRestFallback(event.text.empty() ? "stream lost" : event.text);
+                    return;
+                case comm_stream::EventType::Cancelled:
+                    _usingStream = false;
+                    _sending = false;
+                    return;
+            }
+        }
+        if (_usingStream && comm_stream::failed()) startRestFallback("stream failed");
+    }
+
+    void startRestFallback(const std::string& reason) {
+        if (!_usingStream && _restReq) return;
+        comm_stream::cancel();
+        _usingStream = false;
+        _reply.clear();
+        if (_takePath.empty()) {
+            _sending = false;
+            notify::post(Note::Error, "No saved turn", reason);
+            return;
+        }
+        _restReq = host_async::talkAudio(gCallSession, _takePath);
+        if (!_restReq) {
+            _sending = false;
+            queueTake("host queue busy");
+            notify::post(Note::Warn, "Queued offline", "raw WAV kept on SD");
+            return;
+        }
+        _sending = true;
+        _fallbackReason = reason;
+        invalidate();
+    }
+
+    void pumpRest() {
+        if (!_restReq) return;
+        host_async::Result result;
+        if (!host_async::poll(_restReq, result)) return;
+        _restReq = 0;
         _sending = false;
-        if (gCallSession.empty()) gCallSession = host::startSession();
-        const auto result = gCallSession.empty()
-                                ? host::Reply{}
-                                : host::talkAudio(gCallSession, _takePath);
-        if (!result.ok) {
-            store::Record queued;
-            queued.kind = "outbox";
-            queued.status = "queued";
-            queued.title = "Call PC turn";
-            queued.body = result.error.empty() ? "PC unavailable" : result.error;
-            queued.source = "talk";
-            queued.ref = _takePath;
-            store::addRecord(queued);
-            _takePath.clear();
-            _haveTake = false;
-            notify::post(Note::Warn, "PC unavailable", "voice turn queued");
+        if (result.cancelled) return;
+        if (!result.session.empty()) gCallSession = result.session;
+        if (!result.reply.ok) {
+            queueTake(result.error.empty() ? "PC unavailable" : result.error);
+            notify::post(Note::Warn, "PC unavailable", "voice turn queued on SD");
             invalidate();
             return;
         }
+        finishReply(result.reply.text, result.reply.provider);
+    }
 
-        _reply = result.text;
+    void finishReply(const std::string& text, const std::string& provider) {
+        _reply = text;
         _scroll = 0;
         store::Record answer;
         answer.kind = "inbox";
         answer.status = "open";
         answer.title = "Call PC";
-        answer.body = result.text;
-        answer.source = result.provider;
+        answer.body = _reply;
+        answer.source = provider;
         store::addRecord(answer);
         discardTake();
 
         if (Cfg.ttsEnabled && store::ready() && !_reply.empty()) {
             if (!_speechPath.empty()) store::remove(_speechPath);
             _speechPath = store::newPath("cache", "wav");
-            if (host::speak(_reply, _speechPath)) voice::play(_speechPath);
-            else _speechPath.clear();
+            _ttsReq = host_async::speak(_reply, _speechPath);
+            if (!_ttsReq) _speechPath.clear();
         }
         sfx::confirm();
         invalidate();
     }
 
+    void pumpTts() {
+        if (!_ttsReq) return;
+        host_async::Result result;
+        if (!host_async::poll(_ttsReq, result)) return;
+        _ttsReq = 0;
+        if (!result.cancelled && result.boolValue && !_speechPath.empty())
+            voice::play(_speechPath);
+        else if (!result.boolValue)
+            _speechPath.clear();
+    }
+
+    void cancelPending(bool keepRaw) {
+        comm_stream::cancel();
+        _usingStream = false;
+        if (_restReq) host_async::cancel(_restReq);
+        _restReq = 0;
+        _sending = false;
+        if (keepRaw && !_takePath.empty()) queueTake("cancelled by Maz");
+        notify::post(Note::Info, "Turn cancelled", keepRaw ? "raw WAV kept" : "line reset");
+        invalidate();
+    }
+
+    void queueTake(const std::string& reason) {
+        if (_takePath.empty() || _queuedTake) return;
+        store::Record queued;
+        queued.kind = "outbox";
+        queued.status = "queued";
+        queued.title = "Call PC turn";
+        queued.body = reason;
+        queued.source = "talk";
+        queued.ref = _takePath;
+        store::addRecord(queued);
+        _queuedTake = true;
+        _takePath.clear();  // record owns the durable file now; do not delete it
+    }
+
     void discardTake() {
         if (!_takePath.empty()) store::remove(_takePath);
         _takePath.clear();
-        _haveTake = false;
+        _queuedTake = false;
     }
 
     voice::WavFileSink* _sink = nullptr;
     std::string _takePath;
     std::string _speechPath;
     std::string _reply;
+    std::string _transcript;
+    std::string _fallbackReason;
     int _scroll = 0;
     int _controlSel = 0;
     bool _controlMode = false;
-    bool _haveTake = false;
     bool _sending = false;
-    uint32_t _sendAt = 0;
+    bool _usingStream = false;
+    bool _queuedTake = false;
+    uint32_t _restReq = 0;
+    uint32_t _controlReq = 0;
+    uint32_t _ttsReq = 0;
 };
 
 class AgentsV3App : public App {
@@ -368,35 +527,77 @@ public:
     const char* id() const override { return "nudge"; }
     const char* title() const override { return "Agents"; }
     const char* hints() const override {
-        return _detail ? "N nudge   ESC list" : "ENTER inspect   N nudge   R refresh";
+        if (_detail) return "N nudge   ESC list";
+        return _refreshReq ? "refreshing...   ESC back" :
+               "ENTER inspect   N nudge   R refresh";
     }
 
-    void onEnter() override { refresh(); }
+    void onEnter() override { requestRefresh(); }
+    void onExit() override {
+        if (_refreshReq) host_async::cancel(_refreshReq);
+        if (_nudgeReq) host_async::cancel(_nudgeReq);
+    }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;
-        if (e.code == KEY_R) { refresh(); return true; }
-        if (_detail && e.code == KEY_ESC) { _detail = false; invalidate(); return true; }
+        if (e.code == KEY_R) {
+            if (_refreshReq) host_async::cancel(_refreshReq);
+            _refreshReq = 0;
+            requestRefresh();
+            return true;
+        }
+        if (_detail && e.code == KEY_ESC) {
+            _detail = false;
+            invalidate();
+            return true;
+        }
         if (_cursor.onKey(e, static_cast<int>(_summary.agents.size()))) {
             invalidate();
             return true;
         }
         if (_summary.agents.empty()) return false;
-        if (e.code == KEY_ENTER) { _detail = !_detail; invalidate(); return true; }
-        if (e.code == KEY_N) {
-            const auto result = host::sendNudge(_summary.agents[_cursor.sel].id);
-            notify::post(result.ok ? Note::Success : Note::Error,
-                         result.ok ? "Agent nudged" : "Nudge failed",
-                         result.ok ? _summary.agents[_cursor.sel].name : result.error);
-            refresh();
+        if (e.code == KEY_ENTER) {
+            _detail = !_detail;
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_N && !_nudgeReq) {
+            _nudgeReq = host_async::sendNudge(_summary.agents[_cursor.sel].id);
+            if (_nudgeReq)
+                notify::post(Note::Info, "Nudge queued", _summary.agents[_cursor.sel].name);
+            else
+                notify::post(Note::Warn, "Host queue busy", "try again shortly");
             return true;
         }
         return false;
     }
 
+    void update() override {
+        if (_refreshReq) {
+            host_async::Result result;
+            if (host_async::poll(_refreshReq, result)) {
+                _refreshReq = 0;
+                if (!result.cancelled) applySummary(result.assurance);
+            }
+        }
+        if (_nudgeReq) {
+            host_async::Result result;
+            if (host_async::poll(_nudgeReq, result)) {
+                _nudgeReq = 0;
+                if (!result.cancelled) {
+                    notify::post(result.reply.ok ? Note::Success : Note::Error,
+                                 result.reply.ok ? "Agent nudged" : "Nudge failed",
+                                 result.reply.ok ? "request delivered" : result.error);
+                    requestRefresh();
+                }
+            }
+        }
+    }
+
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
-        ui::header(g, "OPS / AGENTS", _summary.ok ? host::linkName() : "OFFLINE");
+        ui::header(g, "OPS / AGENTS",
+                   _refreshReq ? "UPDATING" : (_summary.ok ? host::linkName() : "OFFLINE"));
         g.setFont(&fonts::Font2);
         g.setTextColor(_status == "ALL CLEAR" ? OK : WARN, BG);
         g.drawString(_status.c_str(), PAD, BODY_Y + 18);
@@ -422,13 +623,25 @@ public:
                         ui::ellipsis(a.name, 17).c_str(), a.state.c_str());
         }
         if (_summary.agents.empty())
-            ui::emptyState(g, _summary.ok ? "No active agents" : "PC unavailable",
-                           _summary.ok ? "Agent Nudge has nothing pending" : "Call PC or check connection");
+            ui::emptyState(g,
+                           _refreshReq ? "Checking agents..." :
+                           (_summary.ok ? "No active agents" : "PC unavailable"),
+                           _refreshReq ? "device remains responsive" :
+                           (_summary.ok ? "Agent Nudge has nothing pending" :
+                                          "Call PC or check connection"));
     }
 
 private:
-    void refresh() {
-        _summary = host::assurance();
+    void requestRefresh() {
+        if (_refreshReq) return;
+        _status = "CHECKING";
+        _refreshReq = host_async::assurance();
+        if (!_refreshReq) _status = "HOST BUSY";
+        invalidate();
+    }
+
+    void applySummary(const host::Assurance& summary) {
+        _summary = summary;
         if (!_summary.ok) _status = "PC OFFLINE";
         else if (_summary.questionForMaz) _status = "NEEDS MAZ";
         else if (_summary.overdue) _status = std::to_string(_summary.overdue) + " OVERDUE";
@@ -445,6 +658,8 @@ private:
     ListCursor _cursor;
     bool _detail = false;
     std::string _status = "PC OFFLINE";
+    uint32_t _refreshReq = 0;
+    uint32_t _nudgeReq = 0;
 };
 
 }  // namespace
