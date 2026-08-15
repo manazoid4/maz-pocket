@@ -5,6 +5,7 @@
 
 #include "audio/voice.h"
 #include "core/ambient.h"
+#include "core/health.h"
 #include "core/notify.h"
 #include "core/settings.h"
 #include "core/launcher.h"
@@ -71,6 +72,8 @@ void setup() {
     }
     Serial.println("[boot] shell");
 
+    health::begin();
+
     Serial.printf("MAZ Pocket %s READY board=%d keyboard=%s storage=%s\n",
                   MAZ_POCKET_VERSION, (int)M5.getBoard(),
                   KB.ok() ? "ok" : "missing", store::backendName());
@@ -86,9 +89,14 @@ void setup() {
 }
 
 void loop() {
+    const uint32_t loopStarted = millis();
+
     control::update();
     portal::update();
     shell::loop();
     ambient::update();
+
+    health::observeLoop(millis() - loopStarted);
+    health::update();
     delay(2);
 }
