@@ -30,12 +30,18 @@ MAZ CORE ON THE WINDOWS PC
 5. On Cardputer open CONTROL > MAZ CORE if pairing details need changing.
 
 HOME
-COMM      real voice/text assistant + PC control
+COMM      voice/text assistant + PC control
 CAPTURE   voice/field capture + BrainDump
 OPS       Agent Nudge evidence + nudges
 CONTROL   Wi-Fi / MAZ Core / PC / diagnostics / settings / Launcher
 RECALL    inbox / notes / snippets / viewer
 FLOW      reminders / focus / sprint / tasks
+
+COMM RESPONSIVENESS
+- Recording is immediate and remains durable on-device.
+- Session creation, voice upload and optional spoken reply run on one bounded background worker, so a sleeping/unreachable PC does not need to freeze navigation.
+- You can leave COMM while a turn is working; returning to COMM collects the result.
+- This is still durable WAV/HTTP, not realtime microphone-frame streaming.
 
 MAZ CORE FROM THE CARDPUTER
 - CONTROL > CONTROL CENTER > MAZ CORE.
@@ -55,13 +61,13 @@ MAZ WORKS PRIVATE CONSOLES
 - /maz-pocket-ai is the private AI/Cardputer capability-link client.
 - Both are noindex and ship with NO private Core URL or token.
 - The AI bridge can create a capability URL whose secret is kept in the URL fragment, so Maz Works never receives it. Treat the full capability URL like a password and rotate the MAZ token if it is exposed.
-- Agents that support authenticated HTTP can use the copied AI access pack to reach the documented Core/Cardputer allow-list.
-- When MAZ Core's private GitHub bridge is enabled, /maz-pocket-ai can also copy a ChatGPT-specific GitHub bridge prompt using the configured private queue repository.
+- AI clients that support authenticated HTTP can use the copied access pack to reach the documented Core/Cardputer allow-list.
+- When MAZ Core's private GitHub bridge is enabled, /maz-pocket-ai can also copy a private GitHub-queue prompt using the configured repository.
 - install-core.ps1 attempts private Tailscale Serve setup when Tailscale is already installed.
 
-CHATGPT -> LOCAL PC / CARDPUTER
-- For ChatGPT with GitHub access, the existing private GitHub bridge remains the safest asynchronous route to MAZ Core.
-- For AI agents that can call authenticated HTTPS directly, use the Maz Works /maz-pocket-ai capability link/access pack.
+AI -> LOCAL PC / CARDPUTER
+- An AI with GitHub access can use MAZ Core's private issue queue as the safest asynchronous path.
+- An AI that can call authenticated HTTPS directly can use the Maz Works /maz-pocket-ai capability link/access pack.
 - Core exposes Cardputer status and live LCD through /core/cardputer/status and /core/cardputer/screen; do not expose a generic remote shell.
 
 IMPORTANT
