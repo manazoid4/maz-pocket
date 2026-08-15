@@ -24,6 +24,18 @@ def test_backup_policy_can_force_low_vram_model():
     assert models._local_models() == ["backup:test"]
 
 
+def test_interactive_profiles_keep_models_warm_and_bound_output():
+    smart = Models(settings(ai_profile="smart"))
+    fast = Models(settings(ai_profile="fast"))
+    save = Models(settings(ai_profile="save"))
+    messages = [{"role": "user", "content": "give me the next action"}]
+
+    assert smart._keep_alive() == "15m"
+    assert fast._keep_alive() == "60m"
+    assert save._keep_alive() == 0
+    assert smart._options("primary:test", messages)["num_predict"] == 160
+
+
 def test_local_route_falls_back_without_cloud(monkeypatch):
     models = Models(settings(local_model_policy="auto"))
     calls: list[str] = []
