@@ -1,48 +1,86 @@
-# MAZ Pocket v0.5
+# MAZ Pocket v0.5.1
 
-The **control + real local intelligence** milestone for Cardputer ADV.
+A hardening release for the six-surface Cardputer ADV product: **COMM / CAPTURE / OPS / CONTROL / RECALL / FLOW**.
 
-## Why v0.4 missed
+v0.5 remains the known-good rollback image. v0.5.1 does not repartition the device and does not add a firmware writer.
 
-v0.4 added capability but hid too much behind menus and still gave the model too little factual PC/project context. Wi-Fi existed but did not feel first-class, and the web UI duplicated controls rather than acting as one coherent system.
+## COMM: SD-first, stream-second
 
-## v0.5
+- Voice is always written to the local WAV first.
+- On the LAN, COMM simultaneously streams PCM16LE mono 16 kHz in bounded 20 ms frames over an authenticated WebSocket.
+- Every turn carries explicit turn/session IDs.
+- Cancel and disconnect are explicit protocol events.
+- A connection can retry before audio starts; after audio has left the device, MAZ falls back to the complete saved WAV instead of pretending a partial stream is complete.
+- Ollama reply deltas are streamed back as they are generated.
+- REST remains the compatibility/failure path.
+- If the PC is unavailable, the raw WAV stays in the device Outbox.
 
-- Home remains six focused surfaces but **DESK is replaced by CONTROL**: COMM / CAPTURE / OPS / CONTROL / RECALL / FLOW.
-- **W opens Wi-Fi directly from Home.** CONTROL exposes Wi-Fi, MAZ Core, PC/COMM, diagnostics, settings and M5Launcher.
-- New full on-device Wi-Fi manager: status, reconnect, scan/connect primary, scan/save backup, disconnect, forget networks and setup hotspot.
-- If no saved network works, the device exposes **MAZ-Pocket-Setup** so Wi-Fi is always repairable from the Cardputer/phone.
-- `mazpocket.local` is now a real device control plane with Wi-Fi provisioning, surface launchers, Core configuration, PC controls, diagnostics, recovery and a **~2 FPS live LCD stream**.
-- Cardputer ADV has no built-in camera; v0.5 streams the device screen. External camera video remains a hardware extension, not a fake software claim.
+## No blocking Host work in app screens
 
-## MAZ Core
+Cardputer-to-PC work now goes through one bounded FreeRTOS Host worker rather than waiting inside the UI task. This covers:
 
-`MAZ-Core-v0.5.zip` turns the Windows PC into the persistent brain behind the Cardputer without requiring Codex:
+- COMM REST fallback and PC controls;
+- BrainDump processing;
+- Agent Nudge assurance/nudge actions;
+- TTS;
+- MAZ Core status/projects/job start/job polling.
 
-- local AI: `lfm2.5-8b-a1b-gpu:latest` via Ollama;
-- real project discovery across configured local roots;
-- branch / dirty / recent-commit evidence;
-- safe project search and non-secret file reads;
-- allow-listed project actions: git status, fetch, fast-forward pull, detected tests, detected build, open folder;
-- tests/builds are background jobs so the handheld does not freeze;
-- Cardputer status + live screen proxy;
-- Agent Nudge remains factual evidence, not an LLM guess;
-- optional private GitHub issue bridge enables ChatGPT → private GitHub → MAZ Core → local PC without a generic remote shell.
+Keyboard, timers, display and audio therefore keep running while the PC, network, model, build or agent is slow.
 
-## Hidden Maz Works console
+## Local AI: primary + low-VRAM backup
 
-A `/maz-core` client is added to Maz Works but is **not linked publicly and is `noindex`**. It contains no private URL/token. Your browser supplies its own private HTTPS Core endpoint and pairing token at runtime.
+The existing primary stays unchanged:
 
-## Install
+`lfm2.5-8b-a1b-gpu:latest`
 
-1. Copy `Maz-Pocket-v0.5-M5Launcher.bin` to SD.
-2. M5Launcher → select `.bin` → Install → Launch.
-3. Extract `MAZ-Core-v0.5.zip` on the PC and run `install-core.ps1` once.
+v0.5.1 adds an optional lighter local assistant:
 
-## Safety
+`maz-pocket-lite:latest` → Qwen3.5 4B Q4_K_M with an 8K runtime context and a MAZ-specific personal-assistant profile.
 
-- Firmware is an app-only M5Launcher image; never flash it at address `0x0`.
-- CI enforces the known `0x180000` Launcher slot ceiling.
-- Generic ArduinoOTA stays disabled so MAZ cannot overwrite another Launcher app.
-- MAZ Core has no arbitrary remote shell and blocks direct reads of common secret-file types.
-- The GitHub bridge is private-repo + explicit-prefix + allow-list only.
+Default local policy is:
+
+`LFM2.5 primary → MAZ Pocket Lite`
+
+The Cardputer **LOCAL** route stays entirely local. **AUTO** may continue to the configured cloud provider only if both local models fail. The host can also force `primary` or `backup` without reflashing the Cardputer.
+
+`install-core.ps1` performs the setup and installs Pocket Lite through Ollama unless `-SkipModels` is used.
+
+## Runtime proof
+
+CONTROL now includes **RUNTIME**. The same measurements are exposed by `mazpocket.local/api/status`:
+
+- current/free/minimum heap;
+- largest free block;
+- main, Host-worker and WebSocket-task stack watermarks;
+- bounded Host/WS queue depth + high-water marks;
+- Host rejections/result drops;
+- WS frame drops/reconnects/protocol errors;
+- Host latency, first-token latency and total streamed-turn latency.
+
+`scripts/adv_soak.py` is the 30-minute physical ADV soak harness. It fails on dropped COMM frames, dropped Host completions or excessive end-state heap loss.
+
+## Cleanup and safety gates
+
+- The old `v03.cpp` identity is gone; active COMM/OPS code is `comm_ops.cpp`.
+- The old `lvgl_ui` name is gone. Home is direct M5Canvas in `home_grid.*`; there is no LVGL dependency.
+- PC/Core action IDs come from one protocol schema and generated device/host constants.
+- CI rejects direct blocking Host I/O from app/portal code.
+- CI rejects firmware updater APIs, LVGL regression, common arbitrary-shell patterns and obvious committed secrets.
+- CI verifies the app image remains within the known `0x180000` Launcher slot.
+- CI downloads the released v0.5 M5Launcher binary and verifies its exact size/SHA before packaging it as the rollback image.
+
+## Installation target
+
+The final v0.5.1 artifact contains:
+
+- `Maz-Pocket-v0.5.1-M5Launcher.bin` — app-only M5Launcher image;
+- `ROLLBACK-v0.5-M5Launcher.bin` — exact verified known-good rollback;
+- `MAZ-Core-v0.5.1.zip` — PC host;
+- `SHA256SUMS.txt`;
+- quickstart, notes and third-party notices.
+
+A stable Launcher-friendly `latest.bin` URL is the intended normal install/update path so users do not need to browse GitHub release ZIPs.
+
+## License boundary
+
+`THIRD_PARTY_NOTICES.md` records shipped dependencies and research references. Bruce (AGPL-3.0) was treated as product/UI inspiration only; no Bruce source is copied, linked or vendored into v0.5.1.
