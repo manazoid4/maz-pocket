@@ -66,31 +66,31 @@ jobs:
         run: |
           python -c "from pathlib import Path; b=Path('dist/maz-pocket-app.bin').read_bytes(); assert len(b)>=65536 and b[0]==0xE9, 'invalid ESP32 app image'; assert len(b)<=0x180000, f'{len(b)} exceeds known Launcher slot'; print('ESP image OK',len(b),'bytes')"
 
-      - name: Prepare v0.5 frictionless install package
+      - name: Prepare v0.5.1 frictionless install package
         shell: pwsh
         run: |
-          Copy-Item .\dist\maz-pocket-app.bin .\dist\Maz-Pocket-v0.5-M5Launcher.bin -Force
-          Compress-Archive -Path .\host\* -DestinationPath .\dist\MAZ-Core-v0.5.zip -Force
+          Copy-Item .\dist\maz-pocket-app.bin .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin -Force
+          Compress-Archive -Path .\host\* -DestinationPath .\dist\MAZ-Core-v0.5.1.zip -Force
           Copy-Item .\scripts\install-to-sd.ps1 .\dist\install-to-sd.ps1 -Force
           Copy-Item .\scripts\INSTALL-MAZ-POCKET.cmd .\dist\INSTALL-MAZ-POCKET.cmd -Force
           Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
           Copy-Item .\RELEASE_NOTES.md .\dist\RELEASE_NOTES.md -Force
 
-          $firmwareSha = (Get-FileHash .\dist\Maz-Pocket-v0.5-M5Launcher.bin -Algorithm SHA256).Hash.ToLowerInvariant()
-          $coreSha = (Get-FileHash .\dist\MAZ-Core-v0.5.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $firmwareSha = (Get-FileHash .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin -Algorithm SHA256).Hash.ToLowerInvariant()
+          $coreSha = (Get-FileHash .\dist\MAZ-Core-v0.5.1.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $installerSha = (Get-FileHash .\dist\install-to-sd.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
           $launcherSha = (Get-FileHash .\dist\INSTALL-MAZ-POCKET.cmd -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
-            "$firmwareSha  Maz-Pocket-v0.5-M5Launcher.bin",
-            "$coreSha  MAZ-Core-v0.5.zip",
+            "$firmwareSha  Maz-Pocket-v0.5.1-M5Launcher.bin",
+            "$coreSha  MAZ-Core-v0.5.1.zip",
             "$installerSha  install-to-sd.ps1",
             "$launcherSha  INSTALL-MAZ-POCKET.cmd"
           ) | Set-Content -Encoding ascii .\dist\SHA256SUMS.txt
 
           New-Item -ItemType Directory -Path .\dist\install -Force | Out-Null
           $installFiles = @(
-            '.\dist\Maz-Pocket-v0.5-M5Launcher.bin',
-            '.\dist\MAZ-Core-v0.5.zip',
+            '.\dist\Maz-Pocket-v0.5.1-M5Launcher.bin',
+            '.\dist\MAZ-Core-v0.5.1.zip',
             '.\dist\install-to-sd.ps1',
             '.\dist\INSTALL-MAZ-POCKET.cmd',
             '.\dist\SHA256SUMS.txt',
@@ -98,19 +98,19 @@ jobs:
             '.\dist\RELEASE_NOTES.md'
           )
           Copy-Item -Path $installFiles -Destination .\dist\install\ -Force
-          Compress-Archive -Path .\dist\install\* -DestinationPath .\dist\MAZ-Pocket-v0.5-Install.zip -Force
+          Compress-Archive -Path .\dist\install\* -DestinationPath .\dist\MAZ-Pocket-v0.5.1-Install.zip -Force
 
-          Get-ChildItem .\dist\Maz-Pocket-v0.5-M5Launcher.bin, .\dist\MAZ-Core-v0.5.zip, .\dist\MAZ-Pocket-v0.5-Install.zip, .\dist\SHA256SUMS.txt | Select-Object Name,Length
+          Get-ChildItem .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin, .\dist\MAZ-Core-v0.5.1.zip, .\dist\MAZ-Pocket-v0.5.1-Install.zip, .\dist\SHA256SUMS.txt | Select-Object Name,Length
           Get-Content .\dist\SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: maz-pocket-v0.5
+          name: maz-pocket-v0.5.1
           if-no-files-found: error
           path: |
-            dist/Maz-Pocket-v0.5-M5Launcher.bin
-            dist/MAZ-Core-v0.5.zip
-            dist/MAZ-Pocket-v0.5-Install.zip
+            dist/Maz-Pocket-v0.5.1-M5Launcher.bin
+            dist/MAZ-Core-v0.5.1.zip
+            dist/MAZ-Pocket-v0.5.1-Install.zip
             dist/INSTALL-MAZ-POCKET.cmd
             dist/install-to-sd.ps1
             dist/SHA256SUMS.txt
