@@ -21,9 +21,12 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute: str = "int8"
 
-    # v0.5 local-first brain.
+    # Local-first brain. Primary stays unchanged; Pocket Lite is a lower-VRAM
+    # assistant profile used automatically if the primary is unavailable.
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
+    ollama_backup_model: str = "maz-pocket-lite:latest"
+    local_model_policy: Literal["auto", "primary", "backup"] = "auto"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
