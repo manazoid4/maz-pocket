@@ -72,7 +72,7 @@ Calculator, Stopwatch, Beam/QR, Text Viewer, Generator, Snippets, Connections,
 Tools and Settings. Snake and the BMI270-driven Hyperdrive demo remain hidden
 extras rather than product priorities.
 
-## Updates — browser first
+## Updates — browser first, ROM only
 
 The normal v0.02 → v0.03 path is the MAZ browser flasher:
 
@@ -80,25 +80,31 @@ The normal v0.02 → v0.03 path is the MAZ browser flasher:
 https://mazos-site.vercel.app/maz-pocket/flasher/
 ```
 
-It is modelled on the proven Bruce/Tasmota/Meshtastic browser-install pattern
-and uses Espressif `esptool-js` rather than a custom Windows flashing stack.
+Its interaction follows the mature Bruce/Tasmota/Meshtastic browser-install
+pattern, but the Cardputer ADV transport is deliberately stricter. The working
+Cardputer upload path already required `--no-stub`, so MAZ does **not** call the
+normal `esptool-js` path that uploads a RAM flasher stub. It connects to the
+ESP32-S3 ROM loader directly instead.
+
 Chrome/Edge desktop uses Web Serial; Chrome on Android can fall back to Google's
 WebUSB Serial polyfill.
 
 The MAZ flasher adds Launcher-specific safety before writing:
 
-1. read the live ESP32 partition table;
-2. require exactly one OTA app partition whose label starts with `MAZ-Pocket`;
-3. verify the new ESP32 app image fits that live partition;
-4. read and download a full raw backup of that partition;
-5. write only that partition — never full-flash erase;
-6. read the new image back and require an exact SHA-256 match;
-7. attempt rollback on verification failure, with a known-good accepted v0.02
-   image available if an earlier broken updater already invalidated the old app
-   header.
+1. SHA-256 verify both packaged v0.03 and the known-good v0.02 recovery image;
+2. connect to the ESP32-S3 ROM loader without a RAM flasher stub;
+3. slow-read only the live 4KB partition table using ROM command `0x0E`;
+4. require exactly one OTA app partition whose label starts with `MAZ-Pocket`;
+5. verify v0.03 fits that live partition;
+6. write only that partition — never full-flash erase;
+7. verify the written image using the ESP32 ROM flash-MD5 command `0x13`;
+8. if write/verification fails, restore the physical-hardware-accepted v0.02
+   recovery image and verify that recovery by ROM MD5.
 
 The flasher never writes the partition table, NVS/settings, M5Launcher, SD data,
-Bruce, or another installed firmware.
+Bruce, or another installed firmware. A full live-partition backup is not used
+because stub-free ROM reads are intentionally slow; the user data/settings that
+matter live outside the replaced app image and are not written by the flasher.
 
 Cardputer ADV recovery follows the familiar browser-flasher pattern: if normal
 automatic reset cannot enter download mode, unplug the Cardputer, hold **G0**
@@ -127,11 +133,11 @@ cd host
         +---------------+----------------+
         |                                |
 mazpocket.local                    MAZ Web Flasher
-status / control / diag            USB Web Serial
-        |                         live-partition update
+status / control / diag            USB / ROM loader
+        |                         MAZ partition only
         v                                |
      MAZ Host                            v
-STT / TTS / agents                MAZ-Pocket slot only
+STT / TTS / agents                verified v0.03
 PC controls / tools
 ```
 
@@ -160,13 +166,16 @@ the user's Cardputer or deleting sibling apps.
 - raw captures survive before AI processing;
 - cloud/model secrets stay PC-side where possible;
 - no generic ArduinoOTA round-robin updater under M5Launcher;
+- no RAM flasher stub in the normal browser update path;
 - no full-flash erase in the MAZ browser updater;
+- partition ownership and ROM packet logic are unit-tested;
 - compile success is never presented as physical-hardware proof.
 
-GitHub Actions runs host tests, syntax-checks the browser flasher, builds the
-Cardputer ADV target, enforces the physical v0.02 slot ceiling, validates the
-known-good v0.02 recovery artifact and packages the phone-first flasher bundle.
-Physical acceptance remains tracked separately in `docs/VERIFICATION.md`.
+GitHub Actions runs host tests, browser flasher syntax/ownership/ROM tests,
+builds the Cardputer ADV target, enforces the physical v0.02 slot ceiling,
+validates the known-good v0.02 recovery artifact and packages the phone-first
+flasher bundle. Physical acceptance remains tracked separately in
+`docs/VERIFICATION.md`.
 
 MIT licensed. Third-party references and licence decisions are recorded under
 `docs/` and `web-flasher/README.md`.
