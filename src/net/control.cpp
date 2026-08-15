@@ -1,6 +1,5 @@
 #include "control.h"
 
-#include <ArduinoOTA.h>
 #include <M5Unified.h>
 #include <WiFi.h>
 
@@ -22,7 +21,6 @@ constexpr uint16_t PORT = 8022;
 WiFiServer gServer(PORT);
 WiFiClient gClient;
 bool       gBound  = false;
-bool       gOtaUp  = false;
 bool       gAuthed = false;
 String     gInbound;
 
@@ -59,35 +57,6 @@ String field(const String& line, int from, int index) {
     }
     const int tab = line.indexOf('\t', start);
     return tab < 0 ? line.substring(start) : line.substring(start, tab);
-}
-
-void startOta() {
-    if (gOtaUp || WiFi.status() != WL_CONNECTED) return;
-    ArduinoOTA.setHostname("maz-pocket");
-    if (!Cfg.hostToken.empty()) ArduinoOTA.setPassword(Cfg.hostToken.c_str());
-    ArduinoOTA.onStart([]() {
-        if (voice::state() == voice::State::Listening) voice::stop();
-        M5.Display.fillScreen(TFT_BLACK);
-        M5.Display.setTextColor(TFT_ORANGE);
-        M5.Display.drawString("MAZ UPDATE", 10, 42);
-        M5.Display.setTextColor(TFT_WHITE);
-        M5.Display.drawString("receiving over Wi-Fi", 10, 62);
-        M5.Display.drawString("do not power off", 10, 78);
-    });
-    ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
-        if (!total) return;
-        M5.Display.drawRect(10, 98, 220, 10, TFT_DARKGREY);
-        M5.Display.fillRect(10, 98, (220 * done) / total, 10, TFT_ORANGE);
-    });
-    ArduinoOTA.onEnd([]() {
-        M5.Display.fillScreen(TFT_BLACK);
-        M5.Display.setTextColor(TFT_GREEN);
-        M5.Display.drawString("UPDATED / REBOOTING", 10, 60);
-    });
-    ArduinoOTA.begin();
-    gOtaUp = true;
-    Serial.printf("[net] OTA ready as maz-pocket at %s\n",
-                  WiFi.localIP().toString().c_str());
 }
 
 void startServer() {
@@ -209,8 +178,6 @@ String handleLine(const String& raw, bool trusted) {
                Cfg.hostAddr.c_str();
     }
 
-    // Optional second provisioning line used by the v0.3 Windows updater.
-    // Keeping it separate makes MAZPAIR backwards compatible with old scripts.
     if (line.startsWith("MAZREMOTE\t")) {
         String remote = line.substring(10);
         remote.trim();
@@ -224,15 +191,10 @@ String handleLine(const String& raw, bool trusted) {
     return "";
 }
 
-void begin() {
-    startServer();
-    startOta();
-}
+void begin() { startServer(); }
 
 void update() {
     startServer();
-    startOta();
-    if (gOtaUp) ArduinoOTA.handle();
 
     if (Serial.available()) {
         const String reply = handleLine(Serial.readStringUntil('\n'), true);
