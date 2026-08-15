@@ -91,6 +91,7 @@ private:
 constexpr HubItem CONTROL_ITEMS[] = {
     {"CONTROL CENTER", "everything",     "control"},
     {"WI-FI",          "scan / connect", "network"},
+    {"MAZ CORE",       "projects / jobs","core"},
     {"PC / COMM",      "voice + control","talk"},
     {"DIAGNOSTICS",    "hardware",       "tools"},
     {"SETTINGS",       "device",         "settings"},
