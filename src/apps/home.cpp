@@ -55,9 +55,6 @@ public:
         if (e.code == KEY_RIGHT) { move(+1); return true; }
         if (e.code == KEY_LEFT)  { move(-1); return true; }
 
-        // Direct letter shortcuts remain available for every registered app,
-        // including utilities intentionally removed from Home. Ctrl+K remains
-        // the discoverable route to the full command palette.
         size_t n = 0;
         const Descriptor* t = apps::table(n);
         for (size_t i = 0; i < n; ++i) {
@@ -92,7 +89,7 @@ public:
         else if (Sys.hostOnline) state += " / CLEAR";
 
         lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "MAZ 0.3", state.c_str(), 0, 1);
+                         "MAZ 0.3.1", state.c_str(), 0, 1);
     }
 
 private:
@@ -107,9 +104,12 @@ private:
     }
 
     static char iconFor(const Descriptor& d) {
-        if (!strcmp(d.id, "talk")) return 'C';      // communicator
-        if (!strcmp(d.id, "braindump")) return 'L'; // field log
-        if (!strcmp(d.id, "nudge")) return 'O';     // operations
+        if (!strcmp(d.id, "talk")) return 'C';
+        if (!strcmp(d.id, "braindump")) return 'P';
+        if (!strcmp(d.id, "nudge")) return 'O';
+        if (!strcmp(d.id, "tools")) return 'D';
+        if (!strcmp(d.id, "inbox")) return 'R';
+        if (!strcmp(d.id, "reminders")) return 'F';
         return '*';
     }
 
