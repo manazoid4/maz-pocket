@@ -32,9 +32,10 @@ def test_core_discovers_and_reads_only_inside_project(tmp_path: Path):
 
 def test_secret_files_are_blocked(tmp_path: Path):
     core, project = make_core(tmp_path)
-    (project / ".env").write_text("SECRET=1", encoding="utf-8")
-    with pytest.raises(CoreError, match="secret_file_blocked"):
-        core.read_file("demo", ".env")
+    for name in (".env", ".env.local", "credentials.json", "private.key"):
+        (project / name).write_text("SECRET=1", encoding="utf-8")
+        with pytest.raises(CoreError, match="secret_file_blocked"):
+            core.read_file("demo", name)
 
 
 def test_search_and_grounding_use_real_project_evidence(tmp_path: Path):
@@ -43,7 +44,34 @@ def test_search_and_grounding_use_real_project_evidence(tmp_path: Path):
     assert hits and hits[0]["path"] == "README.md"
     context = core.context_for_prompt("what changed in demo?")
     assert "demo" in context
+    assert "matched_project_evidence" in context
     assert "MAZ Core factual evidence" in context
+
+
+def test_generic_grounding_and_health_do_not_summarize_every_repo(tmp_path: Path, monkeypatch):
+    core, _ = make_core(tmp_path)
+    calls = 0
+    original = core._project_summary
+
+    def counted(path):
+        nonlocal calls
+        calls += 1
+        return original(path)
+
+    monkeypatch.setattr(core, "_project_summary", counted)
+    status = core.status()
+    assert status["project_count"] == 1
+    assert calls == 0, "health/status must not fan out Git summaries"
+
+    first = core.projects()
+    second = core.projects()
+    assert first == second
+    assert calls == 1, "second project-list refresh should use the TTL cache"
+
+    calls = 0
+    context = core.context_for_prompt("give me a short focus suggestion")
+    assert "known_projects" in context
+    assert calls == 0, "generic chat should not run deep Git evidence in every repo"
 
 
 def test_dispatch_has_no_generic_shell(tmp_path: Path):
