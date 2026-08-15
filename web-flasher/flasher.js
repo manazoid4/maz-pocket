@@ -3,19 +3,30 @@ import { romReadFlashSlow } from "./rom.js";
 
 const ESPTOOL_URL = "https://unpkg.com/esptool-js@0.6.0/bundle.js";
 const POLYFILL_URL = "https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js";
-const MANIFEST_URL = "./firmware/manifest.json";
+const FFLATE_URL = "https://unpkg.com/fflate@0.8.2/esm/browser.js";
 const ESP_IMAGE_MAGIC = 0xe9;
 const ESPRESSIF_VID = 0x303a;
 const ROM_BAUD = 115200;
 
+// Trust anchors for the exact CI-approved transition package. The manifest
+// inside a user-selected ZIP is metadata, not authority: both firmware hashes
+// are pinned here before any serial connection or write is allowed.
+const EXPECTED_VERSION = "0.3.0";
+const EXPECTED_FIRMWARE_SHA256 = "6fc6f90f1bb782c5a0d59a69bedc3a2ca7a85eb05aab3c1bd448310f6f8a06d0";
+const EXPECTED_RECOVERY_SHA256 = "2d1eaf0495eceadf0c87d613cca4b9f2819e3ff26ed20584e5bf4d649443f9ed";
+const EXPECTED_SLOT_SIZE = 0x180000;
+
 const $ = (id) => document.getElementById(id);
 const go = $("go");
+const packageInput = $("package");
+const packageState = $("packageState");
 const progress = $("progress");
 const state = $("state");
 const logBox = $("log");
 let busy = false;
 let transport = null;
 let loader = null;
+let verifiedPackage = null;
 
 function log(line) {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -35,27 +46,56 @@ async function sha256(bytes) {
 function validEspImage(bytes) {
   return bytes instanceof Uint8Array && bytes.byteLength >= 64 * 1024 && bytes[0] === ESP_IMAGE_MAGIC;
 }
-async function fetchBytes(url) {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Could not fetch ${url} (${response.status}).`);
-  return new Uint8Array(await response.arrayBuffer());
+function oneZipFile(files, suffix) {
+  const matches = Object.entries(files).filter(([name]) => name.replaceAll("\\", "/").endsWith(suffix));
+  if (matches.length !== 1) throw new Error(`Package must contain exactly one ${suffix}.`);
+  return matches[0][1];
 }
-async function loadManifest() {
-  const response = await fetch(MANIFEST_URL, { cache: "no-store" });
-  if (!response.ok) throw new Error("Published firmware manifest is unavailable.");
-  const m = await response.json();
-  if (!m.file || !m.sha256 || !m.md5 || !m.recovery_file || !m.recovery_sha256 || !m.recovery_md5) {
-    throw new Error("Firmware manifest is incomplete.");
+
+async function verifySelectedPackage(file) {
+  if (!file) return;
+  verifiedPackage = null;
+  go.disabled = true;
+  packageState.className = "dim";
+  packageState.textContent = "Checking package…";
+  logBox.textContent = "MAZ Pocket package verification started.";
+  setStage(0, "Verifying package before USB access…");
+
+  try {
+    if (file.size < 2_000_000 || file.size > 8_000_000) throw new Error("This does not look like the MAZ Pocket release ZIP.");
+    const { unzipSync } = await import(FFLATE_URL);
+    const files = unzipSync(new Uint8Array(await file.arrayBuffer()));
+    const manifestBytes = oneZipFile(files, "web-flasher/firmware/manifest.json");
+    const firmware = oneZipFile(files, "web-flasher/firmware/maz-pocket-app.bin");
+    const recovery = oneZipFile(files, "web-flasher/firmware/maz-pocket-v0.02-recovery.bin");
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes).replace(/^\uFEFF/, ""));
+
+    if (manifest.product !== "MAZ Pocket" || manifest.version !== EXPECTED_VERSION) throw new Error("Package is not the approved MAZ Pocket v0.03 release.");
+    if (!validEspImage(firmware) || !validEspImage(recovery)) throw new Error("Package contains an invalid ESP32 application image.");
+    if (Number(manifest.size) !== firmware.byteLength || Number(manifest.recovery_size) !== recovery.byteLength) throw new Error("Package image sizes do not match its manifest.");
+    if (Number(manifest.launcher_slot_size) !== EXPECTED_SLOT_SIZE || firmware.byteLength > EXPECTED_SLOT_SIZE) throw new Error("Package does not match the physical v0.02 Launcher slot contract.");
+
+    const firmwareSha = await sha256(firmware);
+    const recoverySha = await sha256(recovery);
+    if (firmwareSha !== EXPECTED_FIRMWARE_SHA256 || String(manifest.sha256).toLowerCase() !== EXPECTED_FIRMWARE_SHA256) throw new Error("v0.03 firmware SHA-256 failed. Nothing can be flashed.");
+    if (recoverySha !== EXPECTED_RECOVERY_SHA256 || String(manifest.recovery_sha256).toLowerCase() !== EXPECTED_RECOVERY_SHA256) throw new Error("v0.02 recovery SHA-256 failed. Nothing can be flashed.");
+    if (!/^[0-9a-f]{32}$/i.test(manifest.md5) || !/^[0-9a-f]{32}$/i.test(manifest.recovery_md5)) throw new Error("Package flash-verification metadata is invalid.");
+
+    verifiedPackage = { manifest, firmware, recovery };
+    packageState.textContent = `VERIFIED • v0.03 • ${firmware.byteLength.toLocaleString()} bytes`;
+    packageState.className = "ok";
+    setStage(0, "Package verified. Ready to connect Cardputer.", "ok");
+    log(`Package SHA verified: ${firmwareSha.slice(0, 16)}…`);
+    log(`Recovery SHA verified: ${recoverySha.slice(0, 16)}…`);
+    go.disabled = false;
+  } catch (error) {
+    const message = error?.message || String(error);
+    packageState.textContent = `REJECTED • ${message}`;
+    packageState.className = "bad";
+    fail(message);
   }
-  return m;
 }
-async function loadAndVerify(url, expectedSha, expectedSize, label) {
-  const data = await fetchBytes(url);
-  if (!validEspImage(data)) throw new Error(`${label} is not a valid ESP32 application image.`);
-  if (expectedSize && data.byteLength !== Number(expectedSize)) throw new Error(`${label} size does not match its manifest.`);
-  if ((await sha256(data)).toLowerCase() !== String(expectedSha).toLowerCase()) throw new Error(`${label} SHA-256 does not match its manifest.`);
-  return data;
-}
+
 async function serialApi() {
   if ("serial" in navigator) return navigator.serial;
   if (!("usb" in navigator)) throw new Error("Use Chrome/Edge on desktop or Chrome on Android. This browser has no Web Serial/WebUSB support.");
@@ -88,7 +128,7 @@ async function connectRomOnly() {
   const port = await api.requestPort({ filters: [{ usbVendorId: ESPRESSIF_VID }] });
   const esp = await import(ESPTOOL_URL);
   const makeLoader = () => {
-    transport = new esp.Transport(port, true);
+    transport = new esp.Transport(port, false);
     loader = new esp.ESPLoader({ transport, baudrate: ROM_BAUD, terminal, debugLogging: false });
   };
   makeLoader();
@@ -145,19 +185,13 @@ async function rollback(target, recovery, manifest) {
 }
 
 async function runUpdate() {
-  if (busy) return;
+  if (busy || !verifiedPackage) return;
   busy = true;
   go.disabled = true;
   logBox.textContent = "MAZ Pocket ROM-safe flasher started.";
-  let target = null, recovery = null, manifest = null, wrote = false;
+  const { manifest, firmware, recovery } = verifiedPackage;
+  let target = null, wrote = false;
   try {
-    setStage(2, "Loading verified v0.03 + recovery metadata…");
-    manifest = await loadManifest();
-    const firmware = await loadAndVerify(`./firmware/${manifest.file}`, manifest.sha256, manifest.size, "v0.03 firmware");
-    recovery = await loadAndVerify(`./firmware/${manifest.recovery_file}`, manifest.recovery_sha256, manifest.recovery_size, "v0.02 recovery");
-    log(`v0.03: ${firmware.byteLength.toLocaleString()} bytes / SHA ${String(manifest.sha256).slice(0, 12)}…`);
-    log("Known-good v0.02 recovery loaded and SHA-verified before any flash write.");
-
     setStage(8, "Choose Cardputer ADV…");
     await connectRomOnly();
     const table = await readPartitionTable();
@@ -171,12 +205,12 @@ async function runUpdate() {
     try {
       const oldMd5 = String(await loader.flashMd5sum(target.offset, recovery.byteLength)).toLowerCase();
       if (oldMd5 === String(manifest.recovery_md5).toLowerCase()) log("Current Maz slot matches the known-good v0.02 release.");
-      else log("Current Maz slot differs from pristine v0.02 (expected after the failed old updater); recovery is ready.");
+      else log("Current Maz slot differs from pristine v0.02 (possible after the failed old updater); recovery is ready.");
     } catch (e) {
-      log(`Existing-slot fingerprint unavailable: ${e?.message || e}. Recovery is ready.`);
+      log(`Existing-slot fingerprint unavailable: ${e?.message || e}. Recovery remains ready.`);
     }
 
-    setStage(28, "Writing v0.03 to MAZ-Pocket only…");
+    setStage(28, "Writing v0.03 to Maz Pocket only…");
     wrote = true;
     await writeImage(firmware, target.offset, manifest.md5, 28, 82, "Writing v0.03 in ROM mode…");
     log("ROM flash MD5: exact match.");
@@ -200,8 +234,9 @@ async function runUpdate() {
     loader = null;
     transport = null;
     busy = false;
-    go.disabled = false;
+    go.disabled = !verifiedPackage;
   }
 }
 
+packageInput.addEventListener("change", () => verifySelectedPackage(packageInput.files?.[0]));
 go.addEventListener("click", runUpdate);
