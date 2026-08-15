@@ -12,6 +12,8 @@ These are product rules, not suggestions.
 
 The GitHub Actions build verifies the split-package rule. Do not merge/release a version whose exact PR head does not produce these artifacts.
 
+The client ZIP must contain the **runtime**, not CI debris: do not ship `.pytest_cache`, `__pycache__`, `*.pyc`, or the repository test suite inside the end-user Core package. Tests remain in GitHub and run before packaging.
+
 ## Firmware boundary
 
 - Firmware is an **app-only M5Launcher image**.
