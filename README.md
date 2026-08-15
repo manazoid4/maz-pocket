@@ -4,9 +4,9 @@ MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV**, designed as
 
 ## v0.4
 
-The device now presents six primary surfaces directly on Home:
+The device presents six primary surfaces directly on Home:
 
-- **COMM** — voice conversation with MAZ Host, local/auto/cloud routing, spoken replies and PC controls.
+- **COMM** — voice/text conversation with MAZ Host, spoken replies and PC controls.
 - **CAPTURE** — fast field capture and voice notes.
 - **OPS** — Agent Nudge status, inspection and nudges.
 - **DESK** — PC/device controls, Wi-Fi, diagnostics and settings.
@@ -17,8 +17,6 @@ Long-tail utilities remain available through **Ctrl+K**. **Ctrl+L** performs the
 
 ## Installation
 
-The supported user path is intentionally simple:
-
 1. Download `Maz-Pocket-v0.4-M5Launcher.bin` from the GitHub Release.
 2. Copy it to the Cardputer microSD card.
 3. Boot M5Launcher.
@@ -28,9 +26,39 @@ The release binary is an **app-only image**, not a complete ESP32 flash image. D
 
 ## Wi-Fi
 
-MAZ Pocket stores Wi-Fi credentials in NVS. On boot it automatically attempts the saved network and the networking layer supports a second saved network. If the connection drops, it retries with bounded exponential backoff rather than continuously hammering the radio.
+MAZ Pocket stores Wi-Fi credentials in NVS. On boot it automatically attempts the saved network; the networking layer supports a second saved network. If the connection drops, it retries with bounded exponential backoff.
 
-First-time setup is available on-device under **DESK → Connections**: scan, choose a network and enter its password. Once connected, `http://mazpocket.local` exposes the small local status/control surface.
+First-time setup is available on-device under **DESK → Connections**: scan, choose a network and enter its password.
+
+## `mazpocket.local`
+
+Once the Cardputer is connected, open `http://mazpocket.local` from a phone or computer on the same network. The v0.4 dashboard is designed as a proper remote control rather than a diagnostics page. It provides:
+
+- live Wi-Fi, IP, signal, battery, storage, current-app, MAZ Host and Agent Nudge status;
+- one-tap launch of COMM / CAPTURE / OPS / DESK / RECALL / FLOW on the Cardputer;
+- allow-listed PC controls for desktop, media, volume, mute and lock;
+- MAZ Host address, local/auto/cloud route and spoken-reply configuration;
+- backup Wi-Fi configuration;
+- Wi-Fi reconnect, host test, speaker/SD tests, reboot and M5Launcher hand-back.
+
+Read-only status is available immediately. State-changing controls require the existing MAZ pairing token.
+
+## Local AI
+
+Heavy AI runs on MAZ Host, not the ESP32. The v0.4 preferred Ollama model is:
+
+`lfm2.5-8b-a1b-gpu:latest`
+
+MAZ Host defaults to local routing, low-temperature generation and an explicit verified MAZ Pocket capability map. This is intended to prevent the old behavior where a tiny generic model invented apps or answered vaguely about what the device could do.
+
+Existing `host/.env` files override defaults. Upgrade them to:
+
+```text
+MAZ_OLLAMA_MODEL=lfm2.5-8b-a1b-gpu:latest
+MAZ_DEFAULT_ROUTE=local
+```
+
+Agent state is only supplied to the model as live Agent Nudge evidence; roadmap ideas are explicitly separated from current features.
 
 ## Storage
 
@@ -38,22 +66,18 @@ Cardputer ADV has **8 MB internal flash**. A large microSD card does not increas
 
 ## Updating
 
-Generic ArduinoOTA is intentionally disabled. With M5Launcher, several unrelated applications may share the internal flash and a generic "next OTA slot" is not a safe ownership boundary.
+Generic ArduinoOTA is intentionally disabled. With M5Launcher, several unrelated applications may share internal flash and a generic "next OTA slot" is not a safe ownership boundary.
 
-For v0.4 the supported update method is therefore the same reliable path as installation: download the new M5Launcher `.bin`, keep it on SD, and install/update it from M5Launcher.
+For v0.4 the supported update method is the same reliable path as installation: download the new M5Launcher `.bin`, keep it on SD and install/update it from M5Launcher.
 
-The experimental browser flasher code remains in the repository for recovery research/tests but is **not the primary v0.4 user update path**.
-
-## MAZ Host
-
-Heavy work remains on the laptop/cloud side. MAZ Host provides speech-to-text, local/cloud model routing, TTS, deterministic PC controls and Agent Nudge integration. The Cardputer stays a fast interface rather than trying to run a large model locally.
+The experimental browser flasher code remains only for recovery research/tests and is **not the primary v0.4 user update path**.
 
 ## Version naming
 
-Canonical product versions use the short scheme: **v0.1, v0.2, v0.3, v0.4**. Older GitHub preview tags remain only as historical/recovery references.
+Canonical product versions use the short scheme: **v0.1 / v0.2 / v0.3 / v0.4**. Older GitHub preview tags remain only as historical/recovery references.
 
 ## Build gates
 
-CI runs the MAZ Host tests, browser-recovery safety tests, Cardputer ADV firmware build, ESP32 app-image validation and the known M5Launcher slot-size ceiling before producing the release binary.
+CI runs the MAZ Host tests, recovery-flasher safety tests, Cardputer ADV firmware build, ESP32 app-image validation and the known M5Launcher slot-size ceiling before producing the release binary.
 
 See `QUICKSTART.txt` and `RELEASE_NOTES.md` for the current release path.
