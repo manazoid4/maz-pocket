@@ -31,6 +31,18 @@ Get-ChildItem (Join-Path $Root "host") -Force | ForEach-Object {
     }
 }
 Copy-Item (Join-Path $Root "VERSION") (Join-Path $CoreStage "VERSION") -Force
+
+# Ship the runtime, not CI leftovers. Tests remain in the repository/Actions;
+# the end-user Core ZIP should not carry pytest caches, bytecode or test trees.
+Remove-Item (Join-Path $CoreStage "tests") -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $CoreStage ".pytest_cache") -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem $CoreStage -Recurse -Directory -Force |
+    Where-Object { $_.Name -eq "__pycache__" } |
+    Sort-Object FullName -Descending |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem $CoreStage -Recurse -File -Force -Filter "*.pyc" |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
 Remove-Item $CoreZip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $CoreStage "*") -DestinationPath $CoreZip -Force
 
