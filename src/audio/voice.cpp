@@ -19,7 +19,7 @@ struct WavHeader {
     char     wave[4]       = {'W', 'A', 'V', 'E'};
     char     fmt[4]        = {'f', 'm', 't', ' '};
     uint32_t fmtSize       = 16;
-    uint16_t audioFormat   = 1;  // PCM
+    uint16_t audioFormat   = 1;
     uint16_t channels      = 1;
     uint32_t sampleRate    = SAMPLE_RATE;
     uint32_t byteRate      = SAMPLE_RATE * 2;
@@ -30,14 +30,13 @@ struct WavHeader {
 };
 #pragma pack(pop)
 
-// Double-buffered so the I2S DMA always has somewhere to land while we are
-// busy writing the other half to a card that may stall for milliseconds.
 int16_t gBuf[2][BLOCK];
 uint8_t gIdx        = 0;
 bool    gHaveQueued = false;
 
 State       gState    = State::Idle;
 Sink*       gSink     = nullptr;
+PcmTap      gTap      = nullptr;
 uint32_t    gStartMs  = 0;
 uint32_t    gMaxSec   = 60;
 uint32_t    gPauseMs  = 0;
@@ -47,8 +46,6 @@ bool        gClipped  = false;
 uint32_t    gClipAtMs = 0;
 const char* gErr      = "";
 
-// Playback streaming state: recordings are far bigger than free SRAM, so we
-// keep a file handle open and hand the speaker one block at a time.
 File    gPlayFile;
 bool    gPlaying = false;
 int16_t gPlayBuf[2][BLOCK];
@@ -66,15 +63,20 @@ void measure(const int16_t* s, size_t n) {
     } else if (millis() - gClipAtMs > 1000) {
         gClipped = false;
     }
-    // Attack fast, release slow: the ring should jump when you speak and
-    // settle gently, not flicker.
     const float target = peak / 32768.f;
     gLevel = target > gLevel ? target : gLevel * 0.85f + target * 0.15f;
 }
 
+bool persistAndTap(const int16_t* samples, size_t count) {
+    if (!gSink || !gSink->write(samples, count)) return false;
+    // Durability comes first. If streaming falls behind or disappears, this
+    // exact audio is already on SD and can be replayed through REST/outbox.
+    if (gTap) gTap(samples, count);
+    return true;
+}
+
 }  // namespace
 
-// -------------------------------------------------------------- WavFileSink
 bool WavFileSink::open() {
     if (!store::ready()) {
         gErr = "no storage";
@@ -89,7 +91,7 @@ bool WavFileSink::open() {
         gErr = "cannot create file";
         return false;
     }
-    WavHeader h;  // sizes patched in close()
+    WavHeader h;
     f->write(reinterpret_cast<const uint8_t*>(&h), sizeof(h));
     _file = f;
     return true;
@@ -122,13 +124,10 @@ bool WavFileSink::close() {
     return _samples > 0;
 }
 
-// -------------------------------------------------------------------- setup
 bool begin() {
-    // The ADV routes both directions through one ES8311 codec, so mic and
-    // speaker cannot be live at the same time; we flip between them.
     auto mcfg          = M5.Mic.config();
     mcfg.sample_rate   = SAMPLE_RATE;
-    mcfg.magnification = Cfg.micGain;  // gain lives in settings, user-tunable
+    mcfg.magnification = Cfg.micGain;
     mcfg.over_sampling = 1;
     mcfg.dma_buf_len   = 256;
     mcfg.dma_buf_count = 8;
@@ -141,7 +140,8 @@ bool begin() {
     return true;
 }
 
-// ------------------------------------------------------------------ capture
+void setCaptureTap(PcmTap tap) { gTap = tap; }
+
 bool start(Sink* sink, uint32_t maxSeconds) {
     if (gState == State::Listening) return false;
     stopPlayback();
@@ -181,12 +181,10 @@ void update() {
             return;
         }
         if (M5.Mic.record(gBuf[gIdx], BLOCK, SAMPLE_RATE)) {
-            // record() returning true means this block is queued; the other
-            // block has been filled and is ours to drain.
             gIdx = 1 - gIdx;
             if (gHaveQueued) {
                 measure(gBuf[gIdx], BLOCK);
-                if (!gSink->write(gBuf[gIdx], BLOCK)) {
+                if (!persistAndTap(gBuf[gIdx], BLOCK)) {
                     stop();
                     gState = State::Error;
                     return;
@@ -198,7 +196,6 @@ void update() {
     }
 
     if (gPlaying) {
-        // Keep at most one block queued so ESC stops playback promptly.
         if (M5.Speaker.isPlaying() < 2) {
             const size_t n =
                 gPlayFile.read(reinterpret_cast<uint8_t*>(gPlayBuf[gPlayIdx]),
@@ -217,22 +214,24 @@ void update() {
 bool stop() {
     if (gState != State::Listening && gState != State::Paused) return false;
     gState = State::Saving;
+    bool writeOk = true;
 
-    // Drain the block still in flight so the last words are not clipped off.
     if (gHaveQueued && gPauseMs == 0) {
         measure(gBuf[1 - gIdx], BLOCK);
-        gSink->write(gBuf[1 - gIdx], BLOCK);
+        writeOk = persistAndTap(gBuf[1 - gIdx], BLOCK);
     }
 
     M5.Mic.end();
-    const bool ok = gSink->close();
+    const bool closeOk = gSink->close();
     M5.Speaker.begin();
     M5.Speaker.setVolume(Cfg.volume);
 
     Sys.recording  = false;
     Sys.recSeconds = 0;
+    const bool ok  = writeOk && closeOk;
     gState         = ok ? State::Idle : State::Error;
-    if (!ok) gErr = "nothing recorded";
+    if (!ok && !writeOk) gErr = "write failed";
+    else if (!ok) gErr = "nothing recorded";
     return ok;
 }
 
@@ -240,7 +239,7 @@ bool pause() {
     if (gState != State::Listening) return false;
     if (gHaveQueued) {
         measure(gBuf[1 - gIdx], BLOCK);
-        if (!gSink->write(gBuf[1 - gIdx], BLOCK)) {
+        if (!persistAndTap(gBuf[1 - gIdx], BLOCK)) {
             stop();
             gState = State::Error;
             return false;
@@ -256,8 +255,6 @@ bool pause() {
 bool resume() {
     if (gState != State::Paused) return false;
     if (!M5.Mic.begin()) {
-        // Close the still-open WAV cleanly; a failed codec restart must not
-        // strand a file handle or leave the UI claiming it is recording.
         stop();
         gErr   = "mic did not resume";
         gState = State::Error;
@@ -280,7 +277,6 @@ uint32_t elapsedSeconds() {
     return (millis() - gStartMs - paused) / 1000;
 }
 
-// ----------------------------------------------------------------- playback
 bool play(const std::string& wavPath) {
     if (!store::ready()) return false;
     stopPlayback();
@@ -290,7 +286,7 @@ bool play(const std::string& wavPath) {
         gErr = "cannot open recording";
         return false;
     }
-    gPlayFile.seek(sizeof(WavHeader));  // we only ever read our own headers
+    gPlayFile.seek(sizeof(WavHeader));
     M5.Speaker.begin();
     M5.Speaker.setVolume(Cfg.volume);
     gPlaying = true;
