@@ -16,6 +16,7 @@
 #include "net/control.h"
 #include "net/mazhost.h"
 #include "net/net.h"
+#include "net/web.h"
 #include "storage/store.h"
 
 using namespace maz;
@@ -55,9 +56,11 @@ void setup() {
     Serial.println("[boot] audio");
     net::begin();
     Serial.println("[boot] network");
-    // The control surface answers on USB immediately and binds its Wi-Fi
-    // listener as soon as there is an address to bind to.
+    // USB/LAN control and the browser control plane reuse the same pairing
+    // token, but remain separate transports so neither one can destabilise the
+    // other during recovery or firmware update.
     control::begin();
+    web::begin();
 
     // Restore a plausible clock so files stamped before any NTP sync are at
     // least ordered correctly. Sys.timeValid stays false until a real sync.
@@ -99,6 +102,7 @@ void setup() {
 
 void loop() {
     control::update();
+    web::update();
     shell::loop();
     // A short yield keeps the watchdog happy and the radio serviced without
     // making input feel laggy.
