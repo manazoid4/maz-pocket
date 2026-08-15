@@ -1,16 +1,28 @@
-MAZ POCKET v0.5.1 — CARDPUTER ADV / M5LAUNCHER
+MAZ POCKET v0.6 — CARDPUTER ADV / M5LAUNCHER
 
-FASTEST SAFE INSTALL
-1. Download MAZ-Pocket-v0.5.1-Install.zip from the latest GitHub release and extract it.
-2. Put the Cardputer microSD card in the Windows PC.
-3. Double-click INSTALL-MAZ-POCKET.cmd.
-4. It validates the ESP32 app image, refuses fixed disks, copies only the MAZ Pocket .bin, then verifies SHA-256.
-5. Safely eject the card, boot M5Launcher, select Maz-Pocket-v0.5.1-M5Launcher.bin, Install, then Launch.
+FRESH WINDOWS SETUP — FASTEST PATH
+1. Download MAZ-Pocket-v0.6-Install.zip and extract it.
+2. Double-click START-HERE.cmd.
+3. MAZ Core is installed/updated under %LOCALAPPDATA%\MAZ Core and started automatically.
+4. Existing Core .env/config is preserved.
+5. If a v0.6 Cardputer is connected over USB, Core address/token pairing is attempted without touching its Wi-Fi credentials.
+6. If exactly one removable microSD is connected, setup offers to verify/copy the v0.6 firmware there.
+7. Put the SD in the Cardputer, boot M5Launcher, select Maz-Pocket-v0.6-M5Launcher.bin -> Install -> Launch.
 
-If the .cmd launcher is blocked by local policy, run .\install-to-sd.ps1 from PowerShell instead.
+START-HERE never formats a drive and never flashes Cardputer partitions directly.
 
-MANUAL CARDPUTER INSTALL
-1. Copy Maz-Pocket-v0.5.1-M5Launcher.bin to microSD.
+NORMAL PHONE UPDATE — AFTER THE HARDENED PORTAL IS INSTALLED
+1. Download Maz-Pocket-v0.6-M5Launcher.bin on the phone.
+2. Be on the same LAN as the Cardputer and open http://mazpocket.local.
+3. Unlock with the MAZ pairing token.
+4. Under STAGE NEXT FIRMWARE choose the .bin and tap VERIFY + STAGE TO SD.
+5. Wait for the verified SHA-256 success message.
+6. Tap M5LAUNCHER, install the staged image, then Launch.
+
+The upload is staged on SD only. MAZ Pocket checks safe size, ESP image magic and SHA-256. M5Launcher remains the installer/rollback owner.
+
+MANUAL microSD FALLBACK
+1. Copy Maz-Pocket-v0.6-M5Launcher.bin to microSD, or double-click INSTALL-MAZ-POCKET.cmd on Windows.
 2. Boot M5Launcher, select the .bin, Install, then Launch.
 
 WI-FI — YOU CANNOT GET STRANDED
@@ -22,13 +34,13 @@ WI-FI — YOU CANNOT GET STRANDED
     browser: http://192.168.4.1
 - On normal Wi-Fi use http://mazpocket.local.
 
-MAZ CORE ON THE WINDOWS PC
-1. Extract MAZ-Core-v0.5.1.zip.
-2. Double-click INSTALL-MAZ-CORE.cmd.
-3. It installs/starts MAZ Core, selects the configured local Ollama model, finds local projects, enables startup and prints the PC address + MAZ token.
-4. On Cardputer open CONTROL > MAZ CORE if pairing details need changing.
-
-If the .cmd launcher is blocked, run .\install-core.ps1 from PowerShell instead.
+MAZ CORE
+- START-HERE installs Core to %LOCALAPPDATA%\MAZ Core so deleting the downloaded ZIP does not break startup.
+- Core starts at Windows sign-in.
+- LOCAL AI route: primary installed Ollama model -> backup installed Ollama model -> clear failure. It never uses cloud.
+- AUTO route: primary -> backup -> configured cloud only if both locals fail.
+- CLOUD route: configured cloud directly.
+- With a v0.6 Cardputer over USB, pair.ps1 can update only Core address/token and leaves known-good Wi-Fi alone.
 
 HOME
 COMM      voice assistant + safe PC controls
@@ -44,7 +56,7 @@ COMM RESPONSIVENESS
 - A sleeping/unreachable PC should not pin the UI task.
 - You can leave COMM while a turn is working; returning to COMM collects the result.
 - Failed/offline voice stays in the outbox rather than being discarded.
-- This is still durable WAV/HTTP, not realtime microphone-frame streaming.
+- v0.6 keeps durable WAV/HTTP as the production voice path. Realtime microphone-frame streaming is deferred until physical ADV testing proves it reliable.
 
 MAZ CORE FROM THE CARDPUTER
 - CONTROL > CONTROL CENTER > MAZ CORE.
@@ -56,7 +68,7 @@ MAZ CORE FROM THE CARDPUTER
 LIVE SCREEN / WEB CONTROL
 - Open http://mazpocket.local on the same LAN.
 - Unlock with the MAZ pairing token.
-- Manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, reboot/return to Launcher and watch the Cardputer LCD at ~2 FPS.
+- Manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, stage the next app image, reboot/return to Launcher and watch the Cardputer LCD.
 
 MAZ WORKS PRIVATE AI BRIDGE
 - /maz-pocket-ai is an unlinked, noindex capability client on Maz Works.
@@ -74,11 +86,13 @@ IMPORTANT
 - Generic ArduinoOTA remains disabled.
 - Ctrl+K = full command palette. Ctrl+L = M5Launcher hand-back.
 
-PHYSICAL ADV ACCEPTANCE BEFORE CALLING IT FULLY PROVEN
+PHYSICAL ADV ACCEPTANCE BEFORE CALLING v0.6 FULLY PROVEN
 - 30+ minute soak with no reset/watchdog event.
 - 20+ COMM turns, including leaving/re-entering COMM mid-request.
 - Wi-Fi/Core loss and reconnect.
-- SD absent/unreadable/near-full behavior.
+- phone live-screen polling and verified firmware staging.
+- SD absent/unreadable/near-full/interrupted-upload behavior.
+- USB Core-only pairing.
 - microphone record/playback cycles.
 - M5Launcher reinstall + rollback.
 - inspect serial [health] and [host-worker] minimum heap/stack/loop measurements.

@@ -187,6 +187,27 @@ String handleLine(const String& raw, bool trusted) {
         return "MAZLAUNCHER OK";
     }
 
+    if (line.startsWith("MAZCOREPAIR\t")) {
+        String fields[3];
+        for (int i = 0; i < 3; ++i) fields[i] = field(line, 12, i);
+        if (fields[0].isEmpty() || fields[2].isEmpty())
+            return "MAZCOREPAIR ERR fields";
+
+        const long parsedPort = fields[1].toInt();
+        if (parsedPort < 1 || parsedPort > 65535)
+            return "MAZCOREPAIR ERR port";
+
+        Cfg.hostAddr = fields[0].c_str();
+        Cfg.hostPort = static_cast<uint16_t>(parsedPort);
+        Cfg.hostToken = fields[2].c_str();
+        Cfg.firstRunComplete = true;
+        Cfg.save();
+        Sys.hostAddr = Cfg.hostAddr;
+        Sys.hostPort = Cfg.hostPort;
+        return String("MAZCOREPAIR OK host=") + Cfg.hostAddr.c_str() +
+               " port=" + String(Cfg.hostPort);
+    }
+
     if (line.startsWith("MAZPAIR\t")) {
         String fields[5];
         for (int i = 0; i < 5; ++i) fields[i] = field(line, 8, i);
