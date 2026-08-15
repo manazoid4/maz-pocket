@@ -17,9 +17,8 @@ std::atomic<State> gState{State::Idle};
 TaskHandle_t gTask = nullptr;
 std::string gSession;
 std::string gPath;
-std::string gResultSession;
-std::string gResultPath;
-host::Reply gResult;
+std::string gSpeechPath;
+TalkResult gResult;
 std::atomic<uint32_t> gStackHighWater{0};
 
 void worker(void*) {
@@ -33,7 +32,9 @@ void worker(void*) {
         // immutable until this job publishes Done.
         std::string session = gSession;
         const std::string path = gPath;
+        const std::string speechPath = gSpeechPath;
         host::Reply reply;
+        bool speechReady = false;
 
         if (session.empty()) session = host::startSession();
         if (session.empty()) {
@@ -42,9 +43,14 @@ void worker(void*) {
             reply = host::talkAudio(session, path);
         }
 
-        gResultSession = std::move(session);
-        gResultPath = path;
-        gResult = std::move(reply);
+        if (reply.ok && !speechPath.empty() && !reply.text.empty())
+            speechReady = host::speak(reply.text, speechPath);
+
+        gResult.session = std::move(session);
+        gResult.wavPath = path;
+        gResult.speechPath = speechReady ? speechPath : "";
+        gResult.speechReady = speechReady;
+        gResult.reply = std::move(reply);
         // ESP-IDF reports this value in bytes.
         gStackHighWater.store(
             static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr)),
@@ -64,30 +70,30 @@ bool ensureWorker() {
 
 }  // namespace
 
-bool submitTalkAudio(const std::string& session, const std::string& wavPath) {
+bool submitTalkAudio(const std::string& session, const std::string& wavPath,
+                     const std::string& speechPath) {
     if (wavPath.empty()) return false;
-    if (gState.load(std::memory_order_acquire) != State::Idle) return false;
+    const State current = gState.load(std::memory_order_acquire);
+    if (current != State::Idle && current != State::FailedToStart) return false;
     if (!ensureWorker()) return false;
 
     gSession = session;
     gPath = wavPath;
-    gResultSession.clear();
-    gResultPath.clear();
-    gResult = host::Reply{};
+    gSpeechPath = speechPath;
+    gResult = TalkResult{};
 
     gState.store(State::Queued, std::memory_order_release);
     xTaskNotifyGive(gTask);
     return true;
 }
 
-bool takeTalkResult(std::string& session, std::string& wavPath, host::Reply& reply) {
+bool takeTalkResult(TalkResult& result) {
     if (gState.load(std::memory_order_acquire) != State::Done) return false;
 
-    session = std::move(gResultSession);
-    wavPath = std::move(gResultPath);
-    reply = std::move(gResult);
+    result = std::move(gResult);
     gSession.clear();
     gPath.clear();
+    gSpeechPath.clear();
     gState.store(State::Idle, std::memory_order_release);
     return true;
 }
