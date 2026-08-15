@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     ollama_backup_model: str = "qwen3.5:4b"
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
 
+    # v0.7 FIELD: one understandable performance knob instead of exposing a
+    # wall of Ollama tuning. SMART is the default: 4K for ordinary Pocket turns,
+    # adaptive headroom for grounded context, and a five-minute warm model.
+    ai_profile: Literal["smart", "save", "fast"] = "smart"
+
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"

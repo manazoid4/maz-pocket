@@ -5,9 +5,11 @@ $Dist = Join-Path $Root "dist"
 $SourceFirmware = Join-Path $Dist "maz-pocket-app.bin"
 $FirmwareName = "Maz-Pocket-v$Version-M5Launcher.bin"
 $CoreName = "MAZ-Core-v$Version.zip"
+$CardputerName = "MAZ-Cardputer-v$Version.zip"
 $BundleName = "MAZ-Pocket-v$Version-Install.zip"
 $Firmware = Join-Path $Dist $FirmwareName
 $CoreZip = Join-Path $Dist $CoreName
+$CardputerZip = Join-Path $Dist $CardputerName
 $Bundle = Join-Path $Dist $BundleName
 
 if (-not (Test-Path $SourceFirmware -PathType Leaf)) { throw "Build firmware first: $SourceFirmware not found" }
@@ -18,8 +20,8 @@ if ($bytes.Length -gt 0x180000) { throw "Firmware exceeds known M5Launcher app s
 New-Item -ItemType Directory -Force $Dist | Out-Null
 Copy-Item $SourceFirmware $Firmware -Force
 
-# Core is packaged flat so START-HERE can install it into a durable per-user
-# location. VERSION is copied alongside Core so its own setup output stays in sync.
+# Client/laptop package. Keep VERSION beside the host so the Python runtime has
+# one identity source in both a repo checkout and an extracted release ZIP.
 $CoreStage = Join-Path $Dist "core-package"
 Remove-Item $CoreStage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $CoreStage | Out-Null
@@ -46,22 +48,46 @@ foreach ($entry in $PackageFiles.GetEnumerator()) {
     Copy-Item $entry.Value (Join-Path $Dist $entry.Key) -Force
 }
 
-$HashTargets = @($Firmware, $CoreZip,
+# Cardputer-only package rule: every release/PR artifact must contain a complete
+# handheld ZIP as well as the client ZIP. This is deliberately app-only;
+# M5Launcher remains the installer and rollback owner.
+$CardStage = Join-Path $Dist "cardputer-package"
+Remove-Item $CardStage -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $CardStage | Out-Null
+Copy-Item $Firmware (Join-Path $CardStage $FirmwareName) -Force
+Copy-Item (Join-Path $Dist "VERSION") $CardStage -Force
+Copy-Item (Join-Path $Dist "INSTALL-MAZ-POCKET.cmd") $CardStage -Force
+Copy-Item (Join-Path $Dist "install-to-sd.ps1") $CardStage -Force
+Copy-Item (Join-Path $Dist "QUICKSTART.txt") $CardStage -Force
+Copy-Item (Join-Path $Dist "RELEASE_NOTES.md") $CardStage -Force
+$FirmwareHash = (Get-FileHash $Firmware -Algorithm SHA256).Hash.ToLowerInvariant()
+"$FirmwareHash  $FirmwareName" | Set-Content -Encoding ascii (Join-Path $CardStage "SHA256-FIRMWARE.txt")
+Remove-Item $CardputerZip -Force -ErrorAction SilentlyContinue
+Compress-Archive -Path (Join-Path $CardStage "*") -DestinationPath $CardputerZip -Force
+
+$HashTargets = @(
+    $Firmware,
+    $CoreZip,
+    $CardputerZip,
     (Join-Path $Dist "START-HERE.cmd"),
     (Join-Path $Dist "setup-all.ps1"),
-    (Join-Path $Dist "install-to-sd.ps1"))
+    (Join-Path $Dist "install-to-sd.ps1")
+)
 $HashLines = foreach ($file in $HashTargets) {
     $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $([IO.Path]::GetFileName($file))"
 }
 $HashLines | Set-Content -Encoding ascii (Join-Path $Dist "SHA256SUMS.txt")
 
+# Combined convenience ZIP contains BOTH independently usable ZIPs. Never make
+# users extract source trees or reconstruct a host/card split by hand.
 $InstallStage = Join-Path $Dist "install-package"
 Remove-Item $InstallStage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $InstallStage | Out-Null
 $InstallNames = @(
     $FirmwareName,
     $CoreName,
+    $CardputerName,
     "VERSION",
     "START-HERE.cmd",
     "setup-all.ps1",
@@ -76,5 +102,5 @@ Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $InstallStage "*") -DestinationPath $Bundle -Force
 
 Write-Host "Prepared MAZ Pocket v$Version release:"
-Get-ChildItem $Firmware, $CoreZip, $Bundle, (Join-Path $Dist "SHA256SUMS.txt") | Select-Object Name, Length
+Get-ChildItem $Firmware, $CoreZip, $CardputerZip, $Bundle, (Join-Path $Dist "SHA256SUMS.txt") | Select-Object Name, Length
 Get-Content (Join-Path $Dist "SHA256SUMS.txt")

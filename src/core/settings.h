@@ -17,9 +17,6 @@ struct Settings {
     std::string wifiSsid, wifiPass;
     std::string wifiSsid2, wifiPass2;
 
-    // Local MAZ Host is always attempted first. hostRemoteUrl is an optional
-    // full HTTPS base URL (normally a Tailscale Funnel) used only when the
-    // laptop cannot be reached directly on the LAN.
     std::string hostAddr;
     uint16_t    hostPort = 8787;
     std::string hostRemoteUrl;
@@ -28,6 +25,14 @@ struct Settings {
     bool        ttsEnabled = true;
     uint8_t     nudgePollMinutes = 5;
     bool        firstRunComplete = false;
+
+    // v0.7 FIELD: deliberately tiny preference surface. Four quick keys are
+    // stable action IDs from a fixed allow-list; they are never shell commands.
+    bool        fieldMode = false;
+    std::string quick1 = "talk";
+    std::string quick2 = "braindump";
+    std::string quick3 = "laptop";
+    std::string quick4 = "beam";
 
     int8_t   tzMinutesOffset = 0;
     uint32_t lastKnownEpoch  = 0;

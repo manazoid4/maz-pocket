@@ -9,12 +9,21 @@ namespace maz {
 namespace host_worker {
 
 enum class State : uint8_t { Idle, Queued, Running, Done, FailedToStart };
-enum class JobKind : uint8_t { None, TalkAudio, PcAction };
+enum class JobKind : uint8_t {
+    None,
+    TalkAudio,
+    PcAction,
+    OutboxAudio,
+    OutboxBeam,
+    BeamPull,
+    SystemStatus,
+};
 
 struct TalkResult {
     std::string session;
     std::string wavPath;
     std::string speechPath;
+    std::string context;
     bool speechReady = false;
     host::Reply reply;
 };
@@ -24,21 +33,34 @@ struct PcActionResult {
     host::Reply reply;
 };
 
-// One bounded background Host job is deliberate. The Cardputer ADV is a small
-// control surface, not a server; serialising expensive Host work prevents a
-// burst of UI/web actions from creating several HTTP/TLS stacks at once.
+struct OutboxAudioResult {
+    std::string recordId;
+    std::string wavPath;
+    std::string context;
+    host::Reply reply;
+};
+
+struct OutboxBeamResult {
+    std::string recordId;
+    host::Reply reply;
+};
+
 bool submitTalkAudio(const std::string& session, const std::string& wavPath,
-                     const std::string& speechPath = "");
-
-// retainResult=true is used by COMM because it needs to render the result.
-// Web controls use false: the action is allow-listed and fire-and-forget, so a
-// browser disappearing cannot leave the single Host worker permanently Done.
+                     const std::string& speechPath = "",
+                     const std::string& context = "");
 bool submitPcAction(const std::string& action, bool retainResult = true);
+bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
+                       const std::string& context = "");
+bool submitOutboxBeam(const std::string& recordId, const std::string& text);
+bool submitBeamPull();
+bool submitSystemStatus();
 
-// Takes ownership of the matching completed result and returns the worker to
-// Idle. Results contain copied data only; no App pointer crosses task bounds.
 bool takeTalkResult(TalkResult& result);
 bool takePcActionResult(PcActionResult& result);
+bool takeOutboxAudioResult(OutboxAudioResult& result);
+bool takeOutboxBeamResult(OutboxBeamResult& result);
+bool takeBeamPullResult(host::BeamMessage& result);
+bool takeSystemStatusResult(host::SystemStatus& result);
 
 State state();
 JobKind jobKind();

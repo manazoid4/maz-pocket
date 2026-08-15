@@ -57,6 +57,13 @@ App* makeAgentsV3();
 App* makeReminders();
 App* makeSnake();
 App* makeHyperdrive();
+
+// v0.7 FIELD hidden utilities. They live inside CONTROL/FLOW/quick keys and do
+// not expand the six-surface Home menu.
+App* makeLaptop();
+App* makeBeam();
+App* makeShift();
+
 void scheduleReminder(store::Record& reminder, uint32_t delaySeconds);
 void updateProductServices();
 

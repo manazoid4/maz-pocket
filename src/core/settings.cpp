@@ -39,6 +39,11 @@ void Settings::load() {
     ttsEnabled       = prefs.getBool("tts", ttsEnabled);
     nudgePollMinutes = prefs.getUChar("npoll", nudgePollMinutes);
     firstRunComplete = prefs.getBool("firstrun", firstRunComplete);
+    fieldMode        = prefs.getBool("field", fieldMode);
+    quick1           = prefs.getString("q1", quick1.c_str()).c_str();
+    quick2           = prefs.getString("q2", quick2.c_str()).c_str();
+    quick3           = prefs.getString("q3", quick3.c_str()).c_str();
+    quick4           = prefs.getString("q4", quick4.c_str()).c_str();
     tzMinutesOffset  = prefs.getChar("tz", tzMinutesOffset);
     lastKnownEpoch   = prefs.getULong("epoch", 0);
     prefs.end();
@@ -68,6 +73,11 @@ void Settings::save() const {
     prefs.putBool("tts", ttsEnabled);
     prefs.putUChar("npoll", nudgePollMinutes);
     prefs.putBool("firstrun", firstRunComplete);
+    prefs.putBool("field", fieldMode);
+    prefs.putString("q1", quick1.c_str());
+    prefs.putString("q2", quick2.c_str());
+    prefs.putString("q3", quick3.c_str());
+    prefs.putString("q4", quick4.c_str());
     prefs.putChar("tz", tzMinutesOffset);
     prefs.putULong("epoch", lastKnownEpoch);
     prefs.end();

@@ -23,8 +23,16 @@ std::string gSession;
 std::string gPath;
 std::string gSpeechPath;
 std::string gAction;
+std::string gContext;
+std::string gRecordId;
+std::string gText;
+
 TalkResult gTalkResult;
 PcActionResult gPcResult;
+OutboxAudioResult gOutboxAudioResult;
+OutboxBeamResult gOutboxBeamResult;
+host::BeamMessage gBeamPullResult;
+host::SystemStatus gSystemResult;
 std::atomic<uint32_t> gStackHighWater{0};
 
 void resetToIdle() {
@@ -32,19 +40,39 @@ void resetToIdle() {
     gPath.clear();
     gSpeechPath.clear();
     gAction.clear();
+    gContext.clear();
+    gRecordId.clear();
+    gText.clear();
     gKind.store(JobKind::None, std::memory_order_release);
     gState.store(State::Idle, std::memory_order_release);
 }
 
 void finishMeasurement() {
-    // ESP-IDF reports this value in bytes. Record it after the expensive
-    // HTTP/TLS/TTS path so real ADV soak tests tell us whether 8 KB is
-    // appropriately sized instead of guessing from desktop builds.
     const uint32_t highWater =
         static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
     gStackHighWater.store(highWater, std::memory_order_release);
     Serial.printf("[host-worker] stack_free_min=%lu bytes\n",
                   static_cast<unsigned long>(highWater));
+}
+
+host::Reply contextAudio(const std::string& session, const std::string& path,
+                         const std::string& context) {
+    if (context.empty()) return host::talkAudio(session, path);
+
+    host::Reply transcript = host::transcribe(path);
+    if (!transcript.ok) return transcript;
+    const std::string words = !transcript.transcript.empty()
+                                  ? transcript.transcript
+                                  : transcript.text;
+    if (words.empty()) {
+        transcript.ok = false;
+        transcript.error = "empty transcript";
+        return transcript;
+    }
+
+    host::Reply reply = host::talkTextContext(session, words, context.substr(0, 700));
+    if (reply.ok) reply.transcript = words;
+    return reply;
 }
 
 void worker(void*) {
@@ -59,15 +87,13 @@ void worker(void*) {
             std::string session = gSession;
             const std::string path = gPath;
             const std::string speechPath = gSpeechPath;
+            const std::string context = gContext;
             host::Reply reply;
             bool speechReady = false;
 
             if (session.empty()) session = host::startSession();
-            if (session.empty()) {
-                reply.error = "PC unreachable";
-            } else {
-                reply = host::talkAudio(session, path);
-            }
+            if (session.empty()) reply.error = "PC unreachable";
+            else reply = contextAudio(session, path, context);
 
             if (reply.ok && !speechPath.empty() && !reply.text.empty())
                 speechReady = host::speak(reply.text, speechPath);
@@ -75,19 +101,34 @@ void worker(void*) {
             gTalkResult.session = std::move(session);
             gTalkResult.wavPath = path;
             gTalkResult.speechPath = speechReady ? speechPath : "";
+            gTalkResult.context = context;
             gTalkResult.speechReady = speechReady;
             gTalkResult.reply = std::move(reply);
         } else if (kind == JobKind::PcAction) {
             gPcResult.action = gAction;
             gPcResult.reply = host::pcAction(gAction);
+        } else if (kind == JobKind::OutboxAudio) {
+            std::string session = host::startSession();
+            host::Reply reply;
+            if (session.empty()) reply.error = "PC unreachable";
+            else reply = contextAudio(session, gPath, gContext);
+            gOutboxAudioResult.recordId = gRecordId;
+            gOutboxAudioResult.wavPath = gPath;
+            gOutboxAudioResult.context = gContext;
+            gOutboxAudioResult.reply = std::move(reply);
+        } else if (kind == JobKind::OutboxBeam) {
+            gOutboxBeamResult.recordId = gRecordId;
+            gOutboxBeamResult.reply = host::beamSend(gText);
+        } else if (kind == JobKind::BeamPull) {
+            gBeamPullResult = host::beamPull();
+        } else if (kind == JobKind::SystemStatus) {
+            gSystemResult = host::systemStatus();
         }
 
         finishMeasurement();
 
         if (kind == JobKind::PcAction &&
             !gRetainPcResult.load(std::memory_order_acquire)) {
-            // Browser actions do not need a result channel. Return the worker
-            // to Idle here so a closed tab can never wedge COMM behind Done.
             resetToIdle();
         } else {
             gState.store(State::Done, std::memory_order_release);
@@ -109,6 +150,15 @@ bool canSubmit() {
     return current == State::Idle || current == State::FailedToStart;
 }
 
+void clearResults() {
+    gTalkResult = TalkResult{};
+    gPcResult = PcActionResult{};
+    gOutboxAudioResult = OutboxAudioResult{};
+    gOutboxBeamResult = OutboxBeamResult{};
+    gBeamPullResult = host::BeamMessage{};
+    gSystemResult = host::SystemStatus{};
+}
+
 void publish(JobKind kind) {
     gKind.store(kind, std::memory_order_release);
     gState.store(State::Queued, std::memory_order_release);
@@ -118,16 +168,15 @@ void publish(JobKind kind) {
 }  // namespace
 
 bool submitTalkAudio(const std::string& session, const std::string& wavPath,
-                     const std::string& speechPath) {
+                     const std::string& speechPath, const std::string& context) {
     if (wavPath.empty() || !canSubmit()) return false;
     if (!ensureWorker()) return false;
-
     gSession = session;
     gPath = wavPath;
     gSpeechPath = speechPath;
+    gContext = context;
     gRetainPcResult.store(true, std::memory_order_release);
-    gTalkResult = TalkResult{};
-    gPcResult = PcActionResult{};
+    clearResults();
     publish(JobKind::TalkAudio);
     return true;
 }
@@ -135,31 +184,89 @@ bool submitTalkAudio(const std::string& session, const std::string& wavPath,
 bool submitPcAction(const std::string& action, bool retainResult) {
     if (action.empty() || !canSubmit()) return false;
     if (!ensureWorker()) return false;
-
     gAction = action;
     gRetainPcResult.store(retainResult, std::memory_order_release);
-    gTalkResult = TalkResult{};
-    gPcResult = PcActionResult{};
+    clearResults();
     publish(JobKind::PcAction);
     return true;
 }
 
-bool takeTalkResult(TalkResult& result) {
-    if (gState.load(std::memory_order_acquire) != State::Done ||
-        gKind.load(std::memory_order_acquire) != JobKind::TalkAudio)
-        return false;
+bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
+                       const std::string& context) {
+    if (recordId.empty() || wavPath.empty() || !canSubmit()) return false;
+    if (!ensureWorker()) return false;
+    gRecordId = recordId;
+    gPath = wavPath;
+    gContext = context;
+    clearResults();
+    publish(JobKind::OutboxAudio);
+    return true;
+}
 
+bool submitOutboxBeam(const std::string& recordId, const std::string& text) {
+    if (recordId.empty() || text.empty() || !canSubmit()) return false;
+    if (!ensureWorker()) return false;
+    gRecordId = recordId;
+    gText = text;
+    clearResults();
+    publish(JobKind::OutboxBeam);
+    return true;
+}
+
+bool submitBeamPull() {
+    if (!canSubmit()) return false;
+    if (!ensureWorker()) return false;
+    clearResults();
+    publish(JobKind::BeamPull);
+    return true;
+}
+
+bool submitSystemStatus() {
+    if (!canSubmit()) return false;
+    if (!ensureWorker()) return false;
+    clearResults();
+    publish(JobKind::SystemStatus);
+    return true;
+}
+
+bool takeTalkResult(TalkResult& result) {
+    if (state() != State::Done || jobKind() != JobKind::TalkAudio) return false;
     result = std::move(gTalkResult);
     resetToIdle();
     return true;
 }
 
 bool takePcActionResult(PcActionResult& result) {
-    if (gState.load(std::memory_order_acquire) != State::Done ||
-        gKind.load(std::memory_order_acquire) != JobKind::PcAction)
-        return false;
-
+    if (state() != State::Done || jobKind() != JobKind::PcAction) return false;
     result = std::move(gPcResult);
+    resetToIdle();
+    return true;
+}
+
+bool takeOutboxAudioResult(OutboxAudioResult& result) {
+    if (state() != State::Done || jobKind() != JobKind::OutboxAudio) return false;
+    result = std::move(gOutboxAudioResult);
+    resetToIdle();
+    return true;
+}
+
+bool takeOutboxBeamResult(OutboxBeamResult& result) {
+    if (state() != State::Done || jobKind() != JobKind::OutboxBeam) return false;
+    result = std::move(gOutboxBeamResult);
+    resetToIdle();
+    return true;
+}
+
+bool takeBeamPullResult(host::BeamMessage& result) {
+    if (state() != State::Done || jobKind() != JobKind::BeamPull) return false;
+    result = std::move(gBeamPullResult);
+    resetToIdle();
+    return true;
+}
+
+bool takeSystemStatusResult(host::SystemStatus& result) {
+    if (state() != State::Done || jobKind() != JobKind::SystemStatus) return false;
+    result = std::move(gSystemResult);
     resetToIdle();
     return true;
 }

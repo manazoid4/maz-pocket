@@ -47,7 +47,7 @@ jobs:
       - name: Validate version/install contract
         run: python scripts/check-version.py
 
-      - name: Validate PowerShell installers parse
+      - name: Validate PowerShell installers/helpers parse
         shell: pwsh
         run: |
           $files = @(
@@ -56,7 +56,8 @@ jobs:
             '.\scripts\prepare-release.ps1',
             '.\host\setup.ps1',
             '.\host\install-core.ps1',
-            '.\host\pair.ps1'
+            '.\host\pair.ps1',
+            '.\host\beam.ps1'
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -86,9 +87,24 @@ jobs:
         run: |
           python -c "from pathlib import Path; b=Path('dist/maz-pocket-app.bin').read_bytes(); assert len(b)>=65536 and b[0]==0xE9, 'invalid ESP32 app image'; assert len(b)<=0x180000, f'{len(b)} exceeds known Launcher slot'; print('ESP image OK',len(b),'bytes')"
 
-      - name: Prepare frictionless install package
+      - name: Prepare full client + Cardputer packages
         shell: pwsh
         run: ./scripts/prepare-release.ps1
+
+      - name: Verify split-package rule
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+          $core = ".\dist\MAZ-Core-v$v.zip"
+          $card = ".\dist\MAZ-Cardputer-v$v.zip"
+          $all = ".\dist\MAZ-Pocket-v$v-Install.zip"
+          foreach ($file in @($core,$card,$all)) { if (-not (Test-Path $file)) { throw "Required package missing: $file" } }
+          $tmp = Join-Path $env:RUNNER_TEMP 'maz-card-check'
+          Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive $card $tmp
+          if (-not (Test-Path (Join-Path $tmp "Maz-Pocket-v$v-M5Launcher.bin"))) { throw 'Cardputer ZIP missing firmware' }
+          if (-not (Test-Path (Join-Path $tmp 'QUICKSTART.txt'))) { throw 'Cardputer ZIP missing quickstart' }
+          Write-Host 'Client + Cardputer + combined ZIP rule OK'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -97,6 +113,7 @@ jobs:
           path: |
             dist/Maz-Pocket-v${{ steps.version.outputs.value }}-M5Launcher.bin
             dist/MAZ-Core-v${{ steps.version.outputs.value }}.zip
+            dist/MAZ-Cardputer-v${{ steps.version.outputs.value }}.zip
             dist/MAZ-Pocket-v${{ steps.version.outputs.value }}-Install.zip
             dist/START-HERE.cmd
             dist/setup-all.ps1
