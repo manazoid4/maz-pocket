@@ -24,9 +24,11 @@ WI-FI — YOU CANNOT GET STRANDED
 
 MAZ CORE ON THE WINDOWS PC
 1. Extract MAZ-Core-v0.5.1.zip.
-2. Run .\install-core.ps1 once.
+2. Double-click INSTALL-MAZ-CORE.cmd.
 3. It installs/starts MAZ Core, selects the configured local Ollama model, finds local projects, enables startup and prints the PC address + MAZ token.
 4. On Cardputer open CONTROL > MAZ CORE if pairing details need changing.
+
+If the .cmd launcher is blocked, run .\install-core.ps1 from PowerShell instead.
 
 HOME
 COMM      voice assistant + safe PC controls
