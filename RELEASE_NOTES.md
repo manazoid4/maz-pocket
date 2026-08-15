@@ -1,18 +1,18 @@
-# MAZ Pocket v0.5.1
+# MAZ Pocket v0.6
 
-The **daily-driver hardening** release for Cardputer ADV. It keeps the v0.5 six-surface product model and focuses on responsiveness, recovery, safer installation and private AI access rather than adding more apps.
+The **friction release** for Cardputer ADV. v0.6 deliberately improves installation, pairing, updating and local-AI resilience instead of expanding the six-surface menu.
 
-## What changed from v0.5
+## Highest-leverage changes
 
-- Active **COMM** no longer performs session creation, voice upload, optional TTS, or its small allow-listed PC command deck on the UI task. One bounded low-priority Host worker serialises those network operations.
-- Leaving COMM while the PC is slow is safe: no `App*` crosses task boundaries, and failed/offline voice remains durable in the outbox.
-- USB/LAN control no longer waits on `readStringUntil()` and `MAZSTATUS` no longer triggers synchronous Host network requests.
-- Runtime evidence now records free heap, minimum free heap, largest contiguous allocation, main-task stack headroom and worst foreground-loop duration. The Host worker also records minimum remaining stack after HTTP/TLS/TTS work.
-- Partition/update comments now match reality: **M5Launcher owns firmware installation and rollback**. MAZ Pocket does not self-flash arbitrary partitions.
-- A new Windows install bundle gives the normal path: **extract ZIP → insert microSD → double-click `INSTALL-MAZ-POCKET.cmd` → M5Launcher Install**. The helper validates the ESP32 app image, refuses fixed disks and verifies SHA-256 after copying.
-- Maz Works now has an unlinked/noindex `/maz-pocket-ai` capability client. Private Core URLs/tokens are supplied at runtime and are never committed into the public site. Trusted AI clients can use authenticated HTTPS, while AI clients with GitHub access can use MAZ Core's existing private `[MAZ CORE]` issue queue.
+- **One start button on Windows:** extract `MAZ-Pocket-v0.6-Install.zip` and double-click `START-HERE.cmd`.
+- **Stable MAZ Core install:** Core is installed/updated under `%LOCALAPPDATA%\MAZ Core`, so deleting the release ZIP or Downloads folder does not break startup. Existing `.env` is preserved.
+- **Core-only USB pairing:** a v0.6 Cardputer can receive the PC address/port/token without asking for or replacing known-good Wi-Fi credentials.
+- **Phone-first future updates:** the hardened local portal can accept an authenticated app `.bin`, stream it to SD, verify safe size + ESP image magic + SHA-256, and stage it for M5Launcher. MAZ Pocket itself never flashes a firmware partition.
+- **Local AI failover:** LOCAL tries the configured primary Ollama model and then a configured/installed backup, but never falls through to cloud. AUTO tries both local models before optional cloud.
+- **Single version source:** firmware identity, install helpers and release packaging now derive from root `VERSION`, with CI guards against stale hard-coded release names.
+- **v0.5.2 web hardening is included:** the old foreground-blocking portal parser is replaced by the bounded `portal_v2` state machine, LCD mirroring is authenticated, browser PC actions use the existing bounded Host worker, and interrupted firmware staging cleans up temporary files.
 
-## Product surfaces
+## Product surfaces remain focused
 
 - **COMM** — voice assistant + safe PC controls.
 - **CAPTURE** — voice/field capture + BrainDump.
@@ -21,33 +21,49 @@ The **daily-driver hardening** release for Cardputer ADV. It keeps the v0.5 six-
 - **RECALL** — inbox, notes, snippets and viewer.
 - **FLOW** — reminders, focus, sprint and tasks.
 
-## Install
+No extra top-level apps were added for v0.6.
 
-1. Download `MAZ-Pocket-v0.5.1-Install.zip` and extract it.
-2. Insert the Cardputer microSD card into Windows.
-3. Double-click `INSTALL-MAZ-POCKET.cmd`.
-4. Safely eject the card, boot M5Launcher, select `Maz-Pocket-v0.5.1-M5Launcher.bin`, Install, then Launch.
-5. Extract `MAZ-Core-v0.5.1.zip` on the PC and run `install-core.ps1` once if Core is not already installed/configured.
+## Fresh install
 
-Manual copying of the `.bin` to microSD remains supported.
+1. Download `MAZ-Pocket-v0.6-Install.zip` and extract it.
+2. Double-click `START-HERE.cmd`.
+3. Core installs/updates and starts automatically.
+4. If exactly one removable microSD is detected, setup offers to copy the verified app image.
+5. Put the card in the Cardputer, boot M5Launcher, select `Maz-Pocket-v0.6-M5Launcher.bin`, Install, then Launch.
+
+The legacy `INSTALL-MAZ-POCKET.cmd` microSD helper remains available as a fallback.
+
+## Normal phone update after the hardened portal is installed
+
+1. Download `Maz-Pocket-v0.6-M5Launcher.bin` to the phone.
+2. Open `http://mazpocket.local` on the same LAN and unlock it.
+3. Choose the `.bin` under **STAGE NEXT FIRMWARE**.
+4. Verify/stage it to SD.
+5. Return to M5Launcher and install the staged app image.
+
+## What was deliberately deferred
+
+A prior experimental branch implemented realtime microphone-frame streaming plus a much broader async/protocol refactor. The useful low-risk local-model failover work was brought into v0.6, but realtime COMM streaming is **not** merged wholesale. Durable WAV/HTTP remains the production voice path until physical Cardputer ADV testing proves streaming is at least as reliable under Wi-Fi/Core loss, audio cycles and memory pressure.
 
 ## Safety boundaries
 
-- The firmware is an **app-only M5Launcher image**. Never flash it at address `0x0`.
-- CI enforces the known `0x180000` Launcher slot ceiling.
-- Generic ArduinoOTA remains disabled.
-- MAZ Core exposes fixed capabilities; there is no arbitrary remote shell.
-- AI capability links are secrets. Rotate the Core token if one is exposed.
-- This release intentionally keeps durable WAV/HTTP for voice. It does **not** claim realtime microphone-frame streaming yet.
+- Firmware remains an **app-only M5Launcher image**. Never flash it at address `0x0`.
+- M5Launcher owns firmware installation and rollback.
+- CI enforces the known `0x180000` Launcher app ceiling.
+- Generic ArduinoOTA/direct self-flashing remains disabled.
+- PC/Core actions stay allow-listed; there is no arbitrary remote shell.
+- Maz Works stores no private Core token or endpoint.
 
 ## Physical validation gate
 
-CI validates build/tests/image/package integrity, but a real Cardputer ADV still has to prove the hardware path. Before treating v0.5.1 as fully field-proven, run:
+CI can validate source/tests/image/package integrity, but the real Cardputer ADV still has to prove the field path. Before treating v0.6 as hardware-proven, run:
 
 - 30+ minute soak with no reset/watchdog event;
 - 20+ COMM turns, including exiting/re-entering COMM mid-request;
 - Wi-Fi and MAZ Core loss/reconnect;
-- SD absent/unreadable/near-full behavior;
+- phone LCD polling and firmware staging;
+- SD absent/unreadable/near-full and interrupted upload cases;
+- Core-only USB pairing;
 - repeated microphone record/playback cycles;
 - M5Launcher reinstall and rollback;
-- inspect `[health]` and `[host-worker]` serial measurements for heap/stack/loop headroom.
+- inspect `[health]` and `[host-worker]` measurements for heap/stack/loop headroom.
