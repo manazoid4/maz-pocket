@@ -7,6 +7,7 @@
 #include <time.h>
 
 #include "audio/voice.h"
+#include "core/ambient.h"
 #include "core/notify.h"
 #include "core/settings.h"
 #include "core/launcher.h"
@@ -104,6 +105,10 @@ void loop() {
     control::update();
     web::update();
     shell::loop();
+    // Preserve the small helpful v0.2-style reminders: this observes already
+    // known state and only speaks when something changes, so it adds no polls
+    // or background latency.
+    ambient::update();
     // A short yield keeps the watchdog happy and the radio serviced without
     // making input feel laggy.
     delay(2);
