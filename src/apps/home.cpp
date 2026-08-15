@@ -89,7 +89,7 @@ public:
         else if (Sys.hostOnline) state += " / CLEAR";
 
         lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "MAZ 0.3.1", state.c_str(), 0, 1);
+                         "MAZ 0.4", state.c_str(), 0, 1);
     }
 
 private:
