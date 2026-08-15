@@ -1,5 +1,5 @@
 import { PARTITION_OFFSET, PARTITION_SIZE, parsePartitions, findMazPartition } from "./partition.js";
-import { romReadFlashSlow } from "./rom.js";
+import { romReadFlashSlow, romFlashMd5 } from "./rom.js";
 
 const ESPTOOL_URL = "https://unpkg.com/esptool-js@0.6.0/bundle.js";
 const POLYFILL_URL = "https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js";
@@ -7,14 +7,12 @@ const MANIFEST_URL = "./firmware/manifest.json";
 const ESP_IMAGE_MAGIC = 0xe9;
 const ESPRESSIF_VID = 0x303a;
 const ROM_BAUD = 115200;
-const SPI_FLASH_MD5 = 0x13;
 
 const $ = (id) => document.getElementById(id);
 const go = $("go");
 const progress = $("progress");
 const state = $("state");
 const logBox = $("log");
-
 let busy = false;
 let transport = null;
 let loader = null;
@@ -24,60 +22,45 @@ function log(line) {
   logBox.textContent += `\n${now}  ${line}`;
   logBox.scrollTop = logBox.scrollHeight;
 }
-
 function setStage(percent, text, kind = "") {
   progress.value = Math.max(0, Math.min(100, percent));
   state.textContent = text;
   state.className = kind || "dim";
 }
-
-function fail(message) {
-  setStage(progress.value, message, "bad");
-  log(`ERROR: ${message}`);
-}
-
+function fail(message) { setStage(progress.value, message, "bad"); log(`ERROR: ${message}`); }
 async function sha256(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-
 function validEspImage(bytes) {
   return bytes instanceof Uint8Array && bytes.byteLength >= 64 * 1024 && bytes[0] === ESP_IMAGE_MAGIC;
 }
-
 async function fetchBytes(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Could not fetch ${url} (${response.status}).`);
   return new Uint8Array(await response.arrayBuffer());
 }
-
 async function loadManifest() {
   const response = await fetch(MANIFEST_URL, { cache: "no-store" });
   if (!response.ok) throw new Error("Published firmware manifest is unavailable.");
-  const manifest = await response.json();
-  if (!manifest.file || !manifest.sha256 || !manifest.md5 || !manifest.recovery_file || !manifest.recovery_sha256 || !manifest.recovery_md5) {
+  const m = await response.json();
+  if (!m.file || !m.sha256 || !m.md5 || !m.recovery_file || !m.recovery_sha256 || !m.recovery_md5) {
     throw new Error("Firmware manifest is incomplete.");
   }
-  return manifest;
+  return m;
 }
-
 async function loadAndVerify(url, expectedSha, expectedSize, label) {
   const data = await fetchBytes(url);
   if (!validEspImage(data)) throw new Error(`${label} is not a valid ESP32 application image.`);
   if (expectedSize && data.byteLength !== Number(expectedSize)) throw new Error(`${label} size does not match its manifest.`);
-  const digest = await sha256(data);
-  if (digest.toLowerCase() !== String(expectedSha).toLowerCase()) throw new Error(`${label} SHA-256 does not match its manifest.`);
+  if ((await sha256(data)).toLowerCase() !== String(expectedSha).toLowerCase()) throw new Error(`${label} SHA-256 does not match its manifest.`);
   return data;
 }
-
 async function serialApi() {
   if ("serial" in navigator) return navigator.serial;
-  if (!("usb" in navigator)) {
-    throw new Error("Use Chrome/Edge on desktop or Chrome on Android. This browser has no Web Serial/WebUSB support.");
-  }
+  if (!("usb" in navigator)) throw new Error("Use Chrome/Edge on desktop or Chrome on Android. This browser has no Web Serial/WebUSB support.");
   log("Using Android WebUSB serial compatibility mode.");
-  const mod = await import(POLYFILL_URL);
-  return mod.serial;
+  return (await import(POLYFILL_URL)).serial;
 }
 
 const terminal = {
@@ -104,54 +87,22 @@ async function connectRomOnly() {
   const api = await serialApi();
   const port = await api.requestPort({ filters: [{ usbVendorId: ESPRESSIF_VID }] });
   const esp = await import(ESPTOOL_URL);
-  transport = new esp.Transport(port, true);
-  loader = new esp.ESPLoader({ transport, baudrate: ROM_BAUD, terminal, debugLogging: false });
-
+  const makeLoader = () => {
+    transport = new esp.Transport(port, true);
+    loader = new esp.ESPLoader({ transport, baudrate: ROM_BAUD, terminal, debugLogging: false });
+  };
+  makeLoader();
   let chip;
   try {
     chip = await detectRom("default_reset");
   } catch (first) {
     log(`Automatic ROM reset did not sync: ${first?.message || first}`);
-    try {
-      await transport.disconnect();
-    } catch {}
-    transport = new esp.Transport(port, true);
-    loader = new esp.ESPLoader({ transport, baudrate: ROM_BAUD, terminal, debugLogging: false });
-    try {
-      chip = await detectRom("no_reset");
-    } catch {
-      throw new Error("Could not enter ESP32-S3 ROM download mode. Unplug Cardputer, hold G0 (upper-right), plug USB back in, release G0, then tap CONNECT & UPDATE again.");
-    }
+    try { await transport.disconnect(); } catch {}
+    makeLoader();
+    try { chip = await detectRom("no_reset"); }
+    catch { throw new Error("Could not enter ESP32-S3 ROM download mode. Unplug Cardputer, hold G0 (upper-right), plug USB back in, release G0, then tap CONNECT & UPDATE again."); }
   }
   log(`ROM connected: ${chip} / no RAM flasher stub`);
-}
-
-function int32(value) {
-  const out = new Uint8Array(4);
-  new DataView(out.buffer).setUint32(0, value >>> 0, true);
-  return out;
-}
-
-function concat(...arrays) {
-  const total = arrays.reduce((n, a) => n + a.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const a of arrays) { out.set(a, offset); offset += a.length; }
-  return out;
-}
-
-async function romFlashMd5(address, size) {
-  const packet = concat(int32(address), int32(size), int32(0), int32(0));
-  const timeout = Math.max(3000, Math.ceil((size / 1000000) * 10000));
-  const data = await loader.checkCommand("calculate flash MD5", SPI_FLASH_MD5, packet, 0, 32, timeout);
-  if (!(data instanceof Uint8Array)) throw new Error("ROM flash MD5 returned no data.");
-
-  // ESP ROMs normally return the digest as 32 ASCII hex characters. Accept a
-  // raw 16-byte digest as a compatibility fallback.
-  const text = new TextDecoder().decode(data).replace(/\0/g, "").trim().toLowerCase();
-  if (/^[0-9a-f]{32}$/.test(text)) return text;
-  if (data.length >= 16) return [...data.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  throw new Error("ROM flash MD5 response was malformed.");
 }
 
 async function readPartitionTable() {
@@ -171,11 +122,10 @@ async function writeImage(data, address, expectedMd5, from, to, label) {
     eraseAll: false,
     compress: true,
     reportProgress: (_index, written, total) => {
-      const ratio = total ? written / total : 0;
-      setStage(from + (to - from) * ratio, label);
+      setStage(from + (to - from) * (total ? written / total : 0), label);
     },
   });
-  const flashed = await romFlashMd5(address, data.byteLength);
+  const flashed = await romFlashMd5(loader, address, data.byteLength);
   if (flashed.toLowerCase() !== String(expectedMd5).toLowerCase()) {
     throw new Error(`Flash verification failed (${flashed} != ${expectedMd5}).`);
   }
@@ -183,14 +133,7 @@ async function writeImage(data, address, expectedMd5, from, to, label) {
 
 async function rollback(target, recovery, manifest) {
   log("Restoring known-good physical-hardware-accepted v0.02…");
-  await writeImage(
-    recovery,
-    target.offset,
-    manifest.recovery_md5,
-    78,
-    96,
-    "ROLLBACK: restoring v0.02…",
-  );
+  await writeImage(recovery, target.offset, manifest.recovery_md5, 78, 96, "ROLLBACK: restoring v0.02…");
   log("Rollback MD5 verified.");
   try { await loader.after("hard_reset"); } catch {}
 }
@@ -200,32 +143,17 @@ async function runUpdate() {
   busy = true;
   go.disabled = true;
   logBox.textContent = "MAZ Pocket ROM-safe flasher started.";
-  let target = null;
-  let recovery = null;
-  let manifest = null;
-  let wrote = false;
-
+  let target = null, recovery = null, manifest = null, wrote = false;
   try {
     setStage(2, "Loading verified v0.03 + recovery metadata…");
     manifest = await loadManifest();
-    const firmware = await loadAndVerify(
-      `./firmware/${manifest.file}`,
-      manifest.sha256,
-      manifest.size,
-      "v0.03 firmware",
-    );
-    recovery = await loadAndVerify(
-      `./firmware/${manifest.recovery_file}`,
-      manifest.recovery_sha256,
-      manifest.recovery_size,
-      "v0.02 recovery",
-    );
+    const firmware = await loadAndVerify(`./firmware/${manifest.file}`, manifest.sha256, manifest.size, "v0.03 firmware");
+    recovery = await loadAndVerify(`./firmware/${manifest.recovery_file}`, manifest.recovery_sha256, manifest.recovery_size, "v0.02 recovery");
     log(`v0.03: ${firmware.byteLength.toLocaleString()} bytes / SHA ${String(manifest.sha256).slice(0, 12)}…`);
     log("Known-good v0.02 recovery loaded and SHA-verified before any flash write.");
 
     setStage(8, "Choose Cardputer ADV…");
     await connectRomOnly();
-
     const table = await readPartitionTable();
     target = findMazPartition(parsePartitions(table));
     log(`MAZ partition: ${target.label} @ 0x${target.offset.toString(16)} / ${target.size.toLocaleString()} bytes`);
@@ -235,22 +163,21 @@ async function runUpdate() {
 
     setStage(22, "Checking existing Maz slot…");
     try {
-      const oldMd5 = await romFlashMd5(target.offset, recovery.byteLength);
+      const oldMd5 = await romFlashMd5(loader, target.offset, recovery.byteLength);
       if (oldMd5 === String(manifest.recovery_md5).toLowerCase()) log("Current Maz slot matches the known-good v0.02 release.");
-      else log("Current Maz slot differs from pristine v0.02 (expected after the failed old updater); recovery is already loaded.");
+      else log("Current Maz slot differs from pristine v0.02 (expected after the failed old updater); recovery is ready.");
     } catch (e) {
-      log(`Existing-slot fingerprint unavailable: ${e?.message || e}. Recovery is already loaded.`);
+      log(`Existing-slot fingerprint unavailable: ${e?.message || e}. Recovery is ready.`);
     }
 
     setStage(28, "Writing v0.03 to MAZ-Pocket only…");
     wrote = true;
     await writeImage(firmware, target.offset, manifest.md5, 28, 82, "Writing v0.03 in ROM mode…");
     log("ROM flash MD5: exact match.");
-
     setStage(94, "Verified. Rebooting Cardputer…");
     try { await loader.after("hard_reset"); } catch (e) { log(`Reset handoff: ${e?.message || e}`); }
     setStage(100, "v0.03 FLASHED + VERIFIED", "ok");
-    log("Done. No RAM flasher stub, no full erase, no partition-table/NVS/Launcher/SD/sibling-app writes.");
+    log("Done. No RAM stub, full erase, partition-table/NVS/Launcher/SD/sibling-app write occurred.");
   } catch (error) {
     const message = error?.message || String(error);
     fail(message);
