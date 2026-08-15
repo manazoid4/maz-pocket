@@ -1,66 +1,80 @@
-# MAZ Pocket v0.3
+# MAZ Pocket
 
 MAZ Pocket turns the M5Stack Cardputer ADV into a pocket field terminal for the
-computer and agents you already use. v0.3 deliberately gives Home only three
-jobs:
+computer, agents and personal tools you already use.
 
-- **COMM** — a push-to-talk line to MAZ Host. Hold SPACE, speak, keep the
-  conversation across visits, read or hear the reply. Press C for a tiny
-  command deck that can show the desktop, control media/volume or lock Windows.
-- **LOG** — a field/captain's log. Recording starts immediately, raw audio is
-  preserved first, H marks important moments, and MAZ Host structures the
-  thought when the PC is available.
-- **OPS** — Agent Nudge as a pocket operations console: factual fleet state,
-  evidence, waiting/stale/working attention and explicit nudge actions.
+The current firmware keeps Home deliberately focused on three proven surfaces:
 
-Home is a three-icon retro launcher, not an app table. LEFT/RIGHT selects a tile
-and ENTER opens it. Notes, Tasks, Focus, Sprint, Reminders, Inbox, Recorder and
-other proven utilities remain installed behind `Ctrl+K`/shortcuts; they simply
-no longer compete for the first screen.
+- **COMM** — push-to-talk to MAZ Host, persistent conversation, spoken replies
+  and a bounded Windows command deck.
+- **LOG** — raw-first field/captain's log with highlights and host processing.
+- **OPS** — Agent Nudge fleet state, evidence and explicit nudge actions.
 
-The visual language is dark instrument-panel amber/cyan, but the retro-future
-idea is behavioural rather than decorative: a communicator to your computer, a
-portable field log, a machine command deck, and an ambient mission-status line.
-See `docs/V03-DESIGN.md` for the explicit anti-bloat product contract.
+The approved v0.4 direction expands the product to six primary interaction
+surfaces — **COMM, CAPTURE, OPS, DESK, RECALL and FLOW** — without turning Home
+into an app drawer. See [`docs/V04-ROADMAP.md`](docs/V04-ROADMAP.md). Existing
+utilities remain available through `Ctrl+K` until they are absorbed into one of
+those surfaces.
+
+## mazpocket.local
+
+Once the Cardputer is paired and connected to Wi-Fi, open:
+
+```text
+http://mazpocket.local
+```
+
+This page is served **by the Cardputer itself** using mDNS; it is not a public
+Internet control panel. The first useful control-plane cut includes:
+
+- live firmware, battery, storage, heap and IMU state;
+- Wi-Fi/IP/RSSI, MAZ Host link and agent summary;
+- authenticated Wi-Fi + MAZ Host configuration;
+- LOCAL / AUTO / CLOUD route selection and spoken-reply toggle;
+- speaker self-test;
+- four-second microphone test with live level meter;
+- MAZ Host reachability probe;
+- authenticated browser firmware OTA from a `.bin` file;
+- reboot and safe M5Launcher hand-back.
+
+Write operations reuse the existing MAZ pairing token. The token is never
+rendered back by firmware; the browser keeps what you type in session storage.
+First pairing still happens over USB so an unconfigured device never exposes a
+network setup secret.
+
+If `.local` resolution is unavailable on a particular Windows/network setup,
+open the Cardputer's numeric IP shown in **Connections** or by the Windows
+updater, for example `http://192.168.1.42`.
 
 ## COMM / Call PC
 
 MAZ Pocket tries the local MAZ Host address first for minimum latency, then an
-optional verified HTTPS remote address when away from home. The Windows updater
-can provision a Tailscale Funnel for that fallback; LAN remains preferred.
+optional verified HTTPS remote address when away from home. The Cardputer owns
+mic/speaker/UI; the PC performs STT, model routing, Agent Nudge access, bounded
+machine actions and optional TTS. API/model keys stay off the ESP32.
 
-The Cardputer records and uploads audio. The PC performs STT, local/cloud model
-routing, Agent Nudge access, safe machine actions and optional TTS. API/model
-keys never live on the ESP32. Spoken replies use Windows speech through MAZ Host
-and return as WAV audio for Cardputer playback.
-
-### Command deck
-
-Press **C** inside COMM and LEFT/RIGHT through six deliberately bounded actions:
+Press **C** inside COMM and LEFT/RIGHT through the bounded command deck:
 
 `DESKTOP` · `PLAY` · `MUTE` · `VOL -` · `VOL +` · `LOCK`
 
-ENTER transmits. These actions are allow-listed in MAZ Host rather than exposing
-a remote shell. Direct phrases such as `mute my pc`, `show desktop`, `next
-track`, or `lock my computer` are also parsed deterministically and execute with
-zero LLM round trip. Questions that merely mention those words do not execute.
+Direct phrases such as `mute my pc`, `show desktop`, `next track` or `lock my
+computer` are parsed deterministically and skip the LLM. There is no arbitrary
+remote shell.
 
-## Lowest-friction Windows updates
+## Hidden extras and utilities
 
-CI builds one **`MazPocketUpdater-v0.3.exe`** containing the exact firmware from
-the same build. It provides four actions:
+`Ctrl+K` exposes Notes, Tasks, Focus, Sprint, Reminders, Inbox, Recorder,
+Calculator, Stopwatch, Beam/QR, Text Viewer, Generator, Snippets, Connections,
+Tools and Settings. Snake and the BMI270-driven Hyperdrive demo remain hidden
+extras rather than product priorities.
 
-- **USB UPDATE** — preserves M5Launcher, prepares the MAZ app/storage slot,
-  installs v0.3 and checks the real `READY` boot banner.
-- **WI-FI UPDATE** — sends the bundled firmware directly through authenticated
-  ArduinoOTA after pairing; no PlatformIO installation is required by the EXE.
-- **PAIR** — USB-provisions Wi-Fi + LAN MAZ Host. It reuses the actual
-  `host/.env` token (auto-detected or selected once) instead of inventing a
-  secret that could disagree with the running host.
-- **REMOTE CALL** — configures the HTTPS Tailscale Funnel fallback on the PC and
-  saves it on the Cardputer.
+## Updates
 
-For development, the existing PowerShell paths remain:
+The Windows package contains the exact Cardputer firmware produced by the same
+CI run. It supports USB install through M5Launcher, authenticated Wi-Fi
+ArduinoOTA, pairing and optional remote Call PC provisioning.
+
+For development:
 
 ```powershell
 .\scripts\install.ps1
@@ -69,50 +83,48 @@ cd host
 .\run.ps1
 ```
 
-## Why no on-device chat model
-
-`slvDev/esp32-ai` is a useful tiny-model reference, but its showcased 28.9M
-model targets an ESP32-S3 setup with PSRAM and more flash than Cardputer ADV.
-The ADV has 8 MB flash and no PSRAM. v0.3 keeps the good edge-first principle:
-cheap deterministic/device work stays local; STT, generative reasoning, TTS and
-agent integrations run on the PC. Future local ML must earn its memory with a
-specific routing/classification task rather than existing for an "AI" label.
+After this web-control-plane build is installed, normal LAN firmware iterations
+can also use **mazpocket.local → Browser OTA** and select the newly built
+`maz-pocket-app.bin`.
 
 ## Architecture
 
 ```text
 Cardputer ADV
-  COMM ---- voice + bounded PC commands
-  LOG  ---- raw-first thought capture
-  OPS  ---- agent assurance/actions
-      |
-      | LAN first / verified HTTPS fallback
-      v
+  COMM / CAPTURE / OPS
+  future: DESK / RECALL / FLOW
+       |
+       +-- mazpocket.local (device admin + browser OTA)
+       |
+       +-- LAN first / verified HTTPS fallback
+       v
 MAZ Host (Windows)
-  STT -> deterministic commands -> local/cloud model when needed
-  TTS -> WAV reply
-  PC Controller -> small Win32 allow-list
-  Agent Nudge -> factual agent state/actions
+  STT / TTS / model routing
+  bounded PC controls
+  Agent Nudge
+  future generic tool protocol
 ```
 
-Audio is written to storage and streamed rather than buffering full recordings
-in RAM. SD is preferred when present; internal storage remains the fallback.
-M5Launcher hand-back and authenticated Wi-Fi OTA remain first-class paths.
+The ADV has no PSRAM, so heavy generative reasoning remains on the PC/cloud.
+Local firmware is reserved for deterministic actions, cache/offline behaviour,
+UI, audio, networking and narrowly useful edge logic.
 
-## Anti-bloat gates
+## Anti-bloat and security gates
 
-The v0.3 application gets a **2,100,000-byte firmware ceiling** in CI even though
-the OTA slot is larger. Spare flash is headroom, not permission to add games,
-icon packs, animations, camera code, wake-word listening, duplicate utilities or
-a general-purpose remote shell.
+The application has a **2,100,000-byte firmware ceiling** in CI even though its
+OTA slot is larger. Spare flash is headroom, not a feature quota.
 
-## Verification
+- no arbitrary remote shell;
+- no silent agent/tool auto-approval;
+- authenticated network mutation and OTA;
+- raw captures survive before AI processing;
+- cloud/model secrets stay PC-side where possible;
+- compile success is never presented as physical-hardware proof.
 
-GitHub Actions runs MAZ Host tests, syntax-checks the updater, builds the
-Cardputer ADV target, enforces the firmware budget and packages the Windows EXE.
-Physical-device proof remains separate in `docs/VERIFICATION.md`: a successful
-compile is not claimed as proof that microphone, speaker, remote access, USB
-installation or Wi-Fi OTA worked on a real Cardputer.
+GitHub Actions runs host tests, syntax-checks the updater, builds the Cardputer
+ADV target, enforces the firmware budget and packages the Windows updater plus
+firmware. Physical acceptance remains tracked separately in
+`docs/VERIFICATION.md`.
 
 MIT licensed. Third-party references and licence decisions are recorded under
 `docs/`.
