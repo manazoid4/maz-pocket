@@ -28,6 +28,7 @@ App* makeHome();
 App* makeCall();
 App* makeCallV3();
 App* makeCapture();
+App* makeCaptureV51();
 App* makeDesk();
 App* makeRecall();
 App* makeFlow();
