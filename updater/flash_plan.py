@@ -69,7 +69,7 @@ def parse_partition_table(data: bytes) -> list[Partition]:
             "<BBII16sI", entry[2:]
         )
         label = raw_label.split(b"\0", 1)[0].decode("utf-8", errors="replace")
-        if size <= 0 or offset < 0x9000 or offset + size > FLASH_SIZE:
+        if size <= 0 or offset < 0x1000 or offset + size > FLASH_SIZE:
             raise PlanError(f"unsafe partition bounds for {label or '<unnamed>'}")
         parts.append(Partition(ptype, subtype, offset, size, label, flags))
 
@@ -87,8 +87,6 @@ def parse_partition_table(data: bytes) -> list[Partition]:
 
 
 def ota_select_crc(seq: int) -> int:
-    # Espressif bootloader_common_ota_select_crc() is equivalent to zlib CRC32
-    # over the little-endian ota_seq, seeded with UINT32_MAX.
     return zlib.crc32(struct.pack("<I", seq & UINT32_MAX), UINT32_MAX) & UINT32_MAX
 
 
@@ -163,10 +161,11 @@ def measure_esp_image_size(data: bytes) -> int:
         if segment_size > len(data) or cursor + segment_size > len(data):
             return 0
         cursor += segment_size
-    cursor = ((cursor + 15) // 16) * 16 + 1
+    # ESP images place the checksum inside the padding to the next 16-byte
+    # boundary. PlatformIO's SHA-appended binary ends at align16(cursor)+32.
+    cursor = ((cursor + 15) // 16) * 16
     if hash_appended:
         cursor += 32
-    cursor = ((cursor + 15) // 16) * 16
     return cursor if cursor <= len(data) else 0
 
 
