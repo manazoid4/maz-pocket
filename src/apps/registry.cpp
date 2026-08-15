@@ -6,17 +6,19 @@ namespace maz {
 namespace apps {
 
 namespace {
-// v0.3 has a deliberately tiny Home: three high-leverage surfaces. The rest
-// stay registered and searchable via Ctrl+K/shortcuts, so focus does not mean
-// deleting working utilities.
+// v0.03.1 makes the approved six product surfaces visible on Home. Each hub
+// stays small and routes into already-proven utilities instead of duplicating
+// their logic.
 const Descriptor TABLE[] = {
-    {"home",      "Home",        nullptr, "home menu",                              0,     false, makeHome},
-    {"talk",      "Call PC",     "COMM",  "call pc voice communicator remote control",KEY_T, true,  makeCallV3},
-    {"braindump", "Field Log",   "LOG",   "capture thought field log highlight voice", KEY_B, true,  makeCapture},
-    {"nudge",     "Agent Ops",   "OPS",   "agent fleet operations nudge assurance sync",KEY_N, true,  makeAgentsV3},
+    {"home",      "Home",        nullptr,   "home menu",                                      0,     false, makeHome},
+    {"talk",      "Call PC",     "COMM",   "call pc voice communicator remote control",      KEY_T, true,  makeCallV3},
+    {"braindump", "Capture",     "CAPTURE","capture thought field log highlight voice",      KEY_B, true,  makeCapture},
+    {"nudge",     "Agent Ops",   "OPS",    "agent fleet operations nudge assurance sync",    KEY_N, true,  makeAgentsV3},
+    {"desk",      "Desk",        "DESK",   "desk pc controls connections tools settings",    0,     true,  makeDesk},
+    {"recall",    "Recall",      "RECALL", "recall inbox notes snippets viewer outputs",     0,     true,  makeRecall},
+    {"flow",      "Flow",        "FLOW",   "flow reminders focus sprint tasks workflows",    0,     true,  makeFlow},
 
-    // Showcase extras stay out of Home by design. They are there when you want
-    // to hand the device to someone, not every time you need to get work done.
+    // Showcase extras stay out of Home by design.
     {"snake",     "Snake",       nullptr, "snake game arcade retro fun",               0, false, makeSnake},
     {"hyperdrive","Hyperdrive",  nullptr, "hyperdrive starfield imu tilt motion demo", 0, false, makeHyperdrive},
 
