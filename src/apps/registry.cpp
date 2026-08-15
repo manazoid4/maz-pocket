@@ -8,9 +8,9 @@ namespace apps {
 namespace {
 const Descriptor TABLE[] = {
     {"home",      "Home",        nullptr,   "home menu",                                      0,     false, makeHome},
-    {"talk",      "Call PC",     "COMM",   "call pc voice communicator remote control",      KEY_T, true,  makeCallV3},
+    {"talk",      "Call PC",     "COMM",   "call pc voice communicator remote control",      KEY_T, true,  makeComm},
     {"braindump", "Capture",     "CAPTURE","capture thought field log highlight voice",      KEY_B, true,  makeCaptureV51},
-    {"nudge",     "Agent Ops",   "OPS",    "agent fleet operations nudge assurance sync",    KEY_N, true,  makeAgentsV3},
+    {"nudge",     "Agent Ops",   "OPS",    "agent fleet operations nudge assurance sync",    KEY_N, true,  makeOps},
     {"desk",      "Control",     "CONTROL","control wifi pc device storage settings core",   0,     true,  makeDesk},
     {"recall",    "Recall",      "RECALL", "recall inbox notes snippets viewer outputs",     0,     true,  makeRecall},
     {"flow",      "Flow",        "FLOW",   "flow reminders focus sprint tasks workflows",    0,     true,  makeFlow},
