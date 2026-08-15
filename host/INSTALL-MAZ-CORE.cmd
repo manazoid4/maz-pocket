@@ -1,17 +1,16 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo MAZ Core - local PC companion installer
-echo.
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-core.ps1"
-set "exitcode=%ERRORLEVEL%"
-echo.
-if not "%exitcode%"=="0" (
-  echo MAZ Core setup stopped with error %exitcode%.
-  echo Review the message above for Python, firewall or pairing details.
-) else (
-  echo MAZ Core setup finished successfully.
+
+rem Compatibility entrypoint. The v0.6.4 recovery installer has one canonical
+rem launcher; keeping this filename only prevents old documentation/bookmarks
+rem from resurrecting the deprecated nested installer path.
+if exist "%~dp0INSTALL.cmd" (
+  call "%~dp0INSTALL.cmd"
+  exit /b %ERRORLEVEL%
 )
-echo.
+
+echo MAZ Core recovery installer is incomplete.
+echo Use the complete v0.6.4 recovery package and run INSTALL.cmd.
 pause
-exit /b %exitcode%
+exit /b 2
