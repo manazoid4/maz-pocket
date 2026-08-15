@@ -10,82 +10,70 @@ Route = Literal["local", "auto", "cloud"]
 
 
 class Models:
+    """Route MAZ requests through a backend-neutral OpenAI-compatible API.
+
+    llama-swap is the stable local front door. It supervises the tested local
+    runtime and swaps models one-at-a-time so a failed primary can fall back to
+    a separately proven backup without involving cloud in LOCAL mode.
+    """
+
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
-        self.client = client or httpx.Client(timeout=90)
+        self.client = client or httpx.Client(timeout=120)
 
     def _local_models(self) -> list[str]:
-        primary = self.settings.ollama_model.strip()
-        backup = self.settings.ollama_backup_model.strip()
-        policy = self.settings.local_model_policy
-        if policy == "primary":
-            return [primary] if primary else []
-        if policy == "backup":
-            return [backup] if backup else []
         result: list[str] = []
-        for model in (primary, backup):
-            if model and model not in result:
-                result.append(model)
+        for name in (self.settings.local_model, self.settings.local_backup_model):
+            name = name.strip()
+            if name and name not in result:
+                result.append(name)
         return result
 
     def status(self) -> dict:
         local = False
-        names: set[str] = set()
+        available: list[str] = []
         try:
-            response = self.client.get(f"{self.settings.ollama_url.rstrip('/')}/api/tags", timeout=2)
+            response = self.client.get(
+                f"{self.settings.local_api_url.rstrip('/')}/models", timeout=2
+            )
             local = response.is_success
             if local:
-                for item in response.json().get("models", []):
-                    name = str(item.get("name") or item.get("model") or "")
-                    if name:
-                        names.add(name)
+                payload = response.json()
+                available = [str(item.get("id", "")) for item in payload.get("data", []) if item.get("id")]
         except (httpx.HTTPError, KeyError, TypeError, ValueError):
-            pass
-        primary = self.settings.ollama_model
-        backup = self.settings.ollama_backup_model
+            try:
+                response = self.client.get(self.settings.local_health_url, timeout=2)
+                local = response.is_success
+            except httpx.HTTPError:
+                pass
         return {
             "local": local,
-            "local_policy": self.settings.local_model_policy,
-            "local_model": primary,
-            "local_model_installed": primary in names,
-            "backup_model": backup,
-            "backup_model_installed": backup in names,
+            "local_engine": self.settings.local_engine,
+            "local_runtime": self.settings.local_runtime,
+            "local_model": self.settings.local_model,
+            "local_backup_model": self.settings.local_backup_model,
             "local_chain": self._local_models(),
+            "available_models": available[:20],
+            "local_context": self.settings.local_context,
             "cloud": bool(self.settings.cloud_key),
-        }
-
-    def _options(self, model: str) -> dict:
-        if model == self.settings.ollama_backup_model:
-            return {
-                "temperature": 0.30,
-                "top_p": 0.90,
-                "top_k": 30,
-                "repeat_penalty": 1.05,
-                "num_ctx": 8192,
-            }
-        return {
-            "temperature": 0.15,
-            "top_p": 0.85,
-            "repeat_penalty": 1.05,
-            "num_ctx": 8192,
         }
 
     def _local_one(self, model: str, messages: list[dict[str, str]]) -> tuple[str, str]:
         response = self.client.post(
-            f"{self.settings.ollama_url.rstrip('/')}/api/chat",
+            f"{self.settings.local_api_url.rstrip('/')}/chat/completions",
             json={
                 "model": model,
                 "messages": messages,
                 "stream": False,
-                "keep_alive": "30m",
-                "options": self._options(model),
+                "temperature": self.settings.local_temperature,
+                "max_tokens": self.settings.local_max_tokens,
             },
         )
         response.raise_for_status()
-        text = response.json()["message"]["content"].strip()
+        text = response.json()["choices"][0]["message"]["content"].strip()
         if not text:
             raise RuntimeError("local_model_empty_reply")
-        return text, f"local:{model}"
+        return text, f"local:{self.settings.local_engine}:{model}"
 
     def _local(self, messages: list[dict[str, str]]) -> tuple[str, str]:
         errors: list[str] = []
