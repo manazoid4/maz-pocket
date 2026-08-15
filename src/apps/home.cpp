@@ -9,7 +9,7 @@
 #include "../input/keyboard.h"
 #include "../net/mazhost.h"
 #include "../net/net.h"
-#include "../ui/lvgl_ui.h"
+#include "../ui/home_grid.h"
 #include "apps.h"
 #include "common.h"
 
@@ -29,11 +29,8 @@ public:
     void onEnter() override {
         buildPrimary();
         _spaceArmed = false;
-        lvui::setActive(true);
         invalidate();
     }
-
-    void onExit() override { lvui::setActive(false); }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) {
@@ -76,7 +73,7 @@ public:
     }
 
     void render(M5Canvas& g) override {
-        std::array<lvui::Cell, TABLE_PAGE> cells{};
+        std::array<home_grid::Cell, TABLE_PAGE> cells{};
         for (size_t i = 0; i < _primary.size() && i < cells.size(); ++i) {
             cells[i].title = _primary[i]->cellTitle();
             cells[i].badge = iconFor(*_primary[i]);
@@ -92,8 +89,8 @@ public:
         else if (Sys.agentsWaiting) state += " / " + std::to_string(Sys.agentsWaiting) + " WAIT";
         else if (Sys.agentsWorking) state += " / " + std::to_string(Sys.agentsWorking) + " WORK";
 
-        lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "MAZ 0.5", state.c_str(), 0, 1);
+        home_grid::render(g, cells.data(), _primary.size(), _sel,
+                          "MAZ " MAZ_POCKET_VERSION, state.c_str());
     }
 
 private:
