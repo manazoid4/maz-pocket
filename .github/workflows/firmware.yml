@@ -25,6 +25,14 @@ jobs:
           cache: pip
           cache-dependency-path: host/requirements.txt
 
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content .\VERSION -Raw).Trim()
+          "value=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "MAZ Pocket v$v"
+
       - name: Install dependencies
         shell: pwsh
         run: |
@@ -36,17 +44,29 @@ jobs:
       - name: Test MAZ Core + Host
         run: python -m pytest host/tests -q
 
+      - name: Validate version/install contract
+        run: python scripts/check-version.py
+
       - name: Validate PowerShell installers parse
         shell: pwsh
         run: |
-          $tokens = $null
-          $parseErrors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\scripts\install-to-sd.ps1'), [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; throw 'install-to-sd.ps1 has parse errors' }
-          $tokens = $null
-          $parseErrors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\host\install-core.ps1'), [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; throw 'install-core.ps1 has parse errors' }
+          $files = @(
+            '.\scripts\install-to-sd.ps1',
+            '.\scripts\setup-all.ps1',
+            '.\scripts\prepare-release.ps1',
+            '.\host\setup.ps1',
+            '.\host\install-core.ps1',
+            '.\host\pair.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | Format-List
+              throw "$file has parse errors"
+            }
+          }
 
       - name: Keep recovery flasher safety tests green
         shell: pwsh
@@ -66,53 +86,23 @@ jobs:
         run: |
           python -c "from pathlib import Path; b=Path('dist/maz-pocket-app.bin').read_bytes(); assert len(b)>=65536 and b[0]==0xE9, 'invalid ESP32 app image'; assert len(b)<=0x180000, f'{len(b)} exceeds known Launcher slot'; print('ESP image OK',len(b),'bytes')"
 
-      - name: Prepare v0.5.1 frictionless install package
+      - name: Prepare frictionless install package
         shell: pwsh
-        run: |
-          Copy-Item .\dist\maz-pocket-app.bin .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin -Force
-          Compress-Archive -Path .\host\* -DestinationPath .\dist\MAZ-Core-v0.5.1.zip -Force
-          Copy-Item .\scripts\install-to-sd.ps1 .\dist\install-to-sd.ps1 -Force
-          Copy-Item .\scripts\INSTALL-MAZ-POCKET.cmd .\dist\INSTALL-MAZ-POCKET.cmd -Force
-          Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
-          Copy-Item .\RELEASE_NOTES.md .\dist\RELEASE_NOTES.md -Force
-
-          $firmwareSha = (Get-FileHash .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin -Algorithm SHA256).Hash.ToLowerInvariant()
-          $coreSha = (Get-FileHash .\dist\MAZ-Core-v0.5.1.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          $installerSha = (Get-FileHash .\dist\install-to-sd.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
-          $launcherSha = (Get-FileHash .\dist\INSTALL-MAZ-POCKET.cmd -Algorithm SHA256).Hash.ToLowerInvariant()
-          @(
-            "$firmwareSha  Maz-Pocket-v0.5.1-M5Launcher.bin",
-            "$coreSha  MAZ-Core-v0.5.1.zip",
-            "$installerSha  install-to-sd.ps1",
-            "$launcherSha  INSTALL-MAZ-POCKET.cmd"
-          ) | Set-Content -Encoding ascii .\dist\SHA256SUMS.txt
-
-          New-Item -ItemType Directory -Path .\dist\install -Force | Out-Null
-          $installFiles = @(
-            '.\dist\Maz-Pocket-v0.5.1-M5Launcher.bin',
-            '.\dist\MAZ-Core-v0.5.1.zip',
-            '.\dist\install-to-sd.ps1',
-            '.\dist\INSTALL-MAZ-POCKET.cmd',
-            '.\dist\SHA256SUMS.txt',
-            '.\dist\QUICKSTART.txt',
-            '.\dist\RELEASE_NOTES.md'
-          )
-          Copy-Item -Path $installFiles -Destination .\dist\install\ -Force
-          Compress-Archive -Path .\dist\install\* -DestinationPath .\dist\MAZ-Pocket-v0.5.1-Install.zip -Force
-
-          Get-ChildItem .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin, .\dist\MAZ-Core-v0.5.1.zip, .\dist\MAZ-Pocket-v0.5.1-Install.zip, .\dist\SHA256SUMS.txt | Select-Object Name,Length
-          Get-Content .\dist\SHA256SUMS.txt
+        run: ./scripts/prepare-release.ps1
 
       - uses: actions/upload-artifact@v4
         with:
-          name: maz-pocket-v0.5.1
+          name: maz-pocket-v${{ steps.version.outputs.value }}
           if-no-files-found: error
           path: |
-            dist/Maz-Pocket-v0.5.1-M5Launcher.bin
-            dist/MAZ-Core-v0.5.1.zip
-            dist/MAZ-Pocket-v0.5.1-Install.zip
+            dist/Maz-Pocket-v${{ steps.version.outputs.value }}-M5Launcher.bin
+            dist/MAZ-Core-v${{ steps.version.outputs.value }}.zip
+            dist/MAZ-Pocket-v${{ steps.version.outputs.value }}-Install.zip
+            dist/START-HERE.cmd
+            dist/setup-all.ps1
             dist/INSTALL-MAZ-POCKET.cmd
             dist/install-to-sd.ps1
+            dist/VERSION
             dist/SHA256SUMS.txt
             dist/QUICKSTART.txt
             dist/RELEASE_NOTES.md
