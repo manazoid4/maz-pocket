@@ -18,6 +18,7 @@ const Descriptor TABLE[] = {
     {"control",   "Control Center", "CTRL", "control center device network pc core screen",   0,     false, makeControlCenter},
     {"network",   "Wi-Fi",       "WI-FI",  "wifi network scan connect reconnect hotspot",     KEY_W, false, makeNetworkV5},
     {"core",      "MAZ Core",    "CORE",   "core pc projects builds tests git local ai",      0,     false, makeCoreConsole},
+    {"runtime",   "Runtime",     "RUNTIME","runtime metrics heap stack queues latency websocket",0,false, makeRuntimeMetrics},
 
     {"snake",     "Snake",       nullptr, "snake game arcade retro fun",               0, false, makeSnake},
     {"hyperdrive","Hyperdrive",  nullptr, "hyperdrive starfield imu tilt motion demo", 0, false, makeHyperdrive},
