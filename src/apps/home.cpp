@@ -76,27 +76,20 @@ public:
 
     void render(M5Canvas& g) override {
         std::array<lvui::Cell, TABLE_PAGE> cells{};
-        const int pageStart = (_sel / TABLE_PAGE) * TABLE_PAGE;
-        size_t visible = 0;
-        for (int i = 0; i < TABLE_PAGE; ++i) {
-            const int idx = pageStart + i;
-            if (idx >= static_cast<int>(_primary.size())) break;
-            cells[i].title = _primary[idx]->cellTitle();
-            cells[i].badge = iconFor(*_primary[idx]);
-            ++visible;
+        for (size_t i = 0; i < _primary.size() && i < cells.size(); ++i) {
+            cells[i].title = _primary[i]->cellTitle();
+            cells[i].badge = iconFor(*_primary[i]);
         }
 
-        const int page = pageStart / TABLE_PAGE + 1;
-        const int pages = (_primary.size() + TABLE_PAGE - 1) / TABLE_PAGE;
-        std::string state = std::to_string(page) + "/" + std::to_string(pages) + "  PC " + host::linkName();
+        std::string state = std::string("PC ") + host::linkName();
         if (Sys.agentQuestion) state += " / NEEDS MAZ";
         else if (Sys.agentsStale) state += " / " + std::to_string(Sys.agentsStale) + " STALE";
         else if (Sys.agentsWaiting) state += " / " + std::to_string(Sys.agentsWaiting) + " WAIT";
         else if (Sys.agentsWorking) state += " / " + std::to_string(Sys.agentsWorking) + " WORK";
         else if (Sys.hostOnline) state += " / CLEAR";
 
-        lvui::renderHome(g, cells.data(), visible, _sel - pageStart,
-                         "MAZ 0.3.1", state.c_str(), pageStart, pages);
+        lvui::renderHome(g, cells.data(), _primary.size(), _sel,
+                         "MAZ 0.3.1", state.c_str(), 0, 1);
     }
 
 private:
