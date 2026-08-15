@@ -1,7 +1,4 @@
 // MAZ Pocket — firmware entry point for the M5Stack Cardputer ADV.
-//
-// Everything real happens in core/shell; this file only brings the hardware
-// up in the right order and says loudly when a subsystem does not answer.
 #include <M5Unified.h>
 #include <sys/time.h>
 #include <time.h>
@@ -17,11 +14,10 @@
 #include "net/control.h"
 #include "net/mazhost.h"
 #include "net/net.h"
-#include "net/web.h"
+#include "net/portal.h"
 #include "storage/store.h"
 
 using namespace maz;
-
 
 void setup() {
     Serial.begin(115200);
@@ -30,9 +26,6 @@ void setup() {
     auto cfg          = M5.config();
     cfg.internal_spk  = true;
     cfg.internal_mic  = true;
-    // v0.3.1 uses the ADV's BMI270 for the tiny Hyperdrive showcase. Keeping
-    // the hardware enabled also gives future gesture shortcuts somewhere real
-    // to start without adding another driver stack.
     cfg.internal_imu  = true;
     cfg.clear_display = true;
     M5.begin(cfg);
@@ -42,8 +35,6 @@ void setup() {
 
     Sys.bootMillis = millis();
 
-    // Order matters: settings first (brightness/volume), then the pieces that
-    // read them. Each failure is reported rather than silently tolerated.
     Cfg.load();
     Serial.println("[boot] settings");
 
@@ -57,14 +48,13 @@ void setup() {
     Serial.println("[boot] audio");
     net::begin();
     Serial.println("[boot] network");
-    // USB/LAN control and the browser control plane reuse the same pairing
-    // token, but remain separate transports so neither one can destabilise the
-    // other during recovery or firmware update.
-    control::begin();
-    web::begin();
 
-    // Restore a plausible clock so files stamped before any NTP sync are at
-    // least ordered correctly. Sys.timeValid stays false until a real sync.
+    // USB/LAN device control and the phone-friendly local portal share the
+    // existing MAZ pairing token, while firmware installation remains owned by
+    // M5Launcher rather than a generic OTA writer.
+    control::begin();
+    portal::begin();
+
     if (Cfg.lastKnownEpoch > 0) {
         timeval tv;
         tv.tv_sec  = static_cast<time_t>(Cfg.lastKnownEpoch);
@@ -86,30 +76,19 @@ void setup() {
                   KB.ok() ? "ok" : "missing", store::backendName());
 
     if (!KB.ok())
-        notify::post(Note::Error, "Keyboard not found",
-                     "TCA8418 did not answer");
+        notify::post(Note::Error, "Keyboard not found", "TCA8418 did not answer");
     if (!store::ready())
-        notify::post(Note::Warn, "No storage",
-                     "notes and recordings are disabled");
-    // Both of these used to be log-only, so the device looked healthy while
-    // silently running on volatile storage, or having just erased itself.
+        notify::post(Note::Warn, "No storage", "notes and recordings are disabled");
     else if (Sys.internalFormatted)
-        notify::post(Note::Warn, "Internal storage reset",
-                     "previous notes and recordings are gone");
+        notify::post(Note::Warn, "Internal storage reset", "previous notes and recordings are gone");
     if (Sys.sdUnreadable)
-        notify::post(Note::Warn, "SD card unreadable",
-                     "format it as FAT32 to keep data safely");
+        notify::post(Note::Warn, "SD card unreadable", "format it as FAT32 to keep data safely");
 }
 
 void loop() {
     control::update();
-    web::update();
+    portal::update();
     shell::loop();
-    // Preserve the small helpful v0.2-style reminders: this observes already
-    // known state and only speaks when something changes, so it adds no polls
-    // or background latency.
     ambient::update();
-    // A short yield keeps the watchdog happy and the radio serviced without
-    // making input feel laggy.
     delay(2);
 }
