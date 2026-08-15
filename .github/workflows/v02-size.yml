@@ -1,0 +1,31 @@
+name: v0.02 size check
+
+on:
+  push:
+    branches: ["ci/v0-2-size-check"]
+  workflow_dispatch:
+
+jobs:
+  size:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build exact v0.02 branch
+        shell: pwsh
+        run: ./scripts/package-release.ps1
+      - name: Report exact installed binary and 64K Launcher slot
+        shell: pwsh
+        run: |
+          $n=(Get-Item .\dist\maz-pocket-app.bin).Length
+          $slot=[math]::Ceiling($n/65536.0)*65536
+          Write-Host "V002_BYTES=$n"
+          Write-Host "V002_LAUNCHER_SLOT=$slot"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maz-pocket-v0.02-size-reference
+          path: dist/maz-pocket-app.bin
