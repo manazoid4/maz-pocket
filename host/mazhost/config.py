@@ -1,11 +1,11 @@
-"""MAZ Core configuration. Secrets and model routing stay on the laptop."""
+"""MAZ Core configuration. Secrets and local inference stay on the laptop."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,11 +21,32 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute: str = "int8"
 
-    # Local-first brain. AUTO tries primary then backup locally before cloud.
-    # LOCAL uses the same local chain but never spills to cloud.
+    # Backend-neutral OpenAI-compatible local inference contract.
+    # v0.6.4 uses llama-swap as the stable local front door. llama.cpp is the
+    # Windows runtime; a future Linux host can swap in vLLM without firmware changes.
+    local_engine: Literal["llama_swap", "llamacpp", "vllm", "openai_compat"] = "llama_swap"
+    local_runtime: Literal["llamacpp", "vllm", "other"] = "llamacpp"
+    local_api_url: str = "http://127.0.0.1:8790/v1"
+    local_health_url: str = "http://127.0.0.1:8790/health"
+    local_model: str = "maz-primary"
+    local_backup_model: str = "maz-backup"
+    local_context: int = Field(default=8192, ge=1024, le=32768)
+    local_max_tokens: int = Field(default=512, ge=64, le=4096)
+    local_temperature: float = Field(default=0.15, ge=0.0, le=2.0)
+
+    # llama.cpp supervisor settings. The HTTP server is loopback-only; MAZ Core
+    # is the authenticated LAN-facing gateway used by the Cardputer.
+    llamacpp_model_path: str = ""
+    llamacpp_threads: int = Field(default=6, ge=1, le=64)
+    llamacpp_parallel: int = Field(default=1, ge=1, le=4)
+    llamacpp_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+
+    # Deprecated Ollama compatibility fields kept temporarily so older status/
+    # config consumers do not crash during the v0.6.x migration. Inference no
+    # longer uses these when local_engine=llama_swap.
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
-    ollama_backup_model: str = "qwen3.5:4b"
+    ollama_model: str = "qwen3.5:4b"
+    ollama_backup_model: str = ""
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
@@ -48,26 +69,16 @@ class Settings(BaseSettings):
     device_vid: int = 0x303A
     device_pid: int = 0x1001
 
-    # MAZ Core: factual PC/project context and safe allow-listed actions.
     core_enabled: bool = True
     project_roots: str = ""
     obsidian_root: str = ""
     cardputer_url: str = "http://mazpocket.local"
     web_origins: str = "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 
-    # Optional GitHub command bridge. When enabled, MAZ Core watches a private
-    # repo for issues titled `[MAZ CORE] ...`, executes only its allow-list and
-    # writes evidence back as a comment. It can reuse `gh auth token` locally.
     bridge_enabled: bool = False
     bridge_repo: str = "manazoid4/maz-pocket"
     github_token: str = ""
     bridge_poll_seconds: int = Field(default=15, ge=5, le=300)
-
-    @model_validator(mode="after")
-    def migrate_legacy_shipped_defaults(self):
-        if self.ollama_model == "gemma3:1b":
-            self.ollama_model = "lfm2.5-8b-a1b-gpu:latest"
-        return self
 
     @property
     def token_configured(self) -> bool:
