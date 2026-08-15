@@ -1,8 +1,11 @@
 name: MAZ Pocket build
 
 on:
+  # Feature/fix branches are validated by their pull_request run only. Running
+  # both push + PR for the same head made the shared concurrency group cancel
+  # duplicate jobs against each other. Main/release pushes still build directly.
   push:
-    branches: [main, "release/**", "agent/**", "fix/**"]
+    branches: [main, "release/**"]
   pull_request:
   workflow_dispatch:
 
