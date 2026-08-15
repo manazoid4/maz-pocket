@@ -1,80 +1,38 @@
-# MAZ Core v0.6
+# MAZ Core v0.6.4 — recovery build
 
-MAZ Core is the Windows companion for MAZ Pocket. The Cardputer stays a fast physical interface; Core owns speech-to-text, Ollama, factual project/PC context, safe project jobs, deterministic PC controls and Agent Nudge access.
+Core-only compatibility update for MAZ Pocket firmware v0.6. **No Cardputer reflash is required.**
 
-## Recommended install
+## What changed
 
-The normal v0.6 release path is **`START-HERE.cmd`** from `MAZ-Pocket-v0.6-Install.zip`. It installs/updates Core under:
+- One obvious installer identity: `v0.6.4 / MAZCORE-064-RECOVERY-20260815C`.
+- No `winget` dependency for local inference.
+- Pinned, SHA-256 verified llama.cpp **Vulkan and CPU** runtimes live under `%LOCALAPPDATA%\MAZ Core\runtime`.
+- Pinned llama-swap v250 supervises model processes on `127.0.0.1:8790`.
+- Reuses existing Ollama GGUF files without deleting or modifying Ollama.
+- Primary preference: Qwen3.5 4B. Stable fallback: Qwen3 4B.
+- Installer proves CPU parsing/inference first, then GPU inference, then llama-swap, then MAZ Core, then a real MAZ Core chat turn.
+- GPU failure is not fatal if a proven CPU route exists.
+- Model failure is not fatal if the proven backup model works.
+- Independent post-install self-test validates runtime identity, models, supervisor, Core, startup and LAN-firewall readiness.
+- Sanitized failure report is written to the Desktop; secrets are not included.
 
-```text
-%LOCALAPPDATA%\MAZ Core
-```
+## Runtime topology
 
-and preserves the existing `.env` across upgrades.
+`MAZ Pocket -> MAZ Core :8787 -> llama-swap :8790 -> tested llama.cpp backend -> tested local GGUF`
 
-Inside the Core package, `INSTALL-MAZ-CORE.cmd` / `install-core.ps1` remain available as focused fallbacks.
+Only MAZ Core is LAN-facing. llama-swap and llama.cpp remain loopback-only.
 
-The installer creates the Python environment/token, selects installed local Ollama models, enables local routing, discovers normal Desktop/Projects roots, adds start-at-login, starts Core immediately, enables the private GitHub bridge when `gh` is already authenticated and attempts private Tailscale Serve when Tailscale is installed.
+## Resource policy
 
-It prints the LAN address + pairing token for MAZ Pocket. Keep port 8787 on a trusted private network; do not raw-port-forward it to the internet.
+- one inference request per model at a time;
+- 8K target context when the primary GPU path proves healthy;
+- 4K safe fallback context;
+- actual fitted context is read back from llama.cpp rather than assumed;
+- 5-minute idle unload via llama-swap;
+- no giant 262K context allocation;
+- no arbitrary shell endpoint;
+- LOCAL route never spills to cloud.
 
-## v0.6 Core-only USB pairing
+## If it fails
 
-With v0.6 already installed on a USB-connected Cardputer, `pair.ps1` sends only Core address/port/token using `MAZCOREPAIR`. It **does not ask for or overwrite Wi-Fi credentials**.
-
-The older full `MAZPAIR` protocol remains in firmware for explicit first-time Wi-Fi provisioning/backward compatibility.
-
-## Factual tools
-
-Core discovers configured projects and exposes only bounded operations:
-
-- project/repo/branch/dirty/recent-commit status;
-- bounded project + optional Obsidian text search;
-- non-secret file reads inside configured project roots;
-- `git status`, `git fetch`, `git pull --ff-only`;
-- detected tests/builds for PlatformIO, Node, Python, Rust or Go projects;
-- open project folder on the PC;
-- Cardputer status + live LCD proxy.
-
-Build/test operations are available as background jobs. There is **no generic shell endpoint**.
-
-## ChatGPT / AI bridge
-
-When enabled, Core polls the configured private GitHub repo for issues titled `[MAZ CORE] ...`. The issue body is JSON and can request only the same Core allow-list. Core writes evidence back as a private issue comment and closes the request. Unknown commands are rejected.
-
-Authentication comes from `MAZ_GITHUB_TOKEN` when deliberately configured, otherwise from the locally authenticated GitHub CLI (`gh auth token`).
-
-## Hidden Maz Works console
-
-Maz Works contains unlinked/noindex browser clients at `/maz-core` and `/maz-pocket-ai`; it does not contain your Core URL or token. Supply private endpoint/token values in your own browser.
-
-## Local AI failover
-
-v0.6 supports:
-
-```text
-MAZ_OLLAMA_MODEL=<primary installed model>
-MAZ_OLLAMA_BACKUP_MODEL=<second installed model>
-MAZ_LOCAL_MODEL_POLICY=auto
-MAZ_DEFAULT_ROUTE=local
-```
-
-Routing rules:
-
-- **LOCAL:** primary -> backup -> clear local failure; never cloud.
-- **AUTO:** primary -> backup -> configured cloud only after both local attempts fail.
-- **CLOUD:** configured cloud directly.
-
-`install-core.ps1` preserves working configured models and selects real installed alternatives when needed.
-
-The model is deliberately not the source of truth for local state. Every normal conversation gets compact MAZ Core evidence; Agent Nudge evidence is added for agent questions. If evidence is missing, the model should state that it cannot verify the fact rather than inventing it.
-
-## Serial acceptance
-
-The bounded USB monitor remains opt-in for firmware acceptance:
-
-- `POST /device/monitor/start`
-- `GET /device` / `GET /device/logs`
-- `POST /device/monitor/stop`
-
-Stop serial monitoring before M5Launcher installs so it cannot occupy the COM port.
+Run `DIAGNOSE.cmd` or share `Desktop\MAZ-Core-FAILED.txt`. The report contains versions, failing stage and log tails but deliberately omits `.env` and the MAZ token.
