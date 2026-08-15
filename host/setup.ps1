@@ -1,41 +1,64 @@
 $ErrorActionPreference = "Stop"
 $HostRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Python = Join-Path $HostRoot ".venv\Scripts\python.exe"
-$VersionPath = Join-Path $HostRoot "VERSION"
-if (-not (Test-Path $VersionPath)) { $VersionPath = Join-Path (Split-Path -Parent $HostRoot) "VERSION" }
-$Version = if (Test-Path $VersionPath) { (Get-Content $VersionPath -Raw).Trim() } else { "dev" }
+$Venv = Join-Path $HostRoot ".venv"
+$Python = Join-Path $Venv "Scripts\python.exe"
+$Version = (Get-Content (Join-Path $HostRoot "CORE_VERSION") -Raw).Trim()
 
-if (-not (Test-Path $Python)) {
+function Invoke-NativeLive([string]$Exe, [string[]]$Args) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $captured = @(& $Exe @Args 2>&1)
+        $code = $LASTEXITCODE
+        foreach ($line in $captured) { Write-Host ([string]$line) }
+        return [int]$code
+    } finally {
+        $ErrorActionPreference = $old
+    }
+}
+
+function New-MazVenv {
+    Remove-Item $Venv -Recurse -Force -ErrorAction SilentlyContinue
     $Py = Get-Command py -ErrorAction SilentlyContinue
     $PythonCmd = Get-Command python -ErrorAction SilentlyContinue
     if ($Py) {
-        & py -3 -m venv (Join-Path $HostRoot ".venv")
+        $code = Invoke-NativeLive $Py.Source @("-3","-m","venv",$Venv)
     } elseif ($PythonCmd) {
-        & python -m venv (Join-Path $HostRoot ".venv")
+        $code = Invoke-NativeLive $PythonCmd.Source @("-m","venv",$Venv)
     } else {
-        throw "Python 3 is required for MAZ Core. Install Python 3.11+ once, then double-click START-HERE.cmd again."
+        throw "Python 3.11+ is required. Install Python once and run INSTALL.cmd again."
     }
+    if ($code -ne 0 -or -not (Test-Path $Python)) { throw "Could not create the MAZ Core Python virtual environment." }
 }
-& $Python -m pip install --disable-pip-version-check -r (Join-Path $HostRoot "requirements.txt")
+
+if (-not (Test-Path $Python)) { New-MazVenv }
+
+# Reject a stale venv created by an unsupported Python and rebuild once.
+$code = Invoke-NativeLive $Python @("-c","import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 3)")
+if ($code -ne 0) { New-MazVenv }
+
+function Install-And-SmokeTest {
+    $pip = Invoke-NativeLive $Python @("-m","pip","install","--disable-pip-version-check","--quiet","-r",(Join-Path $HostRoot "requirements.txt"))
+    if ($pip -ne 0) { return $false }
+    $smoke = Invoke-NativeLive $Python @("-c","import fastapi,uvicorn,httpx,serial,faster_whisper; import mazhost.config,mazhost.llm,mazhost.app")
+    return ($smoke -eq 0)
+}
+
+if (-not (Install-And-SmokeTest)) {
+    Write-Host "[WARN] Existing Python environment was unhealthy; rebuilding it once." -ForegroundColor Yellow
+    New-MazVenv
+    if (-not (Install-And-SmokeTest)) { throw "MAZ Core Python environment could not pass dependency/import verification after a clean rebuild." }
+}
 
 $EnvPath = Join-Path $HostRoot ".env"
 if (-not (Test-Path $EnvPath)) {
     $Template = Get-Content (Join-Path $HostRoot ".env.example") -Raw
-    $Token = & $Python -c "import secrets; print(secrets.token_urlsafe(12))"
-    $Template.Replace("change-me-before-first-run", $Token) | Set-Content $EnvPath -NoNewline
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $Token = & $Python -c "import secrets; print(secrets.token_urlsafe(18))"; $code=$LASTEXITCODE }
+    finally { $ErrorActionPreference=$old }
+    if ($code -ne 0 -or -not $Token) { throw "Could not generate MAZ pairing token." }
+    $Template.Replace("change-me-before-first-run", $Token) | Set-Content $EnvPath -NoNewline -Encoding utf8
 }
 
-$Address = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
-    $_.InterfaceAlias -eq "Wi-Fi" -and $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*"
-} | Select-Object -First 1 -ExpandProperty IPAddress
-if (-not $Address) {
-    $Address = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
-        $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and $_.PrefixOrigin -ne "WellKnown"
-    } | Select-Object -First 1 -ExpandProperty IPAddress
-}
-$ConfiguredToken = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
-Write-Host "MAZ Core v$Version base setup is ready."
-Write-Host "Cardputer pairing if needed:"
-Write-Host "  Address: ${Address}:8787"
-Write-Host "  Token:   $ConfiguredToken"
-Write-Host "Run install-core.ps1 for the full setup. With v0.6 open over USB, pair.ps1 updates Core details without asking for Wi-Fi credentials."
+Write-Host "[PASS] Python environment - MAZ Core v$Version" -ForegroundColor Green
