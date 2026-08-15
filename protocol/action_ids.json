@@ -1,0 +1,20 @@
+{
+  "pc": [
+    "desktop",
+    "play_pause",
+    "mute",
+    "volume_down",
+    "volume_up",
+    "previous_track",
+    "next_track",
+    "lock"
+  ],
+  "core": [
+    "git_status",
+    "git_fetch",
+    "git_pull_ff",
+    "tests",
+    "build",
+    "open_folder"
+  ]
+}
