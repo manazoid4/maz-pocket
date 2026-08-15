@@ -1,47 +1,54 @@
-"""Maz Pocket Updater — one small Windows surface for v0.3.
+"""Maz Pocket transition updater 0.3.2.
 
-USB uses M5Launcher's existing serial installer so it preserves the launcher and
-MAZ storage partition. Wi-Fi uses ArduinoOTA directly. Pairing and optional
-Tailscale Funnel provisioning live here as well, because setup should not
-require remembering separate scripts.
+One job only: safely replace the currently selected Maz Pocket OTA image while
+leaving M5Launcher, the partition table, NVS/settings, SD data, and sibling
+firmwares untouched.
+
+The updater reads the live partition table + otadata first, saves a full recovery
+copy of the active app slot, writes the new image in-place through the ESP32-S3
+ROM loader, verifies it byte-for-byte, then performs a boot acceptance check.
+A failed write/verification/boot check triggers an automatic restore when the
+USB device is still reachable.
 """
-
 from __future__ import annotations
 
 import hashlib
 import json
 import os
-import re
-import runpy
-import shutil
+from pathlib import Path
 import socket
-import subprocess
 import sys
 import tempfile
 import threading
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-from tkinter import END, BOTH, LEFT, RIGHT, X, Button, Entry, Frame, Label, StringVar, Text, Tk, filedialog, messagebox, simpledialog
+from tkinter import BOTH, END, X, Button, Label, StringVar, Text, Tk, messagebox
 from tkinter.ttk import Progressbar
 
+import esptool
 import serial
 from serial.tools import list_ports
 
-import esptool
+from flash_plan import (
+    PARTITION_TABLE_OFFSET,
+    PARTITION_TABLE_SIZE,
+    find_otadata_partition,
+    parse_partition_table,
+    selected_ota_partition,
+    sha256_bytes,
+    validate_firmware,
+)
 
-from ota import upload as ota_upload
-
-
-VERSION = "0.3.0"
+VERSION = "0.3.2"
+READY_VERSION = "0.3.0"
 VID = 0x303A
 PID = 0x1001
 CONTROL_PORT = 8022
-LAUNCHER_TOOL_URL = "https://raw.githubusercontent.com/bmorcelli/M5Stick-Launcher/2.8.0/tools/serial_flasher.py"
-LAUNCHER_TOOL_SHA256 = "9CFBA9AF762AC7D99488F23706320B30D0896C4993599990EC80AD06AB8F7536"
-BOOT_BANNER = "Press the button to enter the Launcher!"
-READY_BANNER = "MAZ Pocket 0.3.0 READY"
+BAUD = 921600
+
+
+class UpdateError(RuntimeError):
+    pass
 
 
 def resource_path(*parts: str) -> Path:
@@ -49,184 +56,157 @@ def resource_path(*parts: str) -> Path:
     return root.joinpath(*parts)
 
 
-def config_path() -> Path:
-    root = Path(os.environ.get("APPDATA", Path.home())) / "MazPocket"
+def firmware_path() -> Path:
+    bundled = resource_path("firmware", "maz-pocket-app.bin")
+    if bundled.is_file():
+        return bundled
+    local = Path(__file__).resolve().parents[1] / "dist" / "maz-pocket-app.bin"
+    if local.is_file():
+        return local
+    raise UpdateError("Bundled Maz Pocket firmware is missing")
+
+
+def recovery_dir() -> Path:
+    root = Path(os.environ.get("APPDATA", Path.home())) / "MazPocket" / "recovery"
     root.mkdir(parents=True, exist_ok=True)
-    return root / "updater.json"
+    return root
 
 
-def load_config() -> dict:
-    path = config_path()
-    if not path.exists():
-        return {}
+def matching_ports() -> list[str]:
+    return [
+        p.device for p in list_ports.comports()
+        if p.vid == VID and p.pid == PID
+    ]
+
+
+def find_usb_port(preferred: str | None = None, wait: float = 0.0) -> str:
+    deadline = time.time() + wait
+    while True:
+        ports = matching_ports()
+        if preferred and preferred in ports:
+            return preferred
+        if len(ports) == 1:
+            return ports[0]
+        if len(ports) > 1:
+            raise UpdateError(
+                "More than one ESP32-S3 device is connected. Leave only the Cardputer connected and retry."
+            )
+        if time.time() >= deadline:
+            raise UpdateError("Cardputer ADV not found. Connect its USB data cable and retry.")
+        time.sleep(0.35)
+
+
+def _esptool(args: list[str]) -> None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def save_config(data: dict) -> None:
-    config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-
-def token_from_env(path: Path) -> str:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    match = re.search(r"(?m)^MAZ_TOKEN=(.+)$", text)
-    if not match:
-        return ""
-    token = match.group(1).strip().strip('"').strip("'")
-    return "" if token == "change-me-before-first-run" else token
-
-
-def current_wifi_ssid() -> str:
-    try:
-        result = subprocess.run(
-            ["netsh", "wlan", "show", "interfaces"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    # Match SSID but not BSSID. Windows localises labels on some systems, so
-    # failure simply falls back to the normal text prompt.
-    match = re.search(r"(?m)^\s*SSID\s*:\s*(.+?)\s*$", result.stdout)
-    return match.group(1).strip() if match else ""
-
-
-def find_usb_port() -> str | None:
-    for port in list_ports.comports():
-        if port.vid == VID and port.pid == PID:
-            return port.device
-    return None
-
-
-def reset_device(port: str) -> None:
-    try:
-        esptool.main(["--port", port, "--after", "hard_reset", "run"])
+        esptool.main(args)
     except SystemExit as exc:
         if exc.code not in (None, 0):
-            raise RuntimeError(f"ESP reset failed ({exc.code})") from exc
+            raise UpdateError(f"ESP32 flasher exited with code {exc.code}") from exc
+    except Exception as exc:
+        raise UpdateError(str(exc)) from exc
 
 
-def read_until(device: serial.Serial, text: str, seconds: float) -> bool:
+def _base_args(port: str, after: str = "no_reset") -> list[str]:
+    # Cardputer ADV native USB drops when the esptool RAM stub takes ownership.
+    # --no-stub keeps the ROM transport stable on this exact hardware.
+    return [
+        "--chip", "esp32s3",
+        "--port", port,
+        "--baud", str(BAUD),
+        "--before", "default_reset",
+        "--after", after,
+        "--no-stub",
+    ]
+
+
+def run_with_port_retry(port: str, command: list[str], *, after: str = "no_reset") -> str:
+    last: Exception | None = None
+    current = port
+    for attempt in range(2):
+        try:
+            _esptool(_base_args(current, after) + command)
+            return current
+        except Exception as exc:
+            last = exc
+            if attempt == 0:
+                time.sleep(0.7)
+                current = find_usb_port(None, wait=4.0)
+                continue
+            break
+    raise UpdateError(str(last) if last else "ESP32 flasher failed")
+
+
+def read_flash(port: str, offset: int, size: int, path: Path) -> str:
+    path.unlink(missing_ok=True)
+    used = run_with_port_retry(
+        port,
+        ["read_flash", hex(offset), hex(size), str(path)],
+    )
+    if not path.is_file() or path.stat().st_size != size:
+        raise UpdateError(
+            f"Flash read verification failed at 0x{offset:x}: expected {size:,} bytes"
+        )
+    return used
+
+
+def write_flash(port: str, offset: int, path: Path) -> str:
+    if not path.is_file() or path.stat().st_size == 0:
+        raise UpdateError("Refusing to flash an empty file")
+    return run_with_port_retry(
+        port,
+        ["write_flash", hex(offset), str(path)],
+    )
+
+
+def reset_to_app(port: str) -> str:
+    return run_with_port_retry(port, ["run"], after="hard_reset")
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def serial_acceptance(preferred: str, seconds: float = 12.0) -> tuple[bool, str]:
     deadline = time.time() + seconds
     while time.time() < deadline:
-        line = device.readline().decode(errors="replace").strip()
-        if text in line:
-            return True
-    return False
+        ports = matching_ports()
+        ports.sort(key=lambda p: (p != preferred, p))
+        for port in ports:
+            try:
+                with serial.Serial(port, 115200, timeout=0.35) as device:
+                    time.sleep(0.25)
+                    device.reset_input_buffer()
+                    device.write(b"MAZPING\n")
+                    device.flush()
+                    until = time.time() + 1.2
+                    while time.time() < until:
+                        line = device.readline().decode(errors="replace").strip()
+                        if f"MAZPING OK version={READY_VERSION}" in line:
+                            return True, port
+                        if f"MAZ Pocket {READY_VERSION} READY" in line:
+                            return True, port
+            except (serial.SerialException, OSError):
+                pass
+        time.sleep(0.45)
+    return False, preferred
 
 
-def launcher_handoff(port: str) -> None:
-    try:
-        with serial.Serial(port, 115200, timeout=0.2) as device:
-            read_until(device, "MAZ Pocket", 4)
-            device.write(b"MAZLAUNCHER\n")
-            device.flush()
-            if read_until(device, "MAZLAUNCHER OK", 4):
-                time.sleep(2)
-    except (serial.SerialException, OSError):
-        pass
-
-
-def launcher_prepare(port: str) -> None:
-    reset_device(port)
-    with serial.Serial(port, 115200, timeout=0.2) as device:
-        if not read_until(device, BOOT_BANNER, 15):
-            raise RuntimeError("M5Launcher boot banner not found. Open Launcher once, then retry.")
-        device.write(b"nav SelPress\n")
-        device.flush()
-        time.sleep(0.3)
-        device.write(b"partition delete mazpoc\n")
-        device.flush()
-        time.sleep(0.5)
-        device.write(b"partitions\n")
-        device.flush()
-
-        output: list[str] = []
-        deadline = time.time() + 7
-        while time.time() < deadline:
-            line = device.readline().decode(errors="replace").strip()
-            if line:
-                output.append(line)
-            if "Total free:" in line:
-                break
-        if any(line.startswith("mazdata ") for line in output):
-            return
-
-        device.write(b"partition create data littlefs mazdata 0x200000\n")
-        device.flush()
-        deadline = time.time() + 10
-        while time.time() < deadline:
-            line = device.readline().decode(errors="replace").strip()
-            if line.startswith("OK partition created") or line.startswith("ERR Duplicate partition label"):
-                return
-            if line.startswith("ERR"):
-                raise RuntimeError(line)
-        raise RuntimeError("M5Launcher did not create MAZ storage")
-
-
-def cached_launcher_flasher() -> Path:
-    target = Path(tempfile.gettempdir()) / "maz-pocket-launcher-2.8.0" / "serial_flasher.py"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.exists() or hashlib.sha256(target.read_bytes()).hexdigest().upper() != LAUNCHER_TOOL_SHA256:
-        urllib.request.urlretrieve(LAUNCHER_TOOL_URL, target)
-    actual = hashlib.sha256(target.read_bytes()).hexdigest().upper()
-    if actual != LAUNCHER_TOOL_SHA256:
-        target.unlink(missing_ok=True)
-        raise RuntimeError("M5Launcher helper failed checksum verification")
-    return target
-
-
-def launcher_flash(port: str, firmware: Path) -> None:
-    helper = cached_launcher_flasher()
-    old_argv = sys.argv[:]
-    try:
-        sys.argv = [str(helper), "-f", str(firmware), "-p", port, "-n", "MAZ-Pocket"]
-        try:
-            runpy.run_path(str(helper), run_name="__main__")
-        except SystemExit as exc:
-            if exc.code not in (None, 0):
-                raise RuntimeError(f"M5Launcher installer exited with {exc.code}") from exc
-    finally:
-        sys.argv = old_argv
-
-
-def verify_usb(port: str) -> None:
-    reset_device(port)
-    with serial.Serial(port, 115200, timeout=0.2) as device:
-        if not read_until(device, READY_BANNER, 18):
-            raise RuntimeError("v0.3 READY banner was not observed after flash")
-
-
-def usb_command(port: str, command: str, prefix: str, timeout: float = 15) -> str:
-    with serial.Serial(port, 115200, timeout=0.25) as device:
-        time.sleep(0.35)
-        device.reset_input_buffer()
-        device.write((command + "\n").encode())
-        device.flush()
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            line = device.readline().decode(errors="replace").strip()
-            if line.startswith(prefix):
-                return line
-    raise RuntimeError(f"No {prefix} response from Cardputer")
-
-
-def local_ip() -> str:
+def local_ip() -> str | None:
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         probe.connect(("1.1.1.1", 80))
         return probe.getsockname()[0]
+    except OSError:
+        return None
     finally:
         probe.close()
 
 
-def ping_control(ip: str, timeout: float = 0.12) -> str | None:
+def ping_v03(ip: str, timeout: float = 0.15) -> bool:
     try:
         with socket.create_connection((ip, CONTROL_PORT), timeout=timeout) as sock:
             sock.settimeout(timeout)
@@ -235,308 +215,238 @@ def ping_control(ip: str, timeout: float = 0.12) -> str | None:
             except socket.timeout:
                 pass
             sock.sendall(b"MAZPING\n")
-            data = sock.recv(256).decode(errors="replace").strip()
-            return data if data.startswith("MAZPING OK") else None
+            data = sock.recv(256).decode(errors="replace")
+            return f"MAZPING OK version={READY_VERSION}" in data
     except OSError:
-        return None
+        return False
 
 
-def discover_lan(progress=None) -> tuple[str, str] | None:
+def lan_acceptance(seconds: float = 8.0) -> bool:
     mine = local_ip()
+    if not mine or "." not in mine:
+        return False
     prefix = mine.rsplit(".", 1)[0]
-    candidates = [f"{prefix}.{i}" for i in range(1, 255) if f"{prefix}.{i}" != mine]
-    with ThreadPoolExecutor(max_workers=64) as pool:
-        futures = {pool.submit(ping_control, ip): ip for ip in candidates}
-        done = 0
-        for future in as_completed(futures):
-            done += 1
-            if progress and done % 30 == 0:
-                progress(done / len(candidates), "Looking for Maz Pocket on Wi-Fi")
-            result = future.result()
-            if result:
-                return futures[future], result
-    return None
-
-
-def control_command(ip: str, token: str, command: str) -> str:
-    with socket.create_connection((ip, CONTROL_PORT), timeout=3) as sock:
-        stream = sock.makefile("rwb", buffering=0)
-        stream.readline()
-        stream.write(f"MAZAUTH\t{token}\n".encode())
-        auth = stream.readline().decode(errors="replace").strip()
-        if auth != "MAZAUTH OK":
-            raise RuntimeError("Cardputer control token was rejected")
-        stream.write((command + "\n").encode())
-        return stream.readline().decode(errors="replace").strip()
-
-
-def tailscale_path() -> str | None:
-    found = shutil.which("tailscale") or shutil.which("tailscale.exe")
-    if found:
-        return found
-    candidate = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tailscale" / "tailscale.exe"
-    return str(candidate) if candidate.exists() else None
-
-
-def enable_funnel() -> str:
-    tailscale = tailscale_path()
-    if not tailscale:
-        raise RuntimeError("Tailscale is not installed. Install/sign in to Tailscale, then retry.")
-    result = subprocess.run(
-        [tailscale, "funnel", "--bg", "8787"], capture_output=True, text=True, timeout=20
-    )
-    text = (result.stdout or "") + "\n" + (result.stderr or "")
-    if result.returncode != 0:
-        raise RuntimeError(text.strip() or "Tailscale Funnel failed")
-    match = re.search(r"https://[a-zA-Z0-9.-]+\.ts\.net(?::\d+)?", text)
-    if not match:
-        status = subprocess.run([tailscale, "funnel", "status"], capture_output=True, text=True, timeout=10)
-        text += "\n" + status.stdout + "\n" + status.stderr
-        match = re.search(r"https://[a-zA-Z0-9.-]+\.ts\.net(?::\d+)?", text)
-    if not match:
-        raise RuntimeError("Funnel started but its HTTPS address could not be detected")
-    return match.group(0).rstrip("/")
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        candidates = [f"{prefix}.{i}" for i in range(1, 255)]
+        with ThreadPoolExecutor(max_workers=48) as pool:
+            futures = [pool.submit(ping_v03, ip) for ip in candidates]
+            for future in as_completed(futures):
+                if future.result():
+                    return True
+        time.sleep(0.7)
+    return False
 
 
 class App:
     def __init__(self) -> None:
         self.root = Tk()
         self.root.title(f"Maz Pocket Updater {VERSION}")
-        self.root.geometry("600x430")
-        self.root.minsize(540, 390)
-        self.cfg = load_config()
-        self.device_ip = StringVar(value=self.cfg.get("device_ip", ""))
-        self.token = StringVar(value=self.cfg.get("token", ""))
-        self.status = StringVar(value="Ready")
+        self.root.geometry("590x420")
+        self.root.minsize(530, 390)
+        self.status = StringVar(value="Connect Cardputer by USB, then press UPDATE MAZ POCKET")
+        self.busy = False
 
-        Label(self.root, text="MAZ POCKET / UPDATE CONSOLE", font=("Consolas", 16, "bold")).pack(pady=(14, 4))
-        Label(self.root, text="USB install • Wi-Fi OTA • pairing • remote Call PC", font=("Consolas", 9)).pack()
+        Label(self.root, text="MAZ POCKET / SAFE UPDATE", font=("Consolas", 16, "bold")).pack(pady=(16, 4))
+        Label(
+            self.root,
+            text="v0.02 → v0.03 • automatic backup • verify • rollback",
+            font=("Consolas", 9),
+        ).pack()
 
-        device = Frame(self.root)
-        device.pack(fill=X, padx=16, pady=12)
-        Label(device, text="Device IP", width=10, anchor="w").pack(side=LEFT)
-        Entry(device, textvariable=self.device_ip).pack(side=LEFT, fill=X, expand=True, padx=(0, 8))
-        Button(device, text="FIND", command=lambda: self.run(self.discover)).pack(side=RIGHT)
-
-        token = Frame(self.root)
-        token.pack(fill=X, padx=16)
-        Label(token, text="Host token", width=10, anchor="w").pack(side=LEFT)
-        Entry(token, textvariable=self.token, show="•").pack(side=LEFT, fill=X, expand=True)
-
-        buttons = Frame(self.root)
-        buttons.pack(fill=X, padx=16, pady=14)
-        Button(buttons, text="USB UPDATE", height=2, command=lambda: self.run(self.usb_update)).pack(side=LEFT, fill=X, expand=True, padx=(0, 5))
-        Button(buttons, text="WI-FI UPDATE", height=2, command=self.begin_wifi_update).pack(side=LEFT, fill=X, expand=True, padx=5)
-        Button(buttons, text="PAIR", height=2, command=self.begin_pair).pack(side=LEFT, fill=X, expand=True, padx=5)
-        Button(buttons, text="REMOTE CALL", height=2, command=self.begin_remote_call).pack(side=LEFT, fill=X, expand=True, padx=(5, 0))
+        self.button = Button(
+            self.root,
+            text="UPDATE MAZ POCKET",
+            height=3,
+            font=("Consolas", 12, "bold"),
+            command=self.begin_update,
+        )
+        self.button.pack(fill=X, padx=18, pady=(18, 12))
 
         self.bar = Progressbar(self.root, maximum=100)
-        self.bar.pack(fill=X, padx=16)
-        Label(self.root, textvariable=self.status, anchor="w", font=("Consolas", 9)).pack(fill=X, padx=16, pady=(4, 5))
-        self.log = Text(self.root, height=10, font=("Consolas", 9), bg="#0b0d10", fg="#e6e9ec", insertbackground="white")
-        self.log.pack(fill=BOTH, expand=True, padx=16, pady=(0, 14))
-        self.write("v0.3 updater ready. USB is safest for first install; Wi-Fi is fastest after pairing.")
-
-    @property
-    def firmware(self) -> Path:
-        path = resource_path("firmware", "maz-pocket-app.bin")
-        if not path.exists():
-            candidate = Path(__file__).resolve().parents[1] / "dist" / "maz-pocket-app.bin"
-            if candidate.exists():
-                return candidate
-            raise RuntimeError("Bundled firmware image is missing")
-        return path
+        self.bar.pack(fill=X, padx=18)
+        Label(self.root, textvariable=self.status, anchor="w", font=("Consolas", 9)).pack(
+            fill=X, padx=18, pady=(5, 6)
+        )
+        self.log = Text(
+            self.root,
+            height=13,
+            font=("Consolas", 9),
+            bg="#0b0d10",
+            fg="#e6e9ec",
+            insertbackground="white",
+        )
+        self.log.pack(fill=BOTH, expand=True, padx=18, pady=(0, 16))
+        self.write("Updater 0.3.2 ready.")
+        self.write("No FIND, token, IP, or M5Launcher screen is required.")
 
     def write(self, line: str) -> None:
         self.root.after(0, lambda: (self.log.insert(END, line + "\n"), self.log.see(END)))
 
     def progress(self, value: float, text: str) -> None:
-        self.root.after(0, lambda: (self.bar.configure(value=max(0, min(100, value * 100))), self.status.set(text)))
-
-    def remember(self) -> None:
-        self.cfg["device_ip"] = self.device_ip.get().strip()
-        self.cfg["token"] = self.token.get().strip()
-        save_config(self.cfg)
-
-    def run(self, fn) -> None:
-        def worker():
-            try:
-                self.progress(0, "Working...")
-                fn()
-            except Exception as exc:
-                self.write(f"ERROR: {exc}")
-                self.progress(0, "Failed")
-                self.root.after(0, lambda: messagebox.showerror("Maz Pocket", str(exc)))
-            finally:
-                self.root.after(0, self.remember)
-        threading.Thread(target=worker, daemon=True).start()
-
-    def find_host_token(self) -> str:
-        existing = self.token.get().strip()
-        if existing:
-            return existing
-
-        remembered = self.cfg.get("host_env", "")
-        candidates = [
-            Path(remembered) if remembered else None,
-            Path.cwd() / "host" / ".env",
-            Path.cwd() / ".env",
-            Path(__file__).resolve().parents[1] / "host" / ".env",
-            Path.home() / "Desktop" / "maz-pocket" / "host" / ".env",
-            Path.home() / "Documents" / "GitHub" / "maz-pocket" / "host" / ".env",
-            Path.home() / "source" / "repos" / "maz-pocket" / "host" / ".env",
-        ]
-        for path in candidates:
-            if path and path.is_file():
-                token = token_from_env(path)
-                if token:
-                    self.cfg["host_env"] = str(path)
-                    self.token.set(token)
-                    self.write(f"Host token loaded from {path}")
-                    return token
-
-        selected = filedialog.askopenfilename(
-            parent=self.root,
-            title="Select Maz Pocket host/.env",
-            filetypes=[("MAZ Host environment", ".env"), ("All files", "*")],
+        self.root.after(
+            0,
+            lambda: (
+                self.bar.configure(value=max(0, min(100, value * 100))),
+                self.status.set(text),
+            ),
         )
-        if not selected:
-            return ""
-        path = Path(selected)
-        token = token_from_env(path)
-        if not token:
-            messagebox.showerror(
-                "Maz Pocket",
-                "That file has no configured MAZ_TOKEN. Run host\\setup.ps1 once, then pair again.",
-            )
-            return ""
-        self.cfg["host_env"] = str(path)
-        self.token.set(token)
-        self.write(f"Host token loaded from {path}")
-        return token
 
-    # Snapshot all Tk values and collect dialogs on the main thread. The worker
-    # then receives plain strings only; serial/network operations never touch Tk.
-    def begin_wifi_update(self) -> None:
-        ip = self.device_ip.get().strip()
-        token = self.find_host_token()
-        if not token:
+    def set_busy(self, busy: bool) -> None:
+        self.busy = busy
+        self.root.after(0, lambda: self.button.configure(state="disabled" if busy else "normal"))
+
+    def begin_update(self) -> None:
+        if self.busy:
             return
-        self.run(lambda: self.wifi_update(ip, token))
+        self.set_busy(True)
+        threading.Thread(target=self._worker, daemon=True).start()
 
-    def begin_pair(self) -> None:
-        port = find_usb_port()
-        if not port:
-            messagebox.showerror("Maz Pocket", "Pairing needs USB once so Wi-Fi credentials stay off an unauthenticated network")
-            return
-        token = self.find_host_token()
-        if not token:
-            return
-        suggested = current_wifi_ssid()
-        ssid = simpledialog.askstring(
-            "Pair Maz Pocket",
-            "2.4 GHz Wi-Fi name:",
-            initialvalue=suggested,
-            parent=self.root,
-        )
-        if not ssid:
-            return
-        password = simpledialog.askstring("Pair Maz Pocket", f"Password for {ssid}:", show="•", parent=self.root)
-        if password is None:
-            return
-        self.run(lambda: self.pair(port, ssid, password, token))
-
-    def begin_remote_call(self) -> None:
-        token = self.find_host_token()
-        ip = self.device_ip.get().strip()
-        if not token:
-            return
-        self.run(lambda: self.remote_call(token, ip))
-
-    def discover(self) -> None:
-        port = find_usb_port()
-        if port:
-            self.write(f"USB: {port}")
-            try:
-                line = usb_command(port, "MAZPING", "MAZPING", 5)
-                match = re.search(r"ip=([0-9.]+)", line)
-                if match and match.group(1) != "0.0.0.0":
-                    ip = match.group(1)
-                    self.root.after(0, lambda: self.device_ip.set(ip))
-                    self.progress(1, f"Found Maz Pocket at {ip}")
-                    return
-            except Exception:
-                pass
-        found = discover_lan(self.progress)
-        if not found:
-            raise RuntimeError("Maz Pocket was not found over USB or this Wi-Fi network")
-        ip, banner = found
-        self.root.after(0, lambda: self.device_ip.set(ip))
-        self.write(banner)
-        self.progress(1, f"Found Maz Pocket at {ip}")
-
-    def usb_update(self) -> None:
-        port = find_usb_port()
-        if not port:
-            raise RuntimeError("Cardputer ADV not found. Connect a USB data cable and tap RESET.")
-        self.write(f"USB update on {port}")
-        self.progress(0.05, "Handing back to M5Launcher")
-        launcher_handoff(port)
-        self.progress(0.15, "Preparing Launcher partition")
-        launcher_prepare(port)
-        self.progress(0.3, "Installing Maz Pocket v0.3")
-        launcher_flash(port, self.firmware)
-        self.progress(0.9, "Verifying boot")
-        verify_usb(port)
-        self.progress(1, "USB update complete")
-        self.write("USB UPDATE OK / v0.3 boot verified")
-
-    def wifi_update(self, ip: str, token: str) -> None:
-        if not ip:
-            found = discover_lan(self.progress)
-            if not found:
-                raise RuntimeError("Device IP is unknown; click FIND or connect USB")
-            ip = found[0]
-            self.root.after(0, lambda: self.device_ip.set(ip))
-        self.write(f"Wi-Fi OTA -> {ip}")
-        ota_upload(ip, token, self.firmware, self.progress)
-        self.write("WI-FI UPDATE OK / device rebooting")
-
-    def pair(self, port: str, ssid: str, password: str, token: str) -> None:
-        host_ip = local_ip()
-        command = f"MAZPAIR\t{ssid}\t{password}\t{host_ip}\t8787\t{token}"
-        reply = usb_command(port, command, "MAZPAIR", 20)
-        if not reply.startswith("MAZPAIR OK"):
-            raise RuntimeError(reply)
-        self.root.after(0, lambda: self.token.set(token))
-        self.write(reply)
-        time.sleep(1)
+    def _worker(self) -> None:
         try:
-            ping = usb_command(port, "MAZPING", "MAZPING", 5)
-            match = re.search(r"ip=([0-9.]+)", ping)
-            if match:
-                self.root.after(0, lambda: self.device_ip.set(match.group(1)))
-        except Exception:
-            pass
-        self.progress(1, f"Paired to MAZ Host at {host_ip}:8787")
+            self.safe_update()
+        except Exception as exc:
+            self.write(f"ERROR: {exc}")
+            self.progress(0, "Update stopped safely")
+            self.root.after(0, lambda: messagebox.showerror("Maz Pocket", str(exc)))
+        finally:
+            self.set_busy(False)
 
-    def remote_call(self, token: str, ip: str) -> None:
-        self.progress(0.15, "Starting Tailscale Funnel")
-        url = enable_funnel()
-        self.write(f"Remote Call PC: {url}")
-        command = f"MAZREMOTE\t{url}"
-        port = find_usb_port()
-        if port:
-            reply = usb_command(port, command, "MAZREMOTE", 8)
-        else:
-            if not ip:
-                raise RuntimeError("Connect USB or enter the Cardputer IP to provision remote access")
-            reply = control_command(ip, token, command)
-        if not reply.startswith("MAZREMOTE OK"):
-            raise RuntimeError(reply)
-        self.cfg["remote_url"] = url
-        self.progress(1, "Remote Call PC enabled")
-        self.write("REMOTE CALL OK / LAN remains preferred, HTTPS is fallback")
+    def _restore(self, port: str, target_offset: int, backup: Path, expected_sha: str) -> None:
+        self.write("Recovery: restoring the exact previous flash state...")
+        self.progress(0.62, "Automatic rollback")
+        port = find_usb_port(port, wait=5.0)
+        port = write_flash(port, target_offset, backup)
+        with tempfile.TemporaryDirectory(prefix="maz-restore-") as temp:
+            verify = Path(temp) / "restore-verify.bin"
+            port = read_flash(port, target_offset, backup.stat().st_size, verify)
+            if sha256_file(verify) != expected_sha:
+                raise UpdateError(
+                    "Automatic rollback could not be verified. Recovery backup is saved on this PC; do not erase the device."
+                )
+        reset_to_app(port)
+        self.write("Recovery OK: previous flash state restored and verified.")
+
+    def safe_update(self) -> None:
+        fw = firmware_path()
+        firmware = fw.read_bytes()
+        firmware_sha = sha256_bytes(firmware)
+
+        self.progress(0.02, "Finding Cardputer")
+        port = find_usb_port(wait=2.0)
+        self.write(f"Cardputer: {port}")
+        self.write(f"New firmware: {len(firmware):,} bytes / SHA256 {firmware_sha[:12]}...")
+
+        with tempfile.TemporaryDirectory(prefix="maz-pocket-update-") as temp_name:
+            temp = Path(temp_name)
+
+            self.progress(0.07, "Reading live partition map")
+            pt_path = temp / "partitions.bin"
+            port = read_flash(port, PARTITION_TABLE_OFFSET, PARTITION_TABLE_SIZE, pt_path)
+            parts = parse_partition_table(pt_path.read_bytes())
+
+            otapart = find_otadata_partition(parts)
+            ota_path = temp / "otadata.bin"
+            self.progress(0.12, "Finding the active Maz slot")
+            port = read_flash(port, otapart.offset, otapart.size, ota_path)
+            target = selected_ota_partition(parts, ota_path.read_bytes())
+            validate_firmware(firmware, target)
+            self.write(
+                f"Selected app: {target.label or '<unnamed>'} @ 0x{target.offset:x} / {target.size:,} bytes"
+            )
+            self.write("Safety: partition table, NVS, Launcher and sibling apps will not be written.")
+
+            self.progress(0.20, "Backing up previous flash state")
+            backup_tmp = temp / "previous-slot.bin"
+            port = read_flash(port, target.offset, target.size, backup_tmp)
+            old_sha = sha256_file(backup_tmp)
+            old_bytes = backup_tmp.read_bytes()
+            label_is_maz = "maz" in target.label.lower()
+            image_is_maz = b"maz pocket" in old_bytes.lower() or b"maz-pocket" in old_bytes.lower()
+            if not label_is_maz and not image_is_maz:
+                raise UpdateError(
+                    f"Selected OTA slot '{target.label or '<unnamed>'}' does not look like Maz Pocket; nothing was erased"
+                )
+            if not old_bytes.startswith(b"\xE9"):
+                self.write(
+                    "Note: the previous updater already invalidated the Maz slot; "
+                    "its exact pre-update state is still backed up for rollback."
+                )
+
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            saved = recovery_dir() / f"maz-pocket-before-v03-{stamp}-0x{target.offset:x}.bin"
+            saved.write_bytes(old_bytes)
+            if sha256_file(saved) != old_sha:
+                raise UpdateError("Recovery backup did not verify on disk; nothing was erased")
+            meta = saved.with_suffix(".json")
+            meta.write_text(
+                json.dumps(
+                    {
+                        "created": stamp,
+                        "port": port,
+                        "partition_label": target.label,
+                        "partition_offset": target.offset,
+                        "partition_size": target.size,
+                        "backup_sha256": old_sha,
+                        "new_firmware_sha256": firmware_sha,
+                        "new_firmware_size": len(firmware),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            self.write(f"Recovery backup verified: {saved.name}")
+
+            wrote_new = False
+            try:
+                self.progress(0.43, "Writing Maz Pocket v0.03")
+                port = write_flash(port, target.offset, fw)
+                wrote_new = True
+
+                self.progress(0.68, "Verifying flash byte-for-byte")
+                verify_new = temp / "new-verify.bin"
+                port = read_flash(port, target.offset, len(firmware), verify_new)
+                actual_sha = sha256_file(verify_new)
+                if actual_sha != firmware_sha:
+                    raise UpdateError(
+                        f"Flash SHA mismatch ({actual_sha[:12]} != {firmware_sha[:12]})"
+                    )
+                self.write("Flash verify OK / exact SHA256 match")
+
+                self.progress(0.82, "Booting v0.03")
+                port = reset_to_app(port)
+
+                self.progress(0.87, "Checking v0.03 started correctly")
+                serial_ok, accepted_port = serial_acceptance(port, 12.0)
+                network_ok = False if serial_ok else lan_acceptance(6.0)
+                if not serial_ok and not network_ok:
+                    raise UpdateError("v0.03 did not pass its boot acceptance check")
+                port = accepted_port
+
+                self.progress(1.0, "Maz Pocket v0.03 ready")
+                self.write(
+                    "BOOT CHECK OK / " + ("USB" if serial_ok else "Wi-Fi") + " confirmed v0.03"
+                )
+                self.write("UPDATE COMPLETE / Wi-Fi and settings were preserved")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Maz Pocket",
+                        "Maz Pocket v0.03 is installed and verified.\n\nFuture updates can use mazpocket.local when the dashboard reports Browser OTA SAFE.",
+                    ),
+                )
+            except Exception as failure:
+                if wrote_new:
+                    try:
+                        self._restore(port, target.offset, saved, old_sha)
+                    except Exception as restore_error:
+                        raise UpdateError(
+                            f"Update failed: {failure}\n\nRollback also needs attention: {restore_error}\n\nRecovery backup: {saved}"
+                        ) from restore_error
+                    raise UpdateError(
+                        f"Update failed its verification/boot check, so the exact previous flash state was restored automatically.\n\nReason: {failure}"
+                    ) from failure
+                raise
 
     def mainloop(self) -> None:
         self.root.mainloop()
