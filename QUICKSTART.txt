@@ -9,21 +9,32 @@ INSTALL
 
 IMPORTANT
 - This is an app-only M5Launcher image. Do NOT flash it at address 0x0 as a full-device image.
-- The 64 GB SD card can hold lots of firmware files/data, but installed apps still use the Cardputer ADV's 8 MB internal flash.
+- The SD card can hold lots of firmware/data, but installed apps still use the Cardputer ADV's 8 MB internal flash.
 - Keep extra .bin files on SD and swap installed firmware when internal flash is tight.
 - Generic ArduinoOTA is intentionally disabled because Launcher may contain several unrelated app partitions.
 
 FIRST WI-FI SETUP
-- Open DESK > CONNECTIONS.
+- Open DESK > Connections.
 - Press S to scan.
 - Pick your Wi-Fi and enter the password.
 - MAZ Pocket saves it and automatically reconnects on later boots.
-- A second saved network is supported by the networking layer.
 - If Wi-Fi drops, MAZ Pocket retries automatically with bounded backoff.
+- A backup/second Wi-Fi can be saved later from mazpocket.local.
 
-WHEN CONNECTED
-- Open http://mazpocket.local from a phone/PC on the same network.
-- Use it for status, diagnostics, MAZ Host configuration, speaker/mic/storage checks and Launcher hand-back.
+WEB DASHBOARD
+- Put the Cardputer and phone/PC on the same Wi-Fi.
+- Open: http://mazpocket.local
+- If .local discovery fails, use the IP shown in DESK > Connections.
+- Status is read-only by default. Enter the MAZ Host pairing token to unlock controls.
+- The dashboard can open COMM/CAPTURE/OPS/DESK/RECALL/FLOW on the device, control PC media/desktop/lock, test host/storage/speaker, force Wi-Fi reconnect, edit MAZ Host/route/TTS/backup Wi-Fi, reboot and return to M5Launcher.
+
+LOCAL AI
+- Preferred Ollama model: lfm2.5-8b-a1b-gpu:latest
+- MAZ Host v0.4 defaults to LOCAL routing and this exact model.
+- If you already have host/.env from an older version, set:
+  MAZ_OLLAMA_MODEL=lfm2.5-8b-a1b-gpu:latest
+  MAZ_DEFAULT_ROUTE=local
+- v0.4 gives the model a verified MAZ Pocket capability map and low-temperature generation to reduce generic/hallucinated app answers.
 
 HOME
 COMM     voice conversation + PC controls
@@ -39,4 +50,4 @@ FAST KEYS
 - Ctrl+L: guarded return to M5Launcher
 
 VERSION NAMES
-Use v0.1 / v0.2 / v0.3 / v0.4. Older historical preview tags may still exist on GitHub only as recovery/history.
+Use v0.1 / v0.2 / v0.3 / v0.4. Older historical preview tags may remain on GitHub only as recovery/history.
