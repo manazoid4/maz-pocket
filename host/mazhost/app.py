@@ -29,7 +29,6 @@ from .security import Security
 from .sessions import SessionStore
 from .stt import SpeechToText
 from .tts import SpeechOut
-from .versioning import build_id, core_version
 
 
 class TextTurn(BaseModel):
@@ -91,7 +90,7 @@ def create_app(
 
     api = FastAPI(
         title="MAZ Core",
-        version=core_version(),
+        version="0.5.0",
         dependencies=[Depends(security.authorize)],
     )
     api.add_middleware(
@@ -184,8 +183,7 @@ def create_app(
         core_status = core_service.status() if cfg.core_enabled else {"ok": False, "disabled": True}
         return {
             "ok": True,
-            "version": core_version(),
-            "build_id": build_id(),
+            "version": "0.5.0",
             "stt": speech.available(),
             "llm": model_router.status(),
             "nudge": nudge_client.status(),
@@ -199,6 +197,7 @@ def create_app(
     def models_status():
         return {**model_router.status(), "default_route": cfg.default_route}
 
+    # ------------------------------------------------------------- MAZ Core
     @api.get("/core/status")
     def core_status():
         return core_service.status()
@@ -228,6 +227,8 @@ def create_app(
         except CoreError as error:
             raise HTTPException(400, str(error)) from error
 
+    # Synchronous endpoint remains useful for machine callers/bridge. The
+    # handheld and Maz Works UI use /core/job so long builds never block them.
     @api.post("/core/action")
     def core_action(body: CoreActionRequest):
         try:
@@ -274,13 +275,14 @@ def create_app(
             },
         )
 
+    # ----------------------------------------------------------- device USB
     @api.get("/device")
     def device_status():
         return device_monitor.status()
 
     @api.get("/device/logs")
     def device_logs(limit: int = 100):
-        return {"lines": device_monitor.logs(max(1, min(limit, 500))}
+        return {"lines": device_monitor.logs(max(1, min(limit, 500)))}
 
     @api.post("/device/monitor/start")
     def device_monitor_start():
@@ -290,6 +292,7 @@ def create_app(
     def device_monitor_stop():
         return device_monitor.stop()
 
+    # ------------------------------------------------------------- sessions
     @api.post("/session/start")
     def session_start():
         return {"session_id": sessions.start()}
@@ -302,6 +305,7 @@ def create_app(
     def turn_text(turn: TextTurn):
         return answer(turn.session_id, turn.text, turn.route)
 
+    # ----------------------------------------------------------- PC control
     @api.post("/pc/action")
     def pc_action(body: PCActionRequest):
         try:
@@ -315,6 +319,7 @@ def create_app(
             "provider": "pc-local",
         }
 
+    # --------------------------------------------------------------- speech
     @api.post("/speak")
     def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
         try:
@@ -400,6 +405,7 @@ def create_app(
         finally:
             path.unlink(missing_ok=True)
 
+    # ---------------------------------------------------------- extraction
     @api.post("/extract")
     def extract(body: ExtractRequest):
         prompt = EXTRACT_PROMPTS[body.kind]
@@ -421,8 +427,40 @@ def create_app(
         highlights: Annotated[str, Form()] = "[]",
     ):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
+            data = await audio.read(cfg.max_upload_mb * 1024 * 1024 + 1)
+            target.write(data)
+            path = Path(target.name)
+        try:
+            security.validate_upload(path, len(data))
+            transcript = speech.transcribe(path)
+            marks = json.loads(highlights)
+            prompt = EXTRACT_PROMPTS["braindump"] + f" Highlights: {marks}. Return JSON only."
+            reply, provider = model_router.chat(
+                [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
+                cfg.default_route,
+            )
+            structured, fallback = structure_braindump(reply, transcript)
+            if fallback:
+                provider += "+deterministic"
+            return {
+                "transcript": transcript,
+                "provider": provider,
+                **structured,
+                "highlights": marks,
+            }
+        except (json.JSONDecodeError, RuntimeError) as error:
+            raise HTTPException(503, f"processing_failed: {error}") from error
+        finally:
+            path.unlink(missing_ok=True)
+
+    @api.post("/braindump/raw")
+    async def braindump_raw(
+        request: Request,
+        x_maz_highlights: Annotated[str, Header()] = "[]",
+    ):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
-            while chunk := await audio.read(64 * 1024):
+            async for chunk in request.stream():
                 size += len(chunk)
                 if size > cfg.max_upload_mb * 1024 * 1024:
                     Path(target.name).unlink(missing_ok=True)
@@ -431,10 +469,48 @@ def create_app(
             path = Path(target.name)
         try:
             security.validate_upload(path, size)
-            text = speech.transcribe(path)
-            return structure_braindump(text, highlights, model_router, cfg.default_route)
+            transcript = speech.transcribe(path)
+            marks = json.loads(x_maz_highlights)
+            prompt = EXTRACT_PROMPTS["braindump"] + f" Highlights: {marks}. Return JSON only."
+            reply, provider = model_router.chat(
+                [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
+                cfg.default_route,
+            )
+            structured, fallback = structure_braindump(reply, transcript)
+            if fallback:
+                provider += "+deterministic"
+            return {
+                "transcript": transcript,
+                "provider": provider,
+                **structured,
+                "highlights": marks,
+            }
+        except (json.JSONDecodeError, RuntimeError) as error:
+            raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
             path.unlink(missing_ok=True)
+
+    # ----------------------------------------------------------- Agent Nudge
+    @api.get("/nudge")
+    def nudge_summary():
+        try:
+            return nudge_client.summary()
+        except (RuntimeError, httpx.HTTPError) as error:
+            raise HTTPException(503, str(error)) from error
+
+    @api.get("/nudge/{session_id}")
+    def nudge_detail(session_id: str):
+        try:
+            return nudge_client.detail(session_id)
+        except (RuntimeError, httpx.HTTPError) as error:
+            raise HTTPException(503, str(error)) from error
+
+    @api.post("/nudge/{session_id}/nudge")
+    def send_nudge(session_id: str):
+        try:
+            return nudge_client.nudge(session_id)
+        except (RuntimeError, httpx.HTTPError) as error:
+            raise HTTPException(503, str(error)) from error
 
     return api
 
