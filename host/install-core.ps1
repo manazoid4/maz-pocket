@@ -1,8 +1,12 @@
+param(
+    [switch]$SkipModels
+)
+
 $ErrorActionPreference = "Stop"
 $HostRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EnvPath = Join-Path $HostRoot ".env"
 
-Write-Host "MAZ Core v0.5 - installing..."
+Write-Host "MAZ Core v0.5.1 - one-shot setup"
 & (Join-Path $HostRoot "setup.ps1")
 
 function Set-MazEnv([string]$Name, [string]$Value) {
@@ -28,11 +32,21 @@ Set-MazEnv "MAZ_PROJECT_ROOTS" ($Roots -join ";")
 
 $Obsidian = Join-Path $Desktop "Obsidian Main Vault"
 if (Test-Path $Obsidian) { Set-MazEnv "MAZ_OBSIDIAN_ROOT" $Obsidian }
+
+# Preserve the proven primary model and add a lower-VRAM local failover. AUTO
+# here refers to the local model chain; the Cardputer's LOCAL route never goes
+# to cloud. The Cardputer AUTO route may use cloud only if both locals fail.
 Set-MazEnv "MAZ_OLLAMA_MODEL" "lfm2.5-8b-a1b-gpu:latest"
+Set-MazEnv "MAZ_OLLAMA_BACKUP_MODEL" "maz-pocket-lite:latest"
+Set-MazEnv "MAZ_LOCAL_MODEL_POLICY" "auto"
 Set-MazEnv "MAZ_DEFAULT_ROUTE" "local"
 Set-MazEnv "MAZ_CARDPUTER_URL" "http://mazpocket.local"
 Set-MazEnv "MAZ_WEB_ORIGINS" "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 Set-MazEnv "MAZ_BRIDGE_REPO" "manazoid4/maz-pocket"
+
+if (-not $SkipModels) {
+    & (Join-Path $HostRoot "install-models.ps1")
+}
 
 $Bridge = $false
 $Gh = Get-Command gh -ErrorAction SilentlyContinue
@@ -50,11 +64,9 @@ $Shortcut = $Shell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "powershell.exe"
 $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $HostRoot 'run.ps1')`""
 $Shortcut.WorkingDirectory = $HostRoot
-$Shortcut.Description = "MAZ Core v0.5"
+$Shortcut.Description = "MAZ Core v0.5.1"
 $Shortcut.Save()
 
-# Open the LAN port automatically when the script is elevated. Otherwise the
-# normal Python/Windows firewall prompt can be accepted once.
 $Admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($Admin) {
     $existing = Get-NetFirewallRule -DisplayName "MAZ Core 8787" -ErrorAction SilentlyContinue
@@ -63,20 +75,15 @@ if ($Admin) {
     }
 }
 
-# Start Core now if it is not already listening.
 $Listening = Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue
 if (-not $Listening) {
     Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$(Join-Path $HostRoot 'run.ps1')`""
     Start-Sleep -Seconds 2
 }
 
-# Optional private HTTPS endpoint for the hidden Maz Works console. Tailscale
-# Serve stays tailnet-private; this script never writes the URL into the public site.
 $Tail = Get-Command tailscale -ErrorAction SilentlyContinue
 if ($Tail) {
-    try {
-        & tailscale serve --bg --yes 8787 *> $null
-    } catch { }
+    try { & tailscale serve --bg --yes 8787 *> $null } catch { }
 }
 
 $Address = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
@@ -85,9 +92,9 @@ $Address = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
 $Token = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
 
 Write-Host ""
-Write-Host "MAZ Core v0.5 READY"
+Write-Host "MAZ Core v0.5.1 READY"
 Write-Host "PC address: ${Address}:8787"
 Write-Host "Pair token: $Token"
+Write-Host "Local AI: LFM2.5 primary -> MAZ Pocket Lite backup"
 Write-Host "GitHub bridge: $(if ($Bridge) { 'ON' } else { 'OFF - sign into gh if you want ChatGPT -> PC commands' })"
-Write-Host "Cardputer: CONTROL > MAZ CORE, enter the address/token if not already paired."
-Write-Host "Hidden Maz Works console: enter your private Core/Tailscale URL there; it is never stored in the site source."
+Write-Host "Cardputer: CONTROL > MAZ CORE, enter the address/token once if not already paired."
