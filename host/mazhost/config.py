@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,9 +20,8 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute: str = "int8"
 
-    # v0.4 local-first brain. This exact Ollama tag is already present on the
-    # target workstation; keeping one canonical tag avoids silent fallback to
-    # tiny generic models that produced weak/hallucinated app answers.
+    # v0.4 local-first brain. This exact Ollama tag is present on the target
+    # workstation and is the canonical model for MAZ Pocket's local assistant.
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
 
@@ -45,6 +44,15 @@ class Settings(BaseSettings):
     device_baud: int = Field(default=115200, ge=1200, le=3_000_000)
     device_vid: int = 0x303A
     device_pid: int = 0x1001
+
+    @model_validator(mode="after")
+    def migrate_legacy_shipped_defaults(self):
+        # v0.3's generated .env shipped gemma3:1b. Upgrade only that known old
+        # default so existing installations do not silently keep the weak model.
+        # Any other explicit user-selected model remains respected.
+        if self.ollama_model == "gemma3:1b":
+            self.ollama_model = "lfm2.5-8b-a1b-gpu:latest"
+        return self
 
     @property
     def token_configured(self) -> bool:
