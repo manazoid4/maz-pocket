@@ -27,7 +27,9 @@ void sample(bool force) {
     Sys.freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
     Sys.minFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
     Sys.largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-    Sys.mainStackHighWater = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr)) * sizeof(StackType_t);
+    // ESP-IDF's FreeRTOS port reports the high-water mark in bytes (unlike
+    // vanilla FreeRTOS), so do not multiply by sizeof(StackType_t).
+    Sys.mainStackHighWater = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
     Sys.loopMaxMs = gLoopMaxMs;
     gLoopMaxMs = 0;
 
