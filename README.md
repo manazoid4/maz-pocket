@@ -25,26 +25,30 @@ http://mazpocket.local
 ```
 
 This page is served **by the Cardputer itself** using mDNS; it is not a public
-Internet control panel. The first useful control-plane cut includes:
+Internet control panel. v0.03 deliberately keeps the on-device web code small:
 
-- live firmware, battery, storage, heap and IMU state;
+- firmware, battery, active storage and free-space state;
+- SD present/unreadable state;
 - Wi-Fi/IP/RSSI, MAZ Host link and agent summary;
-- authenticated Wi-Fi + MAZ Host configuration;
+- authenticated MAZ Host address/port configuration;
 - LOCAL / AUTO / CLOUD route selection and spoken-reply toggle;
 - speaker self-test;
 - four-second microphone test with live level meter;
 - MAZ Host reachability probe;
-- authenticated browser firmware OTA from a `.bin` file;
-- reboot and safe M5Launcher hand-back.
+- a small non-destructive SD read/write verification when SD is active;
+- reboot and guarded M5Launcher hand-back;
+- a link to the dedicated online firmware flasher.
 
-Write operations reuse the existing MAZ pairing token. The token is never
-rendered back by firmware; the browser keeps what you type in session storage.
-First pairing still happens over USB so an unconfigured device never exposes a
-network setup secret.
+Sensitive controls reuse the existing MAZ pairing token. Basic device status is
+read-only without it; the token is never rendered back by firmware and the
+browser keeps what you type only in session storage.
 
-If `.local` resolution is unavailable on a particular Windows/network setup,
-open the Cardputer's numeric IP shown in **Connections** or by the Windows
-updater, for example `http://192.168.1.42`.
+Firmware writing does **not** live inside `mazpocket.local`. That separation is
+intentional: a Launcher-managed device can contain many unrelated OTA app
+partitions, and generic "next OTA slot" behaviour is not an ownership boundary.
+
+If `.local` resolution is unavailable on a particular phone/network, open the
+numeric IP shown by MAZ Pocket instead, for example `http://192.168.1.42`.
 
 ## COMM / Call PC
 
@@ -68,13 +72,39 @@ Calculator, Stopwatch, Beam/QR, Text Viewer, Generator, Snippets, Connections,
 Tools and Settings. Snake and the BMI270-driven Hyperdrive demo remain hidden
 extras rather than product priorities.
 
-## Updates
+## Updates — browser first
 
-The Windows package contains the exact Cardputer firmware produced by the same
-CI run. It supports USB install through M5Launcher, authenticated Wi-Fi
-ArduinoOTA, pairing and optional remote Call PC provisioning.
+The normal v0.02 → v0.03 path is the MAZ browser flasher:
 
-For development:
+```text
+https://mazos-site.vercel.app/maz-pocket/flasher/
+```
+
+It is modelled on the proven Bruce/Tasmota/Meshtastic browser-install pattern
+and uses Espressif `esptool-js` rather than a custom Windows flashing stack.
+Chrome/Edge desktop uses Web Serial; Chrome on Android can fall back to Google's
+WebUSB Serial polyfill.
+
+The MAZ flasher adds Launcher-specific safety before writing:
+
+1. read the live ESP32 partition table;
+2. require exactly one OTA app partition whose label starts with `MAZ-Pocket`;
+3. verify the new ESP32 app image fits that live partition;
+4. read and download a full raw backup of that partition;
+5. write only that partition — never full-flash erase;
+6. read the new image back and require an exact SHA-256 match;
+7. attempt rollback on verification failure, with a known-good accepted v0.02
+   image available if an earlier broken updater already invalidated the old app
+   header.
+
+The flasher never writes the partition table, NVS/settings, M5Launcher, SD data,
+Bruce, or another installed firmware.
+
+Cardputer ADV recovery follows the familiar browser-flasher pattern: if normal
+automatic reset cannot enter download mode, unplug the Cardputer, hold **G0**
+(upper-right), reconnect USB while holding G0, release it, then try again.
+
+For local development:
 
 ```powershell
 .\scripts\install.ps1
@@ -83,48 +113,60 @@ cd host
 .\run.ps1
 ```
 
-After this web-control-plane build is installed, normal LAN firmware iterations
-can also use **mazpocket.local → Browser OTA** and select the newly built
-`maz-pocket-app.bin`.
-
 ## Architecture
 
 ```text
-Cardputer ADV
-  COMM / CAPTURE / OPS
-  future: DESK / RECALL / FLOW
-       |
-       +-- mazpocket.local (device admin + browser OTA)
-       |
-       +-- LAN first / verified HTTPS fallback
-       v
-MAZ Host (Windows)
-  STT / TTS / model routing
-  bounded PC controls
-  Agent Nudge
-  future generic tool protocol
+                    MAZ POCKET
+                        |
+       +----------------+----------------+
+       |                |                |
+      COMM           CAPTURE            OPS
+       |                |                |
+       +---------- DESK / RECALL / FLOW-+
+                        |
+        +---------------+----------------+
+        |                                |
+mazpocket.local                    MAZ Web Flasher
+status / control / diag            USB Web Serial
+        |                         live-partition update
+        v                                |
+     MAZ Host                            v
+STT / TTS / agents                MAZ-Pocket slot only
+PC controls / tools
 ```
 
 The ADV has no PSRAM, so heavy generative reasoning remains on the PC/cloud.
 Local firmware is reserved for deterministic actions, cache/offline behaviour,
 UI, audio, networking and narrowly useful edge logic.
 
+## SD posture
+
+`Mraanderson/CardputerSDtool` is an MIT-licensed Cardputer ADV reference for SD
+information, filesystem checks, benchmarks, integrity checking and formatting.
+MAZ adopts the useful diagnostic/recovery mindset but keeps v0.03 conservative:
+status plus a tiny temporary-file read/write check only. Experimental formatting
+or destructive card tests do not run from normal MAZ flows.
+
 ## Anti-bloat and security gates
 
-The application has a **2,100,000-byte firmware ceiling** in CI even though its
-OTA slot is larger. Spare flash is headroom, not a feature quota.
+The physically accepted v0.02 build was installed by M5Launcher into a
+`0x180000` (1,572,864-byte) aligned app partition. **v0.03 CI must fit that exact
+ceiling.** The updater is not allowed to solve firmware growth by repartitioning
+the user's Cardputer or deleting sibling apps.
 
 - no arbitrary remote shell;
 - no silent agent/tool auto-approval;
-- authenticated network mutation and OTA;
+- authenticated network mutation;
 - raw captures survive before AI processing;
 - cloud/model secrets stay PC-side where possible;
+- no generic ArduinoOTA round-robin updater under M5Launcher;
+- no full-flash erase in the MAZ browser updater;
 - compile success is never presented as physical-hardware proof.
 
-GitHub Actions runs host tests, syntax-checks the updater, builds the Cardputer
-ADV target, enforces the firmware budget and packages the Windows updater plus
-firmware. Physical acceptance remains tracked separately in
-`docs/VERIFICATION.md`.
+GitHub Actions runs host tests, syntax-checks the browser flasher, builds the
+Cardputer ADV target, enforces the physical v0.02 slot ceiling, validates the
+known-good v0.02 recovery artifact and packages the phone-first flasher bundle.
+Physical acceptance remains tracked separately in `docs/VERIFICATION.md`.
 
 MIT licensed. Third-party references and licence decisions are recorded under
-`docs/`.
+`docs/` and `web-flasher/README.md`.
