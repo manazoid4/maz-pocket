@@ -1,11 +1,13 @@
 # MAZ Pocket — 8MB flash (ESP32-S3FN8), no PSRAM.
-# Two app slots, because MAZ Pocket updates itself over Wi-Fi: an ESP32 writes
-# the new image into the slot it is not running from, then flips otadata. A
-# single `factory` partition cannot do that, which is why installing this
-# layout is the one flash that still needs a cable.
-# NOTE: when M5Launcher flashes this app it uses ITS OWN partition table, so
-# storage.cpp must tolerate LittleFS being absent or having moved. A moved data
-# region is detected and reported there, never silently reformatted.
+#
+# IMPORTANT: this CSV exists so standalone PlatformIO builds have a complete
+# 8 MB layout for compile/link checks and recovery work. MAZ Pocket v0.5 does
+# NOT self-update and does NOT own the device partition table when launched by
+# M5Launcher. M5Launcher chooses/owns the installed app slot; the release
+# artifact is an app-only image and must never be flashed at address 0x0.
+#
+# storage.cpp must therefore tolerate LittleFS being absent or having moved.
+# A moved data region is detected and reported there, never silently formatted.
 # Name,     Type, SubType,  Offset,   Size
 nvs,        data, nvs,      0x9000,   0x5000
 otadata,    data, ota,      0xe000,   0x2000
