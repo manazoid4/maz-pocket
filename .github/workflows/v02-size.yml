@@ -15,9 +15,12 @@ jobs:
           python-version: "3.12"
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build exact v0.02 branch
+      - name: Build exact v0.02 source
         shell: pwsh
-        run: ./scripts/package-release.ps1
+        run: |
+          python -m platformio run -e cardputer-adv
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item .\.pio\build\cardputer-adv\firmware.bin .\dist\maz-pocket-app.bin -Force
       - name: Report exact installed binary and 64K Launcher slot
         shell: pwsh
         run: |
