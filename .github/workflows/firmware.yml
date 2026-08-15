@@ -36,12 +36,14 @@ jobs:
       - name: Test MAZ Host
         run: python -m pytest host/tests -q
 
-      - name: Test browser flasher safety logic
+      - name: Test ROM-only browser flasher safety logic
         shell: pwsh
         run: |
           node --check web-flasher/flasher.js
           node --check web-flasher/partition.js
+          node --check web-flasher/rom.js
           node web-flasher/test-partition.mjs
+          node web-flasher/test-rom.mjs
 
       - name: Build Cardputer ADV firmware
         shell: pwsh
@@ -63,6 +65,7 @@ jobs:
           Copy-Item .\web-flasher\index.html (Join-Path $Out 'index.html') -Force
           Copy-Item .\web-flasher\flasher.js (Join-Path $Out 'flasher.js') -Force
           Copy-Item .\web-flasher\partition.js (Join-Path $Out 'partition.js') -Force
+          Copy-Item .\web-flasher\rom.js (Join-Path $Out 'rom.js') -Force
           Copy-Item .\dist\maz-pocket-app.bin (Join-Path $Fw 'maz-pocket-app.bin') -Force
 
           gh release download v0.2.0-hardware-preview.4 --pattern maz-pocket-app.bin --dir $Fw --clobber
@@ -71,6 +74,7 @@ jobs:
 
           $Recovery = Join-Path $Fw 'maz-pocket-v0.02-recovery.bin'
           $RecoverySha = (Get-FileHash $Recovery -Algorithm SHA256).Hash.ToLowerInvariant()
+          $RecoveryMd5 = (Get-FileHash $Recovery -Algorithm MD5).Hash.ToLowerInvariant()
           $ExpectedRecoverySha = '2d1eaf0495eceadf0c87d613cca4b9f2819e3ff26ed20584e5bf4d649443f9ed'
           if ($RecoverySha -ne $ExpectedRecoverySha) { throw "v0.02 recovery SHA mismatch: $RecoverySha" }
           $RecoverySize = (Get-Item $Recovery).Length
@@ -78,6 +82,7 @@ jobs:
 
           $Current = Join-Path $Fw 'maz-pocket-app.bin'
           $CurrentSha = (Get-FileHash $Current -Algorithm SHA256).Hash.ToLowerInvariant()
+          $CurrentMd5 = (Get-FileHash $Current -Algorithm MD5).Hash.ToLowerInvariant()
           $CurrentSize = (Get-Item $Current).Length
           $Manifest = [ordered]@{
             product = 'MAZ Pocket'
@@ -85,11 +90,13 @@ jobs:
             file = 'maz-pocket-app.bin'
             size = $CurrentSize
             sha256 = $CurrentSha
+            md5 = $CurrentMd5
             recovery_file = 'maz-pocket-v0.02-recovery.bin'
             recovery_size = $RecoverySize
             recovery_sha256 = $RecoverySha
+            recovery_md5 = $RecoveryMd5
             launcher_slot_size = 0x180000
-            updater = 'esptool-js@0.6.0'
+            updater = 'esptool-js@0.6.0-rom-only'
           }
           $Manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $Fw 'manifest.json')
           Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
@@ -99,6 +106,7 @@ jobs:
         run: |
           Get-ChildItem dist -Recurse -File | Select-Object FullName,Length | Format-Table -AutoSize
           Get-FileHash .\dist\maz-pocket-app.bin -Algorithm SHA256
+          Get-FileHash .\dist\maz-pocket-app.bin -Algorithm MD5
 
       - uses: actions/upload-artifact@v4
         with:
