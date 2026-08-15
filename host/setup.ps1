@@ -1,9 +1,20 @@
 $ErrorActionPreference = "Stop"
 $HostRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = Join-Path $HostRoot ".venv\Scripts\python.exe"
+$VersionPath = Join-Path $HostRoot "VERSION"
+if (-not (Test-Path $VersionPath)) { $VersionPath = Join-Path (Split-Path -Parent $HostRoot) "VERSION" }
+$Version = if (Test-Path $VersionPath) { (Get-Content $VersionPath -Raw).Trim() } else { "dev" }
 
 if (-not (Test-Path $Python)) {
-    py -3 -m venv (Join-Path $HostRoot ".venv")
+    $Py = Get-Command py -ErrorAction SilentlyContinue
+    $PythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($Py) {
+        & py -3 -m venv (Join-Path $HostRoot ".venv")
+    } elseif ($PythonCmd) {
+        & python -m venv (Join-Path $HostRoot ".venv")
+    } else {
+        throw "Python 3 is required for MAZ Core. Install Python 3.11+ once, then double-click START-HERE.cmd again."
+    }
 }
 & $Python -m pip install --disable-pip-version-check -r (Join-Path $HostRoot "requirements.txt")
 
@@ -14,13 +25,17 @@ if (-not (Test-Path $EnvPath)) {
     $Template.Replace("change-me-before-first-run", $Token) | Set-Content $EnvPath -NoNewline
 }
 
-$Address = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
-    $_.IPAddress -notlike "127.*" -and $_.PrefixOrigin -ne "WellKnown"
-} | Select-Object -First 1 -ExpandProperty IPAddress)
+$Address = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+    $_.InterfaceAlias -eq "Wi-Fi" -and $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*"
+} | Select-Object -First 1 -ExpandProperty IPAddress
+if (-not $Address) {
+    $Address = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+        $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and $_.PrefixOrigin -ne "WellKnown"
+    } | Select-Object -First 1 -ExpandProperty IPAddress
+}
 $ConfiguredToken = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
-Write-Host "MAZ Core is ready."
-Write-Host "On MAZ Pocket use CONTROL > MAZ CORE if pairing is needed:"
+Write-Host "MAZ Core v$Version base setup is ready."
+Write-Host "Cardputer pairing if needed:"
 Write-Host "  Address: ${Address}:8787"
 Write-Host "  Token:   $ConfiguredToken"
-Write-Host "Run .\run.ps1 to start Core, or double-click INSTALL-MAZ-CORE.cmd for the full v0.5.1 setup."
-Write-Host "With MAZ Pocket open over USB, .\pair.ps1 remains available for serial pairing."
+Write-Host "Run install-core.ps1 for the full setup. With v0.6 open over USB, pair.ps1 updates Core details without asking for Wi-Fi credentials."

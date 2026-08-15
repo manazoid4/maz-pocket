@@ -1,11 +1,10 @@
 param(
     [string]$Drive = "",
-    [string]$FirmwarePath = ""
+    [string]$FirmwarePath = "",
+    [switch]$Yes
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "0.5.1"
-$FirmwareName = "Maz-Pocket-v$Version-M5Launcher.bin"
 
 function Fail([string]$Message) {
     Write-Host "MAZ Pocket: $Message" -ForegroundColor Red
@@ -13,6 +12,14 @@ function Fail([string]$Message) {
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$versionPath = Join-Path $scriptRoot "VERSION"
+if (-not (Test-Path $versionPath)) {
+    $versionPath = Join-Path (Split-Path -Parent $scriptRoot) "VERSION"
+}
+if (-not (Test-Path $versionPath)) { Fail "VERSION file not found" }
+$Version = (Get-Content $versionPath -Raw).Trim()
+$FirmwareName = "Maz-Pocket-v$Version-M5Launcher.bin"
+
 if (-not $FirmwarePath) {
     $candidate = Join-Path $scriptRoot $FirmwareName
     if (-not (Test-Path $candidate)) {
@@ -70,9 +77,11 @@ $sourceHash = (Get-FileHash $source -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host ""
 Write-Host "MAZ Pocket v$Version -> $target" -ForegroundColor Cyan
 Write-Host "This only copies one app image. It will NOT format the card or flash the Cardputer." -ForegroundColor Yellow
-$answer = Read-Host "Type COPY to continue"
-if ($answer -cne "COPY") {
-    Fail "cancelled; nothing was changed"
+if (-not $Yes) {
+    $answer = Read-Host "Type COPY to continue"
+    if ($answer -cne "COPY") {
+        Fail "cancelled; nothing was changed"
+    }
 }
 
 Copy-Item $source $target -Force

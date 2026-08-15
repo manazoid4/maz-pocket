@@ -1,29 +1,28 @@
+param(
+    [switch]$Quiet
+)
+
 $ErrorActionPreference = "Stop"
 $HostRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EnvPath = Join-Path $HostRoot ".env"
 
 if (-not (Test-Path $EnvPath)) {
-    throw "Run .\setup.ps1 first."
+    throw "Run install-core.ps1 first."
 }
 
-$Token = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
+$TokenMatch = Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$' | Select-Object -First 1
+if (-not $TokenMatch) { throw "MAZ_TOKEN is missing from .env" }
+$Token = $TokenMatch.Matches[0].Groups[1].Value.Trim()
+
 $Address = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
-    $_.InterfaceAlias -eq "Wi-Fi" -and $_.IPAddress -notlike "169.254.*"
+    $_.InterfaceAlias -eq "Wi-Fi" -and $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*"
 } | Select-Object -First 1 -ExpandProperty IPAddress
-if (-not $Address) { throw "The laptop is not connected to Wi-Fi." }
-
-$WifiName = (Get-NetConnectionProfile | Where-Object {
-    $_.InterfaceAlias -eq "Wi-Fi" -and $_.IPv4Connectivity -ne "Disconnected"
-} | Select-Object -First 1 -ExpandProperty Name)
-if (-not $WifiName) { $WifiName = Read-Host "Wi-Fi name" }
-
-$SecurePassword = Read-Host "Wi-Fi password for $WifiName" -AsSecureString
-$PasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
-try {
-    $WifiPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($PasswordPointer)
-} finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($PasswordPointer)
+if (-not $Address) {
+    $Address = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+        $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and $_.PrefixOrigin -ne "WellKnown"
+    } | Select-Object -First 1 -ExpandProperty IPAddress
 }
+if (-not $Address) { throw "No usable PC LAN address found." }
 
 $PortName = Get-CimInstance Win32_SerialPort | Where-Object {
     $_.PNPDeviceID -match 'VID_303A&PID_1001'
@@ -37,19 +36,25 @@ try {
     $Port.Open()
     Start-Sleep -Milliseconds 300
     $Port.DiscardInBuffer()
-    $Port.WriteLine("MAZPAIR`t$WifiName`t$WifiPassword`t$Address`t8787`t$Token")
-    $Deadline = [DateTime]::UtcNow.AddSeconds(15)
+    # v0.6 pairing updates only MAZ Core address/token. It deliberately leaves
+    # the Cardputer's already-working Wi-Fi credentials untouched.
+    $Port.WriteLine("MAZCOREPAIR`t$Address`t8787`t$Token")
+    $Deadline = [DateTime]::UtcNow.AddSeconds(8)
     $Reply = ""
     do {
         try {
-            $Reply = $Port.ReadLine()
+            $Reply = $Port.ReadLine().Trim()
         } catch [System.TimeoutException] {
             continue
         }
-    } while ($Reply -notlike 'MAZPAIR *' -and [DateTime]::UtcNow -lt $Deadline)
-    if ($Reply -notlike 'MAZPAIR OK*') { throw "Device pairing failed: $Reply" }
-    Write-Host "MAZ Pocket paired to MAZ Host at ${Address}:8787."
+    } while ($Reply -notlike 'MAZCOREPAIR *' -and [DateTime]::UtcNow -lt $Deadline)
+
+    if ($Reply -notlike 'MAZCOREPAIR OK*') {
+        throw "Device did not accept Core-only pairing. Install MAZ Pocket v0.6 first or pair once from CONTROL > MAZ Core. Reply: $Reply"
+    }
+    if (-not $Quiet) {
+        Write-Host "MAZ Pocket paired to MAZ Core at ${Address}:8787 without changing Wi-Fi." -ForegroundColor Green
+    }
 } finally {
     if ($Port.IsOpen) { $Port.Close() }
-    $WifiPassword = $null
 }
