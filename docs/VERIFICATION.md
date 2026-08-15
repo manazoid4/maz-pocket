@@ -2,37 +2,76 @@
 
 ## Version naming
 
-Canonical releases use **v0.1 / v0.2 / v0.3 / v0.4**. Historical preview tags are retained only as recovery/history references.
+Canonical releases use **v0.1 / v0.2 / v0.3 / v0.4 / v0.5**. Historical preview tags remain only as recovery/history references.
 
-## Physically established on Cardputer ADV
+## What physical testing already established
 
-Previous builds have been installed through M5Launcher on the real Cardputer ADV. The hardware path has established Launcher-managed app installation, display, ADV keyboard initialization, storage initialization and Wi-Fi/host operation.
+Previous builds have been installed through M5Launcher on the real Cardputer ADV. That establishes the app-only `.bin` + Launcher path, display/keyboard/storage initialization and basic Wi-Fi/host communication.
 
-The user also physically installed the v0.3-era build during this development cycle. That real-device test exposed two product problems that v0.4 directly addresses: the main UI hid too much functionality, and the browser ZIP flasher was not a reliable primary update experience. The v0.4 release therefore uses the six-surface Home and M5Launcher + SD-card `.bin` as the supported update path.
+Real use of v0.3/v0.4 also exposed the problems that define v0.5:
 
-## v0.4 release gates
+- useful controls were present but not discoverable enough on the Cardputer;
+- Wi-Fi could exist underneath the product without feeling like a first-class recoverable feature;
+- generic model answers were being asked to substitute for real PC/project evidence;
+- browser flashing was a worse primary path than M5Launcher + SD;
+- long PC work must never freeze the handheld.
 
-A v0.4 binary is acceptable only when CI passes:
+v0.5 changes the architecture rather than hiding more features behind the same shell.
 
-- MAZ Host pytest suite, including the v0.4 local-first model default.
-- Recovery/browser-flasher syntax and partition-safety tests (kept as regression coverage, not the primary install UX).
-- Cardputer ADV PlatformIO build.
-- ESP32 application magic check.
-- Minimum sensible app-image size.
-- Hard `0x180000` maximum image size matching the known Launcher app slot used by the physical installation path.
-- SHA-256 generation for the exact M5Launcher release binary.
+## v0.5 automated release gates
 
-## v0.4 behavior that must be checked on hardware after install
+A v0.5 release is acceptable only when the final release commit passes:
 
-- Home visibly shows COMM / CAPTURE / OPS / DESK / RECALL / FLOW and each opens the intended surface.
-- Saved Wi-Fi reconnects at boot and after a forced reconnect.
-- `mazpocket.local` resolves on the LAN (or the shown IP works) and the new responsive dashboard loads on phone/desktop.
-- Web status correctly reflects Wi-Fi, battery, storage, current app, host and agents.
-- Pairing-token lock prevents state-changing web actions until unlocked.
-- Web launch buttons open only allow-listed MAZ surfaces.
-- PC quick controls remain allow-listed and execute through MAZ Host.
-- Speaker/SD diagnostics, reboot and M5Launcher hand-back work from the dashboard.
-- COMM uses MAZ Host with `lfm2.5-8b-a1b-gpu:latest` when the host configuration is upgraded; responses about MAZ Pocket stay within the verified capability map rather than inventing apps.
-- Microphone capture, spoken reply and BrainDump remain functional.
+- complete MAZ Core/Host pytest suite;
+- Core tests for project-root containment, secret-file blocking, no generic shell, action allow-list and non-blocking job contract;
+- Core performance regression test proving health/generic chat do not fan out deep Git summaries across every repo and project-list summaries use a short TTL cache;
+- recovery/browser-flasher syntax + partition ownership regression tests;
+- Cardputer ADV PlatformIO build;
+- ESP32 application magic + minimum-size validation;
+- hard **`0x180000` Launcher app-slot ceiling**;
+- packaging of exact `Maz-Pocket-v0.5-M5Launcher.bin` and `MAZ-Core-v0.5.zip`;
+- SHA-256 checksums for release assets;
+- hidden Maz Works `/maz-core` client build/deploy check before its PR is merged.
 
-CI cannot prove acoustics, RF quality, physical keyboard feel or the actual local Ollama model installed on a user's PC. These remain physical acceptance checks after installing the released `.bin`.
+## v0.5 behavior implemented in code
+
+### Cardputer
+
+- Home: COMM / CAPTURE / OPS / CONTROL / RECALL / FLOW.
+- **W** from Home opens the v0.5 Wi-Fi manager directly.
+- CONTROL exposes Control Center, Wi-Fi, MAZ Core, PC/COMM, diagnostics and Settings.
+- Wi-Fi manager can inspect/reconnect/scan/connect/save backup/disconnect/forget/start setup hotspot.
+- No usable saved network starts `MAZ-Pocket-Setup`; repeated connection failures also expose the setup AP while retrying.
+- `mazpocket.local` can provision Wi-Fi, launch allow-listed device surfaces, control allow-listed PC actions, configure Core, run diagnostics, reboot/return to Launcher and stream the current 240x135 LCD buffer.
+- Firmware installation remains owned by M5Launcher; generic ArduinoOTA is not enabled.
+
+### MAZ Core
+
+- Default local model: `lfm2.5-8b-a1b-gpu:latest`.
+- Real local project discovery and bounded factual evidence replace generic model claims about PC/project state.
+- Non-secret project reads/search + optional Obsidian search.
+- Fixed action allow-list: git status/fetch/fast-forward pull, detected tests/build, open folder.
+- Build/test actions can run as background jobs so Cardputer/Web clients poll rather than blocking.
+- Optional private GitHub issue bridge uses the same allow-list and rejects arbitrary shell commands.
+- Cardputer status/LCD can be proxied through Core.
+
+### Maz Works
+
+- `/maz-core` is an unlinked/noindex browser client.
+- No Core endpoint or token is committed into the site.
+- The user's browser supplies the endpoint/token at runtime.
+
+## Physical acceptance still required after the released v0.5 `.bin` is installed
+
+Automation cannot prove RF/acoustics/LCD byte order/physical controls or the user's actual Windows/Tailscale/Ollama environment. On hardware verify:
+
+1. Home visibly shows COMM / CAPTURE / OPS / CONTROL / RECALL / FLOW.
+2. W → Wi-Fi can scan, connect and save primary + backup networks.
+3. With bad/no credentials, `MAZ-Pocket-Setup` appears and `192.168.4.1` can repair Wi-Fi.
+4. `mazpocket.local` loads and its live LCD mirror matches the physical display.
+5. CONTROL → MAZ CORE shows real local projects and a background `git status`/test/build can be started without freezing Cardputer input.
+6. COMM uses the configured LFM2.5 model and project questions cite actual Core evidence instead of inventing state.
+7. Microphone, speaker, BrainDump, Agent Nudge, reminders/focus and PC controls still behave correctly.
+8. Ctrl+L / CONTROL → M5Launcher returns safely to Launcher.
+
+A successful CI/release is **release verification**, not a claim that these final v0.5 physical checks have already happened.
