@@ -1,12 +1,19 @@
 MAZ POCKET — v0.03 PHONE-FIRST UPDATE
 
-NORMAL UPDATE FROM v0.02
-1. Use Google Chrome on Android, or Chrome/Edge on a computer.
+YOU NEED
+- Your Cardputer ADV running Maz Pocket v0.02 under M5Launcher.
+- The single file: maz-pocket-v0.03-phone-first.zip
+- Google Chrome on Android, or Chrome/Edge on a computer.
+- A USB data cable.
+
+UPDATE v0.02 -> v0.03
+1. Keep the ZIP downloaded on your phone/computer. Do NOT extract it.
 2. Open: https://mazos-site.vercel.app/maz-pocket/flasher/
-3. Connect the Cardputer ADV by USB data cable.
-4. Tap CONNECT & UPDATE v0.03.
-5. Choose the Cardputer when the browser asks.
-6. Leave the cable connected until the page says v0.03 FLASHED + VERIFIED.
+3. Tap CHOOSE MAZ POCKET ZIP and select maz-pocket-v0.03-phone-first.zip.
+4. Wait for the page to say VERIFIED.
+5. Connect the Cardputer ADV by USB data cable.
+6. Tap CONNECT & UPDATE v0.03 and choose the Cardputer when the browser asks.
+7. Leave the cable connected until the page says v0.03 FLASHED + VERIFIED.
 
 IF IT CANNOT ENTER DOWNLOAD MODE
 - Unplug the Cardputer.
@@ -22,18 +29,24 @@ THAT IS ALL
 - No host token for flashing.
 - No M5Launcher boot-banner timing.
 - No manual partition commands.
+- Do not extract or edit the ZIP: the page rejects changed firmware/recovery hashes.
 
 WHAT THE WEB FLASHER DOES
-- Uses the ESP32-S3 ROM loader only; it does not upload the flaky RAM flasher stub.
-- SHA-256 verifies the packaged v0.03 firmware and known-good v0.02 recovery before any write.
+- Verifies the exact CI-approved v0.03 firmware SHA-256 and known-good v0.02 recovery SHA-256 before asking for USB access.
+- Uses the ESP32-S3 ROM loader only; it does not upload the RAM flasher stub that caused trouble in the earlier updater path.
 - Reads only the live 4KB ESP32 partition table from the Cardputer.
-- Finds exactly one existing Launcher OTA app partition labelled MAZ-Pocket.
+- Finds exactly one existing Launcher OTA app partition whose label starts with maz-pocket.
 - Refuses before writing if v0.03 does not fit that live partition.
-- Writes ONLY the MAZ-Pocket partition.
+- Writes ONLY the Maz Pocket app partition.
 - Never full-erases the flash.
 - Never writes the partition table, NVS/settings, M5Launcher, SD data, Bruce or sibling firmware.
 - Uses the ESP32 ROM flash-MD5 command to verify the written v0.03 image.
-- If write/verification fails, it attempts to restore the known-good physical-hardware-accepted v0.02 image and verifies that recovery by ROM MD5.
+- If write/verification fails after a write starts, it attempts to restore the known-good physical-hardware-accepted v0.02 image and verifies that recovery by ROM MD5.
+
+WHY THE ZIP IS SELECTED LOCALLY
+- The Maz Pocket source repository is private.
+- The online flasher therefore contains no GitHub token and does not make the repo public.
+- The page only accepts the release package whose firmware/recovery hashes are pinned into the flasher.
 
 MAZPOCKET.LOCAL AFTER v0.03
 - Put your phone and Cardputer on the same Wi-Fi.
@@ -42,22 +55,25 @@ MAZPOCKET.LOCAL AFTER v0.03
 - Status is visible immediately.
 - Sensitive controls/config require the existing MAZ pairing token.
 - Self-test includes speaker, mic, MAZ Host and a small non-destructive SD read/write check.
-- Firmware button sends you to the safe online Web Serial flasher.
+- Firmware/update sends you to the safe browser flasher.
 - If .local does not resolve, use the IP shown by Maz Pocket.
 
 DEVICE
-- Home: COMM / LOG / OPS.
-- Approved direction remains COMM / CAPTURE / OPS / DESK / RECALL / FLOW.
-- Ctrl+K: all utilities plus Snake / Hyperdrive / Beam.
-- Helpful v0.02-style state-change reminders remain enabled.
-- Ctrl+L: guarded M5Launcher hand-back.
+- Home remains a small primary surface; the approved product direction is COMM / CAPTURE / OPS / DESK / RECALL / FLOW.
+- Existing useful utilities remain in Ctrl+K rather than crowding Home.
+- Snake / Hyperdrive / Beam remain hidden extras, not product focus.
+- Helpful v0.02-style state-change reminders remain enabled: connection changes, host changes, reminders/results and important attention states.
+- Ctrl+L keeps guarded M5Launcher hand-back.
 
 BUILD GATES
-- MAZ Host tests.
-- ROM-only browser flasher syntax + ownership + ROM packet tests.
+- 21 MAZ Host tests.
+- ROM-only browser flasher syntax + partition ownership + ROM packet tests.
 - Cardputer ADV firmware compile.
 - ESP32 app-image validation.
 - Hard 0x180000-byte compatibility ceiling matching the physical v0.02 M5Launcher slot.
 - Known-good v0.02 recovery SHA-256 verification.
 - v0.03 + recovery SHA-256 and MD5 manifest generation.
-- Phone-first web-flasher package generation.
+- Phone-first release ZIP generation.
+
+PHYSICAL ACCEPTANCE
+CI proves the code/build/package gates, not real hardware. Keep PR/release status as preview until this exact v0.03 package has completed the browser flash, boot, mic, speaker, COMM, LOG/CAPTURE, OPS and M5Launcher hand-back checks on the actual Cardputer ADV.
