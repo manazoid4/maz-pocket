@@ -67,6 +67,18 @@ struct SysState {
     uint32_t    focusRemain  = 0;  // seconds
     std::string focusLabel;
 
+    // Cardputer ADV runtime health. The board has no PSRAM, so these measured
+    // values are more useful than theoretical allocation rules. They are
+    // observational only: MAZ Pocket never reboots itself just because a
+    // threshold was crossed.
+    uint32_t freeHeap           = 0;
+    uint32_t minFreeHeap        = 0;
+    uint32_t largestFreeBlock   = 0;
+    uint32_t mainStackHighWater = 0;
+    uint32_t loopMaxMs          = 0;
+    bool     memoryPressure     = false;
+    bool     uiStallObserved    = false;
+
     uint32_t uptimeSeconds() const;
 };
 

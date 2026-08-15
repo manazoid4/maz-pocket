@@ -23,6 +23,7 @@ WiFiClient gClient;
 bool       gBound  = false;
 bool       gAuthed = false;
 String     gInbound;
+String     gSerialInbound;
 
 uint8_t keyCode(String name) {
     name.toUpperCase();
@@ -69,6 +70,23 @@ void startServer() {
                   static_cast<unsigned>(PORT));
 }
 
+void consumeSerial() {
+    // Serial.readStringUntil() uses Stream's timeout and can hold the foreground
+    // loop when a sender delivers a partial line. Consume only bytes that are
+    // already present so USB diagnostics can never pause the UI/audio loop.
+    while (Serial.available()) {
+        const char c = static_cast<char>(Serial.read());
+        if (c != '\n') {
+            if (c != '\r' && gSerialInbound.length() < 240) gSerialInbound += c;
+            continue;
+        }
+        const String line = gSerialInbound;
+        gSerialInbound = "";
+        const String reply = handleLine(line, true);
+        if (!reply.isEmpty()) Serial.println(reply);
+    }
+}
+
 }  // namespace
 
 bool listening() { return gBound; }
@@ -83,15 +101,27 @@ String handleLine(const String& raw, bool trusted) {
                WiFi.localIP().toString();
 
     if (line == "MAZSTATUS") {
-        const bool hostOnline = host::health();
-        const host::Assurance fleet =
-            hostOnline ? host::assurance() : host::Assurance{};
-        char out[180];
+        // Status is a snapshot, not a network operation. Older builds called
+        // host::health()/assurance() here, which could block this foreground
+        // control path for seconds when the PC disappeared.
+        const char* nudge = Sys.agentQuestion ? "attention" :
+                            (Sys.nudgeDue ? "due" : "clear");
+        const unsigned agents = static_cast<unsigned>(Sys.agentsWorking) +
+                                static_cast<unsigned>(Sys.agentsWaiting) +
+                                static_cast<unsigned>(Sys.agentsStale);
+        char out[300];
         snprintf(out, sizeof(out),
-                 "MAZSTATUS wifi=%s host=%s link=%s nudge=%s agents=%u",
+                 "MAZSTATUS wifi=%s host=%s link=%s nudge=%s agents=%u "
+                 "heap=%lu minheap=%lu largest=%lu loopmax=%lu pressure=%u stall=%u",
                  Sys.wifiConnected ? "online" : "offline",
-                 hostOnline ? "online" : "offline", host::linkName(),
-                 fleet.state.c_str(), static_cast<unsigned>(fleet.agents.size()));
+                 Sys.hostOnline ? "online" : "offline", host::linkName(),
+                 nudge, agents,
+                 static_cast<unsigned long>(Sys.freeHeap),
+                 static_cast<unsigned long>(Sys.minFreeHeap),
+                 static_cast<unsigned long>(Sys.largestFreeBlock),
+                 static_cast<unsigned long>(Sys.loopMaxMs),
+                 Sys.memoryPressure ? 1u : 0u,
+                 Sys.uiStallObserved ? 1u : 0u);
         return out;
     }
 
@@ -195,11 +225,7 @@ void begin() { startServer(); }
 
 void update() {
     startServer();
-
-    if (Serial.available()) {
-        const String reply = handleLine(Serial.readStringUntil('\n'), true);
-        if (!reply.isEmpty()) Serial.println(reply);
-    }
+    consumeSerial();
 
     if (!gBound) return;
     if (!gClient || !gClient.connected()) {
