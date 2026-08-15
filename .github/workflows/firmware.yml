@@ -1,4 +1,4 @@
-name: Maz Pocket v0.3
+name: Maz Pocket v0.03
 
 on:
   push:
@@ -29,48 +29,77 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install platformio pytest pyinstaller
+          pip install platformio pytest
           pip install -r host/requirements.txt
           pip install "click>=8.0.4,<8.4"
 
-      - name: Test MAZ Host and updater planner
-        run: python -m pytest host/tests updater/tests -q
+      - name: Test MAZ Host
+        run: python -m pytest host/tests -q
 
-      - name: Check updater Python
-        run: python -m py_compile updater/flash_plan.py updater/maz_updater.py updater/pyi_streams.py
+      - name: Check browser flasher JavaScript
+        run: node --check web-flasher/flasher.js
 
       - name: Build Cardputer ADV firmware
         shell: pwsh
         run: ./scripts/package-release.ps1
 
-      - name: Validate packaged ESP32 app image
+      - name: Validate app image and physical v0.02 slot fit
         shell: pwsh
         run: |
-          python -c "from pathlib import Path; from updater.flash_plan import Partition,validate_firmware; b=Path('dist/maz-pocket-app.bin').read_bytes(); validate_firmware(b, Partition(0,0x10,0x10000,0x300000,'CI')); print('firmware validator OK',len(b))"
+          python -c "from pathlib import Path; b=Path('dist/maz-pocket-app.bin').read_bytes(); assert len(b)>=65536 and b[0]==0xE9, 'invalid ESP32 app image'; assert len(b)<=0x180000, f'{len(b)} exceeds v0.02 Launcher slot'; print('ESP image OK',len(b),'bytes')"
 
-      - name: Build Windows safe updater
+      - name: Build phone-first web flasher package
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed `
-            --name MazPocketUpdater `
-            --paths updater `
-            --runtime-hook updater/pyi_streams.py `
-            --add-data "dist/maz-pocket-app.bin;firmware" `
-            --collect-all esptool `
-            --hidden-import serial.tools.list_ports_windows `
-            updater/maz_updater.py
-          Copy-Item .\dist\MazPocketUpdater.exe .\dist\MazPocketUpdater-v0.3.exe -Force
+          $Out = Join-Path $PWD 'dist\web-flasher'
+          $Fw = Join-Path $Out 'firmware'
+          New-Item -ItemType Directory -Force $Fw | Out-Null
+          Copy-Item .\web-flasher\index.html (Join-Path $Out 'index.html') -Force
+          Copy-Item .\web-flasher\flasher.js (Join-Path $Out 'flasher.js') -Force
+          Copy-Item .\dist\maz-pocket-app.bin (Join-Path $Fw 'maz-pocket-app.bin') -Force
+
+          gh release download v0.2.0-hardware-preview.4 --pattern maz-pocket-app.bin --dir $Fw --clobber
+          Move-Item (Join-Path $Fw 'maz-pocket-app.bin') (Join-Path $Fw 'maz-pocket-v0.02-recovery.bin') -Force
+          Copy-Item .\dist\maz-pocket-app.bin (Join-Path $Fw 'maz-pocket-app.bin') -Force
+
+          $Recovery = Join-Path $Fw 'maz-pocket-v0.02-recovery.bin'
+          $RecoverySha = (Get-FileHash $Recovery -Algorithm SHA256).Hash.ToLowerInvariant()
+          $ExpectedRecoverySha = '2d1eaf0495eceadf0c87d613cca4b9f2819e3ff26ed20584e5bf4d649443f9ed'
+          if ($RecoverySha -ne $ExpectedRecoverySha) { throw "v0.02 recovery SHA mismatch: $RecoverySha" }
+          $RecoverySize = (Get-Item $Recovery).Length
+          if ($RecoverySize -ne 1525984) { throw "Unexpected v0.02 recovery size: $RecoverySize" }
+
+          $Current = Join-Path $Fw 'maz-pocket-app.bin'
+          $CurrentSha = (Get-FileHash $Current -Algorithm SHA256).Hash.ToLowerInvariant()
+          $CurrentSize = (Get-Item $Current).Length
+          $Manifest = [ordered]@{
+            product = 'MAZ Pocket'
+            version = '0.3.0'
+            file = 'maz-pocket-app.bin'
+            size = $CurrentSize
+            sha256 = $CurrentSha
+            recovery_file = 'maz-pocket-v0.02-recovery.bin'
+            recovery_size = $RecoverySize
+            recovery_sha256 = $RecoverySha
+            launcher_slot_size = 0x180000
+            updater = 'esptool-js@0.6.0'
+          }
+          $Manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $Fw 'manifest.json')
           Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
 
-      - name: Show artifact sizes
+      - name: Show packaged sizes and hashes
         shell: pwsh
-        run: Get-ChildItem dist | Select-Object Name,Length | Format-Table -AutoSize
+        run: |
+          Get-ChildItem dist -Recurse -File | Select-Object FullName,Length | Format-Table -AutoSize
+          Get-FileHash .\dist\maz-pocket-app.bin -Algorithm SHA256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: maz-pocket-v0.3-windows
+          name: maz-pocket-v0.03-phone-first
           if-no-files-found: error
           path: |
             dist/maz-pocket-app.bin
-            dist/MazPocketUpdater-v0.3.exe
             dist/QUICKSTART.txt
+            dist/web-flasher/**
