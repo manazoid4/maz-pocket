@@ -3,6 +3,7 @@
 #include <ESPmDNS.h>
 #include <M5Unified.h>
 #include <WiFi.h>
+#include <mbedtls/sha256.h>
 
 #include "../audio/sfx.h"
 #include "../core/launcher.h"
@@ -19,16 +20,22 @@ namespace portal {
 namespace {
 
 constexpr uint16_t PORT = 80;
-constexpr size_t MAX_BODY = 1800;
+constexpr size_t MAX_FORM_BODY = 1800;
+constexpr size_t MAX_FIRMWARE = 0x180000;
+constexpr size_t MIN_FIRMWARE = 65536;
 constexpr size_t MAX_LINE = 320;
 constexpr size_t MAX_HEADERS = 1800;
 constexpr size_t RX_BUDGET_PER_TICK = 512;
 constexpr size_t TX_BUDGET_PER_TICK = 1400;
 constexpr uint32_t REQUEST_IDLE_MS = 1400;
 constexpr uint32_t REQUEST_MAX_AGE_MS = 5000;
+constexpr uint32_t UPLOAD_IDLE_MS = 5000;
+constexpr uint32_t UPLOAD_MAX_AGE_MS = 120000;
 constexpr uint32_t TX_IDLE_MS = 2500;
 constexpr size_t SCREEN_PIXELS = 240u * 135u;
 constexpr size_t SCREEN_BYTES = SCREEN_PIXELS * 2u;
+constexpr char STAGING_PATH[] = "/MAZ-Pocket-Staging.part";
+constexpr char STAGED_PATH[] = "/MAZ-Pocket-Staged.bin";
 
 WiFiServer gServer(PORT);
 WiFiClient gClient;
@@ -38,7 +45,7 @@ uint32_t gReconnectAt = 0;
 uint32_t gRebootAt = 0;
 bool gToLauncher = false;
 
-enum class RxState : uint8_t { RequestLine, Headers, Body, Ready };
+enum class RxState : uint8_t { RequestLine, Headers, Body, Upload, Ready };
 enum class TxKind : uint8_t { None, Text, Page, Screen };
 
 RxState gRxState = RxState::RequestLine;
@@ -46,6 +53,7 @@ String gLine;
 String gMethod;
 String gPath;
 String gToken;
+String gExpectedSha;
 String gBody;
 size_t gContentLength = 0;
 size_t gHeaderBytes = 0;
@@ -57,12 +65,21 @@ String gTxHead;
 String gTxText;
 size_t gTxHeadAt = 0;
 size_t gTxPayloadAt = 0;
+size_t gScreenChunkAt = 0;
+size_t gScreenChunkLen = 0;
 uint32_t gLastTxAt = 0;
-uint8_t gScreenScratch[TX_BUDGET_PER_TICK];
+uint8_t gIoScratch[TX_BUDGET_PER_TICK];
+
+File gUploadFile;
+bool gUploadActive = false;
+bool gUploadMagicChecked = false;
+size_t gUploadBytes = 0;
+mbedtls_sha256_context gUploadSha;
+bool gUploadShaActive = false;
 
 const char PAGE[] PROGMEM = R"HTML(<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#090b0e"><meta name="robots" content="noindex"><title>MAZ Pocket</title><style>
-:root{color-scheme:dark;--b:#090b0e;--p:#11161b;--p2:#0d1115;--l:#28313a;--t:#eef2f3;--d:#99a5ad;--a:#ff7a18;--g:#42d58a;--w:#ffc04d;--r:#ff676d}*{box-sizing:border-box}body{margin:0;background:var(--b);color:var(--t);font:13px ui-monospace,SFMono-Regular,Consolas,monospace}main{max-width:920px;margin:auto;padding:12px}.top{position:sticky;top:0;z-index:3;background:#090b0ef2;border-bottom:1px solid var(--l);display:flex;justify-content:space-between;gap:10px;padding:10px 0}.brand{font-size:19px;font-weight:900}.brand b{color:var(--a)}.pills{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.pill{border:1px solid var(--l);border-radius:999px;padding:4px 7px;color:var(--d);font-size:10px}.pill.ok{color:var(--g)}.pill.bad{color:var(--r)}h1{font-size:23px;margin:18px 0 5px}p{color:var(--d);line-height:1.45}.sec{margin-top:15px}.sec>h2{font-size:10px;letter-spacing:.15em;color:var(--d)}.surfaces{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.surface,.card{border:1px solid var(--l);border-radius:9px;background:var(--p);padding:11px}.surface{min-height:95px;display:flex;flex-direction:column;justify-content:space-between}.surface strong{font-size:15px}.surface small{display:block;color:var(--d);margin:5px 0 9px;line-height:1.35}.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.kv{display:grid;grid-template-columns:1fr auto;gap:6px 10px}.kv span{color:var(--d)}button,input,select{font:inherit;border:1px solid var(--l);border-radius:7px;background:#080b0e;color:var(--t);padding:8px}button{cursor:pointer}button.primary{background:var(--a);border-color:var(--a);color:#08090a;font-weight:900}.row{display:flex;gap:6px;flex-wrap:wrap}.row button{flex:1;min-width:95px}.cfg{display:grid;grid-template-columns:1fr 1fr;gap:6px}.cfg>*{width:100%}.wide{grid-column:1/-1}.status{background:var(--p2);border-radius:7px;margin-top:7px;padding:8px;color:var(--d);white-space:pre-wrap}.badtext{color:var(--r)}.good{color:var(--g)}canvas{width:min(100%,480px);height:auto;image-rendering:pixelated;background:#000;border:1px solid var(--l);border-radius:7px}.note{font-size:11px;color:var(--d)}@media(max-width:650px){.surfaces{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}}@media(max-width:360px){.surface{padding:9px}}
+:root{color-scheme:dark;--b:#090b0e;--p:#11161b;--p2:#0d1115;--l:#28313a;--t:#eef2f3;--d:#99a5ad;--a:#ff7a18;--g:#42d58a;--w:#ffc04d;--r:#ff676d}*{box-sizing:border-box}body{margin:0;background:var(--b);color:var(--t);font:13px ui-monospace,SFMono-Regular,Consolas,monospace}main{max-width:920px;margin:auto;padding:12px}.top{position:sticky;top:0;z-index:3;background:#090b0ef2;border-bottom:1px solid var(--l);display:flex;justify-content:space-between;gap:10px;padding:10px 0}.brand{font-size:19px;font-weight:900}.brand b{color:var(--a)}.pills{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.pill{border:1px solid var(--l);border-radius:999px;padding:4px 7px;color:var(--d);font-size:10px}.pill.ok{color:var(--g)}.pill.bad{color:var(--r)}h1{font-size:23px;margin:18px 0 5px}p{color:var(--d);line-height:1.45}.sec{margin-top:15px}.sec>h2{font-size:10px;letter-spacing:.15em;color:var(--d)}.surfaces{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.surface,.card{border:1px solid var(--l);border-radius:9px;background:var(--p);padding:11px}.surface{min-height:95px;display:flex;flex-direction:column;justify-content:space-between}.surface strong{font-size:15px}.surface small{display:block;color:var(--d);margin:5px 0 9px;line-height:1.35}.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.kv{display:grid;grid-template-columns:1fr auto;gap:6px 10px}.kv span{color:var(--d)}button,input,select{font:inherit;border:1px solid var(--l);border-radius:7px;background:#080b0e;color:var(--t);padding:8px}button{cursor:pointer}button.primary{background:var(--a);border-color:var(--a);color:#08090a;font-weight:900}.row{display:flex;gap:6px;flex-wrap:wrap}.row button{flex:1;min-width:95px}.cfg{display:grid;grid-template-columns:1fr 1fr;gap:6px}.cfg>*{width:100%}.wide{grid-column:1/-1}.status{background:var(--p2);border-radius:7px;margin-top:7px;padding:8px;color:var(--d);white-space:pre-wrap}.badtext{color:var(--r)}.good{color:var(--g)}canvas{width:min(100%,480px);height:auto;image-rendering:pixelated;background:#000;border:1px solid var(--l);border-radius:7px}.note{font-size:11px;color:var(--d)}.file{width:100%;margin:6px 0}@media(max-width:650px){.surfaces{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}}@media(max-width:360px){.surface{padding:9px}}
 </style></head><body><main><div class="top"><div class="brand"><b>MAZ</b> POCKET <span id="ver" class="note">v-</span></div><div class="pills"><span id="pw" class="pill">Wi-Fi</span><span id="pcore" class="pill">Core</span><span id="pa" class="pill">Agents</span><span id="pb" class="pill">Battery</span></div></div>
 <h1>Pocket control surface</h1><p>Fast local controls. Network work stays off the Cardputer UI task; M5Launcher still owns firmware installation.</p>
 <div class="sec"><h2>SURFACES</h2><div class="surfaces">
@@ -72,9 +89,10 @@ const char PAGE[] PROGMEM = R"HTML(<!doctype html>
 <div class="sec"><h2>LIVE LCD</h2><div class="card"><canvas id="screen" width="240" height="135"></canvas><p class="note">Unlock controls to view the LCD. Frame reads reuse the existing 16-bit shell canvas; no second framebuffer is allocated.</p></div></div>
 <div class="sec"><h2>PC QUICK CONTROL</h2><div class="card"><div class="row"><button onclick="pc('desktop')">DESKTOP</button><button onclick="pc('play_pause')">PLAY/PAUSE</button><button onclick="pc('mute')">MUTE</button><button onclick="pc('volume_down')">VOL -</button><button onclick="pc('volume_up')">VOL +</button><button onclick="pc('previous_track')">PREV</button><button onclick="pc('next_track')">NEXT</button><button onclick="pc('lock')">LOCK</button></div><p class="note">Commands are queued on the single bounded Host worker; the browser never waits on MAZ Core HTTP.</p></div></div>
 <div class="sec"><h2>UNLOCK + CONFIG</h2><div class="grid"><div class="card"><p class="note">Use the same pairing token as MAZ Core. It stays in this browser session.</p><div class="cfg"><input class="wide" id="token" type="password" placeholder="MAZ pairing token"><button class="primary wide" onclick="unlock()">UNLOCK</button></div><div id="lock" class="status">Controls locked.</div></div><div class="card"><div class="cfg"><input id="hostAddr" placeholder="MAZ Core IP/name"><input id="hostPort" type="number" value="8787"><input class="wide" id="remote" placeholder="Optional private https://..."><select id="route"><option value="0">LOCAL</option><option value="1">AUTO</option><option value="2">CLOUD</option></select><select id="tts"><option value="1">Spoken replies ON</option><option value="0">Spoken replies OFF</option></select><input id="ssid2" placeholder="Backup Wi-Fi SSID"><input id="pass2" type="password" placeholder="Backup Wi-Fi password"><button class="primary wide" onclick="saveCfg()">SAVE</button></div></div></div></div>
+<div class="sec"><h2>STAGE NEXT FIRMWARE</h2><div class="card"><p class="note">Phone-friendly update path: download an app-only MAZ Pocket release .bin, choose it here, then stage it onto SD. MAZ Pocket verifies the ESP image and SHA-256 but never writes firmware to flash. M5Launcher remains the installer.</p><input class="file" id="fw" type="file" accept=".bin,application/octet-stream"><div class="row"><button class="primary" onclick="stageFw()">VERIFY + STAGE TO SD</button><button onclick="act('launcher')">OPEN M5LAUNCHER</button></div><div id="stage" class="status">No firmware staged this session.</div></div></div>
 <div class="sec"><h2>DEVICE</h2><div class="card"><div class="row"><button onclick="act('speaker')">SPEAKER</button><button onclick="act('storage')">SD CHECK</button><button onclick="act('reboot')">REBOOT</button><button onclick="act('launcher')">M5LAUNCHER</button></div><p class="note">Firmware updates remain app-only M5Launcher installs. No generic OTA partition writer is exposed here.</p><div id="log" class="status">Ready.</div></div></div>
 <script>
-const $=x=>document.getElementById(x);let token=sessionStorage.getItem('mazToken')||'';if(token)$('token').value=token;const H=()=>token?{'X-MAZ-Token':token}:{};function log(x,b=false){$('log').textContent=x;$('log').className='status '+(b?'badtext':'')}function pill(id,ok,t){let e=$(id);e.textContent=t;e.className='pill '+(ok?'ok':'bad')}async function status(fill=false){try{let r=await fetch('/api/status',{headers:H(),cache:'no-store'}),d=await r.json();$('ver').textContent='v'+d.version;$('app').textContent=d.app;$('wifi').textContent=d.wifi_ssid||'offline';$('ip').textContent=d.ip||'-';$('storage').textContent=d.storage;$('heap').textContent=Math.round((d.free_heap||0)/1024)+'K';$('loop').textContent=(d.loop_max||0)+'ms';$('core').textContent=d.host_link||'OFFLINE';$('worker').textContent=d.host_worker||'IDLE';$('working').textContent=d.agents_working||0;$('waiting').textContent=d.agents_waiting||0;$('stale').textContent=d.agents_stale||0;pill('pw',!!d.wifi_connected,d.wifi_connected?'Wi-Fi ✓':'Wi-Fi ×');pill('pcore',d.host_link&&d.host_link!='OFFLINE',d.host_link&&d.host_link!='OFFLINE'?'Core ✓':'Core ×');pill('pa',!(d.agents_stale||d.agent_question),d.agent_question?'Needs Maz':(d.agents_stale?d.agents_stale+' stale':'Agents ✓'));pill('pb',(d.battery||0)>15,d.battery<0?'Battery ?':'Battery '+d.battery+'%');$('lock').innerHTML=d.unlocked?'<span class="good">CONTROLS UNLOCKED</span>':'Controls locked.';if(fill&&d.unlocked){$('hostAddr').value=d.host_addr||'';$('hostPort').value=d.host_port||8787;$('remote').value=d.remote_url||'';$('route').value=String(d.route||0);$('tts').value=d.tts?'1':'0';$('ssid2').value=d.ssid2||''}}catch(e){pill('pw',false,'Device offline');log('Lost connection to MAZ Pocket.',true)}}async function unlock(){token=$('token').value.trim();sessionStorage.setItem('mazToken',token);await status(true);await frame()}async function post(path,body){try{let r=await fetch(path,{method:'POST',headers:{...H(),'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body)}),t=await r.text();log(t,!r.ok);setTimeout(()=>status(false),200);return r.ok?t:null}catch(e){log('Request failed.',true);return null}}function act(a){return post('/api/action',{action:a})}function openApp(a){return act('open:'+a)}function pc(a){return act('pc:'+a)}async function saveCfg(){let x=await post('/api/config',{host_addr:$('hostAddr').value.trim(),host_port:$('hostPort').value||'8787',remote_url:$('remote').value.trim(),route:$('route').value,tts:$('tts').value,ssid2:$('ssid2').value.trim(),pass2:$('pass2').value});if(x)setTimeout(()=>status(true),300)}async function frame(){if(!token)return;try{let r=await fetch('/api/screen',{headers:H(),cache:'no-store'});if(!r.ok)return;let b=new Uint8Array(await r.arrayBuffer());if(b.length!=64800)return;let c=$('screen').getContext('2d'),im=c.createImageData(240,135);for(let p=0,i=0;p<32400;p++,i+=2){let v=b[i]|b[i+1]<<8,o=p*4;im.data[o]=((v>>11)&31)*255/31;im.data[o+1]=((v>>5)&63)*255/63;im.data[o+2]=(v&31)*255/31;im.data[o+3]=255}c.putImageData(im,0,0)}catch(e){}}status(true);setInterval(()=>status(false),2500);setInterval(()=>frame(),1000);
+const $=x=>document.getElementById(x);let token=sessionStorage.getItem('mazToken')||'';if(token)$('token').value=token;const H=()=>token?{'X-MAZ-Token':token}:{};function log(x,b=false){$('log').textContent=x;$('log').className='status '+(b?'badtext':'')}function pill(id,ok,t){let e=$(id);e.textContent=t;e.className='pill '+(ok?'ok':'bad')}async function status(fill=false){try{let r=await fetch('/api/status',{headers:H(),cache:'no-store'}),d=await r.json();$('ver').textContent='v'+d.version;$('app').textContent=d.app;$('wifi').textContent=d.wifi_ssid||'offline';$('ip').textContent=d.ip||'-';$('storage').textContent=d.storage;$('heap').textContent=Math.round((d.free_heap||0)/1024)+'K';$('loop').textContent=(d.loop_max||0)+'ms';$('core').textContent=d.host_link||'OFFLINE';$('worker').textContent=d.host_worker||'IDLE';$('working').textContent=d.agents_working||0;$('waiting').textContent=d.agents_waiting||0;$('stale').textContent=d.agents_stale||0;pill('pw',!!d.wifi_connected,d.wifi_connected?'Wi-Fi ✓':'Wi-Fi ×');pill('pcore',d.host_link&&d.host_link!='OFFLINE',d.host_link&&d.host_link!='OFFLINE'?'Core ✓':'Core ×');pill('pa',!(d.agents_stale||d.agent_question),d.agent_question?'Needs Maz':(d.agents_stale?d.agents_stale+' stale':'Agents ✓'));pill('pb',(d.battery||0)>15,d.battery<0?'Battery ?':'Battery '+d.battery+'%');$('lock').innerHTML=d.unlocked?'<span class="good">CONTROLS UNLOCKED</span>':'Controls locked.';if(fill&&d.unlocked){$('hostAddr').value=d.host_addr||'';$('hostPort').value=d.host_port||8787;$('remote').value=d.remote_url||'';$('route').value=String(d.route||0);$('tts').value=d.tts?'1':'0';$('ssid2').value=d.ssid2||''}}catch(e){pill('pw',false,'Device offline');log('Lost connection to MAZ Pocket.',true)}}async function unlock(){token=$('token').value.trim();sessionStorage.setItem('mazToken',token);await status(true);await frame()}async function post(path,body){try{let r=await fetch(path,{method:'POST',headers:{...H(),'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body)}),t=await r.text();log(t,!r.ok);setTimeout(()=>status(false),200);return r.ok?t:null}catch(e){log('Request failed.',true);return null}}function act(a){return post('/api/action',{action:a})}function openApp(a){return act('open:'+a)}function pc(a){return act('pc:'+a)}async function saveCfg(){let x=await post('/api/config',{host_addr:$('hostAddr').value.trim(),host_port:$('hostPort').value||'8787',remote_url:$('remote').value.trim(),route:$('route').value,tts:$('tts').value,ssid2:$('ssid2').value.trim(),pass2:$('pass2').value});if(x)setTimeout(()=>status(true),300)}async function frame(){if(!token)return;try{let r=await fetch('/api/screen',{headers:H(),cache:'no-store'});if(!r.ok)return;let b=new Uint8Array(await r.arrayBuffer());if(b.length!=64800)return;let c=$('screen').getContext('2d'),im=c.createImageData(240,135);for(let p=0,i=0;p<32400;p++,i+=2){let v=b[i]|b[i+1]<<8,o=p*4;im.data[o]=((v>>11)&31)*255/31;im.data[o+1]=((v>>5)&63)*255/63;im.data[o+2]=(v&31)*255/31;im.data[o+3]=255}c.putImageData(im,0,0)}catch(e){}}async function sha256(file){let d=new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()));return Array.from(d).map(x=>x.toString(16).padStart(2,'0')).join('')}async function stageFw(){let f=$('fw').files[0];if(!token){$('stage').textContent='Unlock controls first.';return}if(!f){$('stage').textContent='Choose an app-only .bin first.';return}if(f.size<65536||f.size>1572864){$('stage').textContent='Rejected: firmware size outside safe Launcher app bounds.';return}try{$('stage').textContent='Hashing '+f.name+'...';let hash=await sha256(f);$('stage').textContent='Uploading '+Math.round(f.size/1024)+' KB...';let r=await fetch('/api/stage',{method:'POST',headers:{...H(),'Content-Type':'application/octet-stream','X-MAZ-SHA256':hash},body:f}),t=await r.text();$('stage').textContent=t;if(!r.ok)$('stage').className='status badtext';else $('stage').className='status good'}catch(e){$('stage').textContent='Stage failed: '+e;$('stage').className='status badtext'}}status(true);setInterval(()=>status(false),2500);setInterval(()=>frame(),1000);
 </script></main></body></html>)HTML";
 
 String jsonEscape(const String& in) {
@@ -94,6 +112,14 @@ int hexNibble(char c) {
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
     return -1;
+}
+
+bool validSha256(String value) {
+    value.toLowerCase();
+    if (value.length() != 64) return false;
+    for (size_t i = 0; i < value.length(); ++i)
+        if (hexNibble(value[i]) < 0) return false;
+    return true;
 }
 
 String decodeForm(String value) {
@@ -147,7 +173,7 @@ const char* reason(int code) {
 
 String makeHead(int code, const char* type, size_t len) {
     String h;
-    h.reserve(180);
+    h.reserve(190);
     h += "HTTP/1.1 "; h += String(code); h += ' '; h += reason(code); h += "\r\n";
     h += "Content-Type: "; h += type;
     h += "\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ";
@@ -156,12 +182,28 @@ String makeHead(int code, const char* type, size_t len) {
     return h;
 }
 
+void abortUpload() {
+    if (gUploadFile) {
+        gUploadFile.flush();
+        gUploadFile.close();
+    }
+    if (gUploadShaActive) {
+        mbedtls_sha256_free(&gUploadSha);
+        gUploadShaActive = false;
+    }
+    if (gUploadActive && store::fs()) store::fs()->remove(STAGING_PATH);
+    gUploadActive = false;
+    gUploadMagicChecked = false;
+    gUploadBytes = 0;
+}
+
 void resetRx() {
     gRxState = RxState::RequestLine;
     gLine = "";
     gMethod = "";
     gPath = "";
     gToken = "";
+    gExpectedSha = "";
     gBody = "";
     gContentLength = 0;
     gHeaderBytes = 0;
@@ -173,9 +215,12 @@ void resetTx() {
     gTxText = "";
     gTxHeadAt = 0;
     gTxPayloadAt = 0;
+    gScreenChunkAt = 0;
+    gScreenChunkLen = 0;
 }
 
 void closeClient() {
+    if (gUploadActive) abortUpload();
     if (gClient) gClient.stop();
     resetRx();
     resetTx();
@@ -200,16 +245,17 @@ void queuePage() {
 
 void queueScreen() {
     gTxHead = makeHead(200, "application/octet-stream", SCREEN_BYTES);
-    gTxHead += "";
     gTxHeadAt = 0;
     gTxPayloadAt = 0;
+    gScreenChunkAt = 0;
+    gScreenChunkLen = 0;
     gTxKind = TxKind::Screen;
     gLastTxAt = millis();
 }
 
 String statusJson(bool unlocked) {
     String j;
-    j.reserve(1100);
+    j.reserve(1200);
     j += "{\"ok\":true,\"version\":\"" MAZ_POCKET_VERSION "\"";
     j += ",\"unlocked\":"; j += unlocked ? "true" : "false";
     j += ",\"app\":\"" + jsonEscape(shell::currentId()) + "\"";
@@ -236,6 +282,7 @@ String statusJson(bool unlocked) {
     j += ",\"largest_block\":" + String(Sys.largestFreeBlock);
     j += ",\"loop_max\":" + String(Sys.loopMaxMs);
     j += ",\"screen_bytes\":" + String(SCREEN_BYTES);
+    j += ",\"staging_supported\":"; j += Sys.storage == Storage::SD ? "true" : "false";
     if (unlocked) {
         j += ",\"host_addr\":\"" + jsonEscape(Cfg.hostAddr.c_str()) + "\"";
         j += ",\"host_port\":" + String(Cfg.hostPort);
@@ -339,6 +386,146 @@ String saveConfig(const String& body) {
     return "Configuration saved.";
 }
 
+void failRequest(int code, const char* text);
+
+bool beginUpload() {
+    if (!tokenOk(gToken)) {
+        failRequest(401, "Pairing token required for firmware staging.");
+        return false;
+    }
+    if (Sys.storage != Storage::SD || !store::fs()) {
+        failRequest(400, "Firmware staging requires an active microSD card.");
+        return false;
+    }
+    if (gContentLength < MIN_FIRMWARE || gContentLength > MAX_FIRMWARE) {
+        failRequest(400, "Firmware size is outside the safe M5Launcher app range.");
+        return false;
+    }
+    if (store::freeBytes() < gContentLength + 65536u) {
+        failRequest(400, "Not enough free SD space to stage firmware safely.");
+        return false;
+    }
+    if (!gExpectedSha.isEmpty() && !validSha256(gExpectedSha)) {
+        failRequest(400, "X-MAZ-SHA256 must be a 64-character hexadecimal digest.");
+        return false;
+    }
+
+    fs::FS* target = store::fs();
+    target->remove(STAGING_PATH);
+    gUploadFile = target->open(STAGING_PATH, FILE_WRITE);
+    if (!gUploadFile) {
+        failRequest(400, "Could not open SD staging file.");
+        return false;
+    }
+
+    mbedtls_sha256_init(&gUploadSha);
+    if (mbedtls_sha256_starts_ret(&gUploadSha, 0) != 0) {
+        gUploadFile.close();
+        target->remove(STAGING_PATH);
+        mbedtls_sha256_free(&gUploadSha);
+        failRequest(400, "Could not initialise firmware verification.");
+        return false;
+    }
+    gUploadShaActive = true;
+    gUploadActive = true;
+    gUploadMagicChecked = false;
+    gUploadBytes = 0;
+    gRxState = RxState::Upload;
+    return true;
+}
+
+String finishUpload() {
+    unsigned char digest[32] = {};
+    if (gUploadFile) {
+        gUploadFile.flush();
+        gUploadFile.close();
+    }
+    if (!gUploadShaActive || mbedtls_sha256_finish_ret(&gUploadSha, digest) != 0) {
+        if (gUploadShaActive) mbedtls_sha256_free(&gUploadSha);
+        gUploadShaActive = false;
+        if (store::fs()) store::fs()->remove(STAGING_PATH);
+        gUploadActive = false;
+        return "ERROR: SHA-256 verification failed.";
+    }
+    mbedtls_sha256_free(&gUploadSha);
+    gUploadShaActive = false;
+
+    char hex[65];
+    static const char digits[] = "0123456789abcdef";
+    for (size_t i = 0; i < 32; ++i) {
+        hex[i * 2] = digits[(digest[i] >> 4) & 0x0f];
+        hex[i * 2 + 1] = digits[digest[i] & 0x0f];
+    }
+    hex[64] = '\0';
+    String actual(hex);
+    String expected = gExpectedSha;
+    expected.toLowerCase();
+
+    fs::FS* target = store::fs();
+    if (!target || (!expected.isEmpty() && actual != expected)) {
+        if (target) target->remove(STAGING_PATH);
+        gUploadActive = false;
+        return String("ERROR: SHA-256 mismatch. received=") + actual;
+    }
+
+    target->remove(STAGED_PATH);
+    if (!target->rename(STAGING_PATH, STAGED_PATH)) {
+        target->remove(STAGING_PATH);
+        gUploadActive = false;
+        return "ERROR: verified firmware could not be promoted on SD.";
+    }
+
+    gUploadActive = false;
+    return String("Firmware verified and staged as ") + STAGED_PATH +
+           " (" + String(gUploadBytes) + " bytes, sha256 " + actual +
+           "). Return to M5Launcher to install it.";
+}
+
+void pumpUpload() {
+    if (!gUploadActive || !gClient.connected()) return;
+    size_t budget = RX_BUDGET_PER_TICK;
+    while (budget && gClient.available() && gUploadBytes < gContentLength) {
+        size_t available = static_cast<size_t>(gClient.available());
+        size_t remaining = gContentLength - gUploadBytes;
+        size_t want = available < budget ? available : budget;
+        if (want > remaining) want = remaining;
+        if (want > sizeof(gIoScratch)) want = sizeof(gIoScratch);
+        const int got = gClient.read(gIoScratch, want);
+        if (got <= 0) break;
+        gLastRxAt = millis();
+
+        if (!gUploadMagicChecked) {
+            gUploadMagicChecked = true;
+            if (gIoScratch[0] != 0xE9) {
+                abortUpload();
+                failRequest(400, "Rejected: file is not an ESP32 app image (missing 0xE9 magic).");
+                return;
+            }
+        }
+
+        const size_t count = static_cast<size_t>(got);
+        if (gUploadFile.write(gIoScratch, count) != count) {
+            abortUpload();
+            failRequest(400, "SD write failed while staging firmware.");
+            return;
+        }
+        if (mbedtls_sha256_update_ret(&gUploadSha, gIoScratch, count) != 0) {
+            abortUpload();
+            failRequest(400, "SHA-256 update failed while staging firmware.");
+            return;
+        }
+        gUploadBytes += count;
+        budget -= count;
+    }
+
+    if (gUploadBytes == gContentLength) {
+        const String result = finishUpload();
+        const bool ok = !result.startsWith("ERROR:");
+        queueText(ok ? 200 : 400, "text/plain", result);
+        gRxState = RxState::Ready;
+    }
+}
+
 void dispatchRequest() {
     const bool unlocked = tokenOk(gToken);
     if (gMethod == "GET" && (gPath == "/" || gPath == "/index.html")) {
@@ -382,16 +569,21 @@ bool parseHeader(const String& line) {
     name.trim(); name.toLowerCase(); value.trim();
     if (name == "content-length") {
         const long parsed = value.toInt();
-        if (parsed < 0 || static_cast<size_t>(parsed) > MAX_BODY) return false;
+        const size_t maxAllowed = gPath == "/api/stage" ? MAX_FIRMWARE : MAX_FORM_BODY;
+        if (parsed < 0 || static_cast<size_t>(parsed) > maxAllowed) return false;
         gContentLength = static_cast<size_t>(parsed);
     } else if (name == "x-maz-token") {
         if (value.length() > 160) return false;
         gToken = value;
+    } else if (name == "x-maz-sha256") {
+        if (value.length() > 64) return false;
+        gExpectedSha = value;
     }
     return true;
 }
 
 void failRequest(int code, const char* text) {
+    if (gUploadActive) abortUpload();
     queueText(code, "text/plain", text);
     gRxState = RxState::Ready;
 }
@@ -412,7 +604,13 @@ void consumeLine() {
 
     if (gRxState != RxState::Headers) return;
     if (line.isEmpty()) {
-        if (gContentLength > 0) {
+        if (gPath == "/api/stage") {
+            if (gMethod != "POST" || gContentLength == 0) {
+                failRequest(400, "Firmware staging requires POST with Content-Length.");
+                return;
+            }
+            beginUpload();
+        } else if (gContentLength > 0) {
             gBody.reserve(gContentLength);
             gRxState = RxState::Body;
         } else {
@@ -421,12 +619,16 @@ void consumeLine() {
         return;
     }
     gHeaderBytes += line.length() + 2;
-    if (gHeaderBytes > MAX_HEADERS || !parseHeader(line)) {
+    if (gHeaderBytes > MAX_HEADERS || !parseHeader(line))
         failRequest(400, "Headers too large or invalid.");
-    }
 }
 
 void pumpRx() {
+    if (gRxState == RxState::Upload) {
+        pumpUpload();
+        return;
+    }
+
     size_t consumed = 0;
     while (gClient.connected() && gClient.available() &&
            consumed < RX_BUDGET_PER_TICK && gTxKind == TxKind::None) {
@@ -490,25 +692,37 @@ void pumpTx() {
     }
 
     if (gTxKind == TxKind::Screen) {
-        if (gTxPayloadAt >= SCREEN_BYTES) {
-            closeClient();
-            return;
+        if (gScreenChunkAt == gScreenChunkLen) {
+            if (gTxPayloadAt >= SCREEN_BYTES) {
+                closeClient();
+                return;
+            }
+            const uint16_t* pixels = reinterpret_cast<const uint16_t*>(shell::canvas().getBuffer());
+            if (!pixels) {
+                closeClient();
+                return;
+            }
+            const size_t pixelsAt = gTxPayloadAt / 2;
+            const size_t remainingPixels = SCREEN_PIXELS - pixelsAt;
+            const size_t maxPixels = sizeof(gIoScratch) / 2;
+            const size_t count = remainingPixels < maxPixels ? remainingPixels : maxPixels;
+            for (size_t i = 0; i < count; ++i) {
+                const uint16_t v = pixels[pixelsAt + i];
+                gIoScratch[i * 2] = static_cast<uint8_t>(v & 0xff);
+                gIoScratch[i * 2 + 1] = static_cast<uint8_t>(v >> 8);
+            }
+            gScreenChunkAt = 0;
+            gScreenChunkLen = count * 2;
         }
-        const uint16_t* pixels = reinterpret_cast<const uint16_t*>(shell::canvas().getBuffer());
-        if (!pixels) {
-            closeClient();
-            return;
+
+        const size_t wrote = writeChunk(gIoScratch + gScreenChunkAt,
+                                        gScreenChunkLen - gScreenChunkAt);
+        gScreenChunkAt += wrote;
+        if (gScreenChunkAt == gScreenChunkLen) {
+            gTxPayloadAt += gScreenChunkLen;
+            gScreenChunkAt = 0;
+            gScreenChunkLen = 0;
         }
-        const size_t pixelsAt = gTxPayloadAt / 2;
-        const size_t remainingPixels = SCREEN_PIXELS - pixelsAt;
-        const size_t maxPixels = sizeof(gScreenScratch) / 2;
-        const size_t count = remainingPixels < maxPixels ? remainingPixels : maxPixels;
-        for (size_t i = 0; i < count; ++i) {
-            const uint16_t v = pixels[pixelsAt + i];
-            gScreenScratch[i * 2] = static_cast<uint8_t>(v & 0xff);
-            gScreenScratch[i * 2 + 1] = static_cast<uint8_t>(v >> 8);
-        }
-        gTxPayloadAt += writeChunk(gScreenScratch, count * 2);
     }
 }
 
@@ -529,8 +743,12 @@ void enforceDeadlines() {
     if (!gClient || !gClient.connected()) return;
     const uint32_t now = millis();
     if (gTxKind == TxKind::None) {
-        if (now - gLastRxAt > REQUEST_IDLE_MS || now - gOpenedAt > REQUEST_MAX_AGE_MS)
-            failRequest(408, "Request timed out.");
+        const bool uploading = gRxState == RxState::Upload;
+        const uint32_t idleLimit = uploading ? UPLOAD_IDLE_MS : REQUEST_IDLE_MS;
+        const uint32_t ageLimit = uploading ? UPLOAD_MAX_AGE_MS : REQUEST_MAX_AGE_MS;
+        if (now - gLastRxAt > idleLimit || now - gOpenedAt > ageLimit)
+            failRequest(408, uploading ? "Firmware upload timed out and partial file was removed."
+                                       : "Request timed out.");
     } else if (now - gLastTxAt > TX_IDLE_MS) {
         closeClient();
     }
