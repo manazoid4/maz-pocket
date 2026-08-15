@@ -72,16 +72,19 @@ jobs:
           Copy-Item .\dist\maz-pocket-app.bin .\dist\Maz-Pocket-v0.5-M5Launcher.bin -Force
           Compress-Archive -Path .\host\* -DestinationPath .\dist\MAZ-Core-v0.5.zip -Force
           Copy-Item .\scripts\install-to-sd.ps1 .\dist\install-to-sd.ps1 -Force
+          Copy-Item .\scripts\INSTALL-MAZ-POCKET.cmd .\dist\INSTALL-MAZ-POCKET.cmd -Force
           Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
           Copy-Item .\RELEASE_NOTES.md .\dist\RELEASE_NOTES.md -Force
 
           $firmwareSha = (Get-FileHash .\dist\Maz-Pocket-v0.5-M5Launcher.bin -Algorithm SHA256).Hash.ToLowerInvariant()
           $coreSha = (Get-FileHash .\dist\MAZ-Core-v0.5.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $installerSha = (Get-FileHash .\dist\install-to-sd.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
+          $launcherSha = (Get-FileHash .\dist\INSTALL-MAZ-POCKET.cmd -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
             "$firmwareSha  Maz-Pocket-v0.5-M5Launcher.bin",
             "$coreSha  MAZ-Core-v0.5.zip",
-            "$installerSha  install-to-sd.ps1"
+            "$installerSha  install-to-sd.ps1",
+            "$launcherSha  INSTALL-MAZ-POCKET.cmd"
           ) | Set-Content -Encoding ascii .\dist\SHA256SUMS.txt
 
           New-Item -ItemType Directory -Path .\dist\install -Force | Out-Null
@@ -89,6 +92,7 @@ jobs:
             '.\dist\Maz-Pocket-v0.5-M5Launcher.bin',
             '.\dist\MAZ-Core-v0.5.zip',
             '.\dist\install-to-sd.ps1',
+            '.\dist\INSTALL-MAZ-POCKET.cmd',
             '.\dist\SHA256SUMS.txt',
             '.\dist\QUICKSTART.txt',
             '.\dist\RELEASE_NOTES.md'
@@ -107,6 +111,7 @@ jobs:
             dist/Maz-Pocket-v0.5-M5Launcher.bin
             dist/MAZ-Core-v0.5.zip
             dist/MAZ-Pocket-v0.5-Install.zip
+            dist/INSTALL-MAZ-POCKET.cmd
             dist/install-to-sd.ps1
             dist/SHA256SUMS.txt
             dist/QUICKSTART.txt
