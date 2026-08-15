@@ -42,7 +42,7 @@ jobs:
         run: python -m pytest host/tests -q
 
       - name: Check updater Python
-        run: python -m py_compile updater/ota.py updater/maz_updater.py
+        run: python -m py_compile updater/ota.py updater/maz_updater.py updater/maz_updater_entry.py updater/pyi_streams.py
 
       - name: Build Cardputer ADV firmware
         shell: pwsh
@@ -54,10 +54,11 @@ jobs:
           pyinstaller --noconfirm --clean --onefile --windowed `
             --name MazPocketUpdater `
             --paths updater `
+            --runtime-hook updater/pyi_streams.py `
             --add-data "dist/maz-pocket-app.bin;firmware" `
             --collect-all esptool `
             --hidden-import serial.tools.list_ports_windows `
-            updater/maz_updater.py
+            updater/maz_updater_entry.py
           Copy-Item .\dist\MazPocketUpdater.exe .\dist\MazPocketUpdater-v0.3.exe -Force
           Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
 
