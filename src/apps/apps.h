@@ -52,7 +52,6 @@ App* makeHelp();
 App* makeInbox();
 App* makeDecision();
 App* makeSprint();
-App* makeNudge();
 App* makeReminders();
 App* makeSnake();
 App* makeHyperdrive();
