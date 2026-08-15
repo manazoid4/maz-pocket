@@ -12,8 +12,8 @@ Browser-first transition/update path for Cardputer ADV.
 - Refuse if no unique MAZ partition exists or if the firmware does not fit.
 - Never erase the full flash.
 - Never write the partition table, NVS, M5Launcher, SD data, or sibling firmware.
-- Verify the flashed application using the ESP32 ROM flash-MD5 command.
-- If write/verification fails, restore the published physical-hardware-accepted v0.02 recovery image and verify that recovery using ROM MD5.
+- Verify the flashed application using `esptool-js`'s upstream ROM-compatible `flashMd5sum()` implementation.
+- If write/verification fails, restore the published physical-hardware-accepted v0.02 recovery image and verify that recovery using the same ROM MD5 path.
 - Desktop Chromium uses Web Serial. Android Chrome can fall back to Google's WebUSB Serial polyfill.
 - The normal transition path deliberately has no arbitrary local `.bin` option and no erase button.
 
@@ -36,8 +36,8 @@ CI exercises the pure partition and ROM helpers before packaging:
 - wrong partition type/subtype;
 - overlap and out-of-flash bounds;
 - truncated partition tables;
-- ROM 0x0E slow-read packet layout and chunking;
-- ROM 0x13 flash-MD5 packet layout and response normalization.
+- ROM `0x0E` slow-read packet layout and chunking;
+- browser-flasher syntax against the upstream `esptool-js` ROM write/MD5 APIs.
 
 The final device flash still requires physical acceptance on the real Cardputer; passing CI is not represented as hardware proof.
 
