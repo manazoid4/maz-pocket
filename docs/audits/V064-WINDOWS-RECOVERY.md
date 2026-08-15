@@ -42,6 +42,15 @@ A second latent v0.6.3 bug was found during review: if Qwen3.5 failed at 8K cont
 - Obsolete `start-llamacpp.ps1` is removed from the recovery package.
 - Failure report remains sanitized and excludes `.env`/token contents.
 
+## Validation already completed off-target
+
+- 23 recovery-package contract checks passed during construction.
+- Python source AST parsing passed for all 19 `mazhost` modules.
+- Local config/router contract passed: llama-swap local-first, `maz-primary` then `maz-backup`, LOCAL default route.
+- Final ZIP integrity test passed.
+
+These checks are not substitutes for the target Windows run. Native EXE/model inference remains gated on the real machine.
+
 ## Release gate
 
 Do not merge the runtime migration or publish a release until the exact v0.6.4 recovery package passes the real target Windows machine end-to-end. Physical Cardputer validation remains a separate acceptance gate after Core is green.
