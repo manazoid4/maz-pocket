@@ -24,16 +24,16 @@ THAT IS ALL
 - No manual partition commands.
 
 WHAT THE WEB FLASHER DOES
-- Reads the LIVE ESP32 partition table from your Cardputer.
-- Finds exactly one existing Launcher app partition labelled MAZ-Pocket.
-- Refuses before writing if the v0.03 image does not fit that live partition.
-- Downloads a full raw backup of the existing MAZ-Pocket partition first.
+- Uses the ESP32-S3 ROM loader only; it does not upload the flaky RAM flasher stub.
+- SHA-256 verifies the packaged v0.03 firmware and known-good v0.02 recovery before any write.
+- Reads only the live 4KB ESP32 partition table from the Cardputer.
+- Finds exactly one existing Launcher OTA app partition labelled MAZ-Pocket.
+- Refuses before writing if v0.03 does not fit that live partition.
 - Writes ONLY the MAZ-Pocket partition.
 - Never full-erases the flash.
 - Never writes the partition table, NVS/settings, M5Launcher, SD data, Bruce or sibling firmware.
-- Reads v0.03 back and requires an exact SHA-256 match.
-- If verification fails, it attempts an automatic rollback.
-- If the older failed updater already damaged the v0.02 image header, a known-good physical-hardware-accepted v0.02 recovery image is available to the rollback path.
+- Uses the ESP32 ROM flash-MD5 command to verify the written v0.03 image.
+- If write/verification fails, it attempts to restore the known-good physical-hardware-accepted v0.02 image and verifies that recovery by ROM MD5.
 
 MAZPOCKET.LOCAL AFTER v0.03
 - Put your phone and Cardputer on the same Wi-Fi.
@@ -47,15 +47,17 @@ MAZPOCKET.LOCAL AFTER v0.03
 
 DEVICE
 - Home: COMM / LOG / OPS.
+- Approved direction remains COMM / CAPTURE / OPS / DESK / RECALL / FLOW.
 - Ctrl+K: all utilities plus Snake / Hyperdrive / Beam.
 - Helpful v0.02-style state-change reminders remain enabled.
 - Ctrl+L: guarded M5Launcher hand-back.
 
 BUILD GATES
 - MAZ Host tests.
-- Browser flasher JavaScript syntax check.
+- ROM-only browser flasher syntax + ownership + ROM packet tests.
 - Cardputer ADV firmware compile.
 - ESP32 app-image validation.
 - Hard 0x180000-byte compatibility ceiling matching the physical v0.02 M5Launcher slot.
-- Known-good v0.02 recovery SHA verification.
+- Known-good v0.02 recovery SHA-256 verification.
+- v0.03 + recovery SHA-256 and MD5 manifest generation.
 - Phone-first web-flasher package generation.
