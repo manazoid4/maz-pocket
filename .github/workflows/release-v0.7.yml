@@ -1,0 +1,126 @@
+name: Publish MAZ Pocket v0.7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".release/v0.7"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content .\VERSION -Raw).Trim()
+          if ($v -ne '0.7') { throw "release-v0.7 workflow received VERSION=$v" }
+          "value=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio pytest
+          pip install -r host/requirements.txt
+          pip install "click>=8.0.4,<8.4"
+
+      - name: Test MAZ Core + Host
+        run: python -m pytest host/tests -q
+
+      - name: Validate release contract
+        run: python scripts/check-version.py
+
+      - name: Validate PowerShell installers/helpers parse
+        shell: pwsh
+        run: |
+          $files = @(
+            '.\scripts\install-to-sd.ps1',
+            '.\scripts\setup-all.ps1',
+            '.\scripts\prepare-release.ps1',
+            '.\host\setup.ps1',
+            '.\host\install-core.ps1',
+            '.\host\pair.ps1',
+            '.\host\beam.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; throw "$file has parse errors" }
+          }
+
+      - name: Keep recovery flasher tests green
+        shell: pwsh
+        run: |
+          node --check web-flasher/flasher.js
+          node --check web-flasher/partition.js
+          node --check web-flasher/rom.js
+          node web-flasher/test-partition.mjs
+          node web-flasher/test-rom.mjs
+
+      - name: Build firmware
+        shell: pwsh
+        run: ./scripts/package-release.ps1
+
+      - name: Validate M5Launcher app image
+        shell: pwsh
+        run: |
+          python -c "from pathlib import Path; b=Path('dist/maz-pocket-app.bin').read_bytes(); assert len(b)>=65536 and b[0]==0xE9, 'invalid ESP32 app image'; assert len(b)<=0x180000, f'{len(b)} exceeds known Launcher slot'; print('ESP image OK',len(b),'bytes')"
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: ./scripts/prepare-release.ps1
+
+      - name: Verify split-package rule
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+          $required = @(
+            ".\dist\MAZ-Core-v$v.zip",
+            ".\dist\MAZ-Cardputer-v$v.zip",
+            ".\dist\MAZ-Pocket-v$v-Install.zip",
+            ".\dist\Maz-Pocket-v$v-M5Launcher.bin",
+            '.\dist\SHA256SUMS.txt'
+          )
+          foreach ($file in $required) { if (-not (Test-Path $file)) { throw "Required release asset missing: $file" } }
+          $tmp = Join-Path $env:RUNNER_TEMP 'maz-card-release-check'
+          Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive ".\dist\MAZ-Cardputer-v$v.zip" $tmp
+          if (-not (Test-Path (Join-Path $tmp "Maz-Pocket-v$v-M5Launcher.bin"))) { throw 'Cardputer ZIP missing firmware' }
+          if (-not (Test-Path (Join-Path $tmp 'QUICKSTART.txt'))) { throw 'Cardputer ZIP missing quickstart' }
+          Write-Host 'v0.7 release package contract OK'
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          gh release create "v$env:VERSION" `
+            ".\dist\Maz-Pocket-v$env:VERSION-M5Launcher.bin" `
+            ".\dist\MAZ-Core-v$env:VERSION.zip" `
+            ".\dist\MAZ-Cardputer-v$env:VERSION.zip" `
+            ".\dist\MAZ-Pocket-v$env:VERSION-Install.zip" `
+            .\dist\START-HERE.cmd `
+            .\dist\setup-all.ps1 `
+            .\dist\INSTALL-MAZ-POCKET.cmd `
+            .\dist\install-to-sd.ps1 `
+            .\dist\VERSION `
+            .\dist\SHA256SUMS.txt `
+            .\dist\QUICKSTART.txt `
+            .\dist\RELEASE_NOTES.md `
+            --target "$env:GITHUB_SHA" `
+            --title "MAZ Pocket v$env:VERSION — FIELD" `
+            --notes-file .\RELEASE_NOTES.md `
+            --latest
