@@ -16,6 +16,7 @@ constexpr UBaseType_t WORKER_PRIORITY = 1;
 
 std::atomic<State> gState{State::Idle};
 std::atomic<JobKind> gKind{JobKind::None};
+std::atomic<bool> gRetainPcResult{true};
 TaskHandle_t gTask = nullptr;
 
 std::string gSession;
@@ -25,6 +26,15 @@ std::string gAction;
 TalkResult gTalkResult;
 PcActionResult gPcResult;
 std::atomic<uint32_t> gStackHighWater{0};
+
+void resetToIdle() {
+    gSession.clear();
+    gPath.clear();
+    gSpeechPath.clear();
+    gAction.clear();
+    gKind.store(JobKind::None, std::memory_order_release);
+    gState.store(State::Idle, std::memory_order_release);
+}
 
 void finishMeasurement() {
     // ESP-IDF reports this value in bytes. Record it after the expensive
@@ -46,8 +56,6 @@ void worker(void*) {
         const JobKind kind = gKind.load(std::memory_order_acquire);
 
         if (kind == JobKind::TalkAudio) {
-            // submitTalkAudio writes these before publishing Queued. They
-            // remain immutable until this job publishes Done.
             std::string session = gSession;
             const std::string path = gPath;
             const std::string speechPath = gSpeechPath;
@@ -75,7 +83,15 @@ void worker(void*) {
         }
 
         finishMeasurement();
-        gState.store(State::Done, std::memory_order_release);
+
+        if (kind == JobKind::PcAction &&
+            !gRetainPcResult.load(std::memory_order_acquire)) {
+            // Browser actions do not need a result channel. Return the worker
+            // to Idle here so a closed tab can never wedge COMM behind Done.
+            resetToIdle();
+        } else {
+            gState.store(State::Done, std::memory_order_release);
+        }
     }
 }
 
@@ -99,15 +115,6 @@ void publish(JobKind kind) {
     xTaskNotifyGive(gTask);
 }
 
-void resetToIdle() {
-    gSession.clear();
-    gPath.clear();
-    gSpeechPath.clear();
-    gAction.clear();
-    gKind.store(JobKind::None, std::memory_order_release);
-    gState.store(State::Idle, std::memory_order_release);
-}
-
 }  // namespace
 
 bool submitTalkAudio(const std::string& session, const std::string& wavPath,
@@ -118,17 +125,19 @@ bool submitTalkAudio(const std::string& session, const std::string& wavPath,
     gSession = session;
     gPath = wavPath;
     gSpeechPath = speechPath;
+    gRetainPcResult.store(true, std::memory_order_release);
     gTalkResult = TalkResult{};
     gPcResult = PcActionResult{};
     publish(JobKind::TalkAudio);
     return true;
 }
 
-bool submitPcAction(const std::string& action) {
+bool submitPcAction(const std::string& action, bool retainResult) {
     if (action.empty() || !canSubmit()) return false;
     if (!ensureWorker()) return false;
 
     gAction = action;
+    gRetainPcResult.store(retainResult, std::memory_order_release);
     gTalkResult = TalkResult{};
     gPcResult = PcActionResult{};
     publish(JobKind::PcAction);
