@@ -20,7 +20,6 @@ import re
 import tempfile
 import threading
 import time
-import uuid
 import wave
 from pathlib import Path
 from typing import Any, Callable
@@ -127,8 +126,6 @@ def install_comm_stream(
 
     @api.websocket("/ws/comm")
     async def comm(websocket: WebSocket) -> None:
-        # WebSocket routes need an explicit handshake check. Keep the same
-        # bearer token as REST; never put the token in the URL/query string.
         try:
             security.require_configured()
         except RuntimeError:
@@ -205,8 +202,6 @@ def install_comm_stream(
 
         try:
             receiver = asyncio.create_task(receive_loop())
-
-            # First non-cancel control must be START.
             try:
                 first = await asyncio.wait_for(incoming.get(), timeout=8.0)
             except asyncio.TimeoutError as error:
@@ -320,16 +315,31 @@ def install_comm_stream(
                 maxsize=TOKEN_CAPACITY
             )
 
+            def put_token(item: tuple[str, str] | BaseException | None) -> bool:
+                """Bounded producer handoff that can always notice cancellation.
+
+                A plain Queue.put() can block forever when the browser/device
+                disconnects while the queue is full. Timed puts keep memory
+                bounded and let the producer thread exit within 100 ms.
+                """
+                while not cancel_flag.is_set():
+                    try:
+                        token_queue.put(item, timeout=0.1)
+                        return True
+                    except queue.Full:
+                        continue
+                return False
+
             def produce() -> None:
                 try:
                     for chunk, provider in model_router.stream_chat(messages, route):
-                        if cancel_flag.is_set():
-                            break
-                        token_queue.put((chunk, provider))
-                except BaseException as error:  # moved back to event loop below
-                    token_queue.put(error)
+                        if cancel_flag.is_set() or not put_token((chunk, provider)):
+                            return
+                except BaseException as error:
+                    if not put_token(error):
+                        return
                 finally:
-                    token_queue.put(None)
+                    put_token(None)
 
             producer = asyncio.create_task(asyncio.to_thread(produce))
             reply_parts: list[str] = []
@@ -340,9 +350,16 @@ def install_comm_stream(
                 if cancel_flag.is_set():
                     _metric("cancelled", delta=1)
                     await send("cancelled")
-                    await producer
+                    # The producer observes cancel_flag even under full-queue
+                    # backpressure, so this join cannot strand the WS handler.
+                    await asyncio.wait_for(producer, timeout=2.0)
                     return
-                item = await asyncio.to_thread(token_queue.get)
+                try:
+                    item = await asyncio.to_thread(token_queue.get, True, 0.25)
+                except queue.Empty:
+                    if producer.done():
+                        break
+                    continue
                 if item is None:
                     break
                 if isinstance(item, BaseException):
@@ -381,7 +398,7 @@ def install_comm_stream(
                 await send("error", error=str(error), fallback="rest")
             except RuntimeError:
                 pass
-        except (RuntimeError, httpx.HTTPError, ValueError) as error:
+        except (RuntimeError, httpx.HTTPError, ValueError, asyncio.TimeoutError) as error:
             try:
                 await send("error", error=str(error), fallback="rest")
             except RuntimeError:
