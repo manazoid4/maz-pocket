@@ -2,23 +2,24 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $Root
 try {
-    # Use the active interpreter, not the Windows `py` launcher. On GitHub
-    # Actions `py` can select a different preinstalled Python than setup-python,
-    # which makes PlatformIO appear missing even though CI installed it.
+    # Use the active interpreter, not the Windows `py` launcher. GitHub runners
+    # can otherwise select a different Python than setup-python installed into.
     python -m platformio run
     if ($LASTEXITCODE -ne 0) { throw "Firmware build failed." }
 
     $Build = Join-Path $Root ".pio\build\cardputer-adv"
     $Firmware = Join-Path $Build "firmware.bin"
-
-    # The OTA slot is 3 MiB, but MAZ Pocket deliberately gets much less. The
-    # unused space is future headroom, not permission to accumulate apps.
-    $MaxFirmwareBytes = 2100000
     $FirmwareBytes = (Get-Item $Firmware).Length
-    if ($FirmwareBytes -gt $MaxFirmwareBytes) {
-        throw "Firmware bloat gate failed: $FirmwareBytes bytes > $MaxFirmwareBytes byte v0.3 budget. Remove or simplify features."
+
+    # The physically accepted v0.02 preview binary was 1,525,984 bytes. Current
+    # M5Launcher app partitions are aligned to 0x10000, so that installation has
+    # a 0x180000 (1,572,864 byte) slot. v0.03 MUST fit that live slot: the safe
+    # web flasher never repartitions the user's device or deletes sibling apps.
+    $V02LauncherSlotBytes = 0x180000
+    if ($FirmwareBytes -gt $V02LauncherSlotBytes) {
+        throw "v0.02 compatibility gate failed: $FirmwareBytes bytes > $V02LauncherSlotBytes byte live Launcher slot. Slim firmware; do not repartition the user's device."
     }
-    Write-Host "Firmware budget: $FirmwareBytes / $MaxFirmwareBytes bytes"
+    Write-Host "v0.02 Launcher slot: $FirmwareBytes / $V02LauncherSlotBytes bytes"
 
     $Dist = Join-Path $Root "dist"
     New-Item -ItemType Directory -Force $Dist | Out-Null
