@@ -12,6 +12,7 @@
 #include "core/sys.h"
 #include "input/keyboard.h"
 #include "net/control.h"
+#include "net/host_async.h"
 #include "net/mazhost.h"
 #include "net/net.h"
 #include "net/portal.h"
@@ -48,6 +49,10 @@ void setup() {
     Serial.println("[boot] audio");
     net::begin();
     Serial.println("[boot] network");
+    if (!host_async::begin())
+        ESP_LOGE("maz", "async host worker failed to start");
+    else
+        Serial.println("[boot] host worker");
 
     // USB/LAN device control and the phone-friendly local portal share the
     // existing MAZ pairing token, while firmware installation remains owned by
@@ -86,6 +91,7 @@ void setup() {
 }
 
 void loop() {
+    host_async::update();
     control::update();
     portal::update();
     shell::loop();
