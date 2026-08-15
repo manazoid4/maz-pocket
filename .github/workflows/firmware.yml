@@ -59,6 +59,7 @@ jobs:
             --hidden-import serial.tools.list_ports_windows `
             updater/maz_updater.py
           Copy-Item .\dist\MazPocketUpdater.exe .\dist\MazPocketUpdater-v0.3.exe -Force
+          Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
 
       - name: Show artifact sizes
         shell: pwsh
@@ -71,3 +72,4 @@ jobs:
           path: |
             dist/maz-pocket-app.bin
             dist/MazPocketUpdater-v0.3.exe
+            dist/QUICKSTART.txt
