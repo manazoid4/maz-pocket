@@ -1,9 +1,7 @@
-"""Curated Windows controls for Maz Pocket.
+"""Curated Windows controls for MAZ Pocket.
 
-No arbitrary shell execution lives here. The handheld can only request a small
-allow-list of everyday controls that map to Windows virtual keys or the native
-lock call. That makes remote use useful without turning MAZ Host into a remote
-command prompt.
+No arbitrary shell execution lives here. The handheld can only request the
+canonical action IDs generated from protocol/action_ids.json.
 """
 
 from __future__ import annotations
@@ -11,6 +9,8 @@ from __future__ import annotations
 import ctypes
 import sys
 from dataclasses import dataclass
+
+from .action_ids import PC_ACTION_SET
 
 
 KEYEVENTF_KEYUP = 0x0002
@@ -42,6 +42,9 @@ class PCController:
         "lock": "PC locked",
     }
 
+    if set(LABELS) != PC_ACTION_SET:
+        raise RuntimeError("PC action labels drifted from protocol/action_ids.json")
+
     @property
     def available(self) -> bool:
         return sys.platform == "win32"
@@ -59,7 +62,7 @@ class PCController:
             user32.keybd_event(key, 0, KEYEVENTF_KEYUP, 0)
 
     def perform(self, action: str) -> ActionResult:
-        if action not in self.LABELS:
+        if action not in PC_ACTION_SET:
             raise RuntimeError("pc_action_not_allowed")
         if not self.available:
             raise RuntimeError("pc_control_windows_only")
