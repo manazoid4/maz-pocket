@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <array>
 #include <string>
 
 #include "../audio/sfx.h"
@@ -93,6 +92,7 @@ constexpr HubItem CONTROL_ITEMS[] = {
     {"WI-FI",          "scan / connect", "network"},
     {"MAZ CORE",       "projects / jobs","core"},
     {"PC / COMM",      "voice + control","talk"},
+    {"RUNTIME",        "heap / queues",  "runtime"},
     {"DIAGNOSTICS",    "hardware",       "tools"},
     {"SETTINGS",       "device",         "settings"},
 };
