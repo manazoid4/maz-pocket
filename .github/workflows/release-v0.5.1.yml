@@ -1,0 +1,105 @@
+name: Publish MAZ Pocket v0.5.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".release/v0.5.1"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio pytest
+          pip install -r host/requirements.txt
+          pip install "click>=8.0.4,<8.4"
+
+      - name: Test MAZ Core + Host
+        run: python -m pytest host/tests -q
+
+      - name: Validate installers parse
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\scripts\install-to-sd.ps1'), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; throw 'install-to-sd.ps1 has parse errors' }
+
+      - name: Build firmware
+        shell: pwsh
+        run: ./scripts/package-release.ps1
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          $src = '.\dist\maz-pocket-app.bin'
+          $firmware = '.\dist\Maz-Pocket-v0.5.1-M5Launcher.bin'
+          $core = '.\dist\MAZ-Core-v0.5.1.zip'
+          $bundle = '.\dist\MAZ-Pocket-v0.5.1-Install.zip'
+
+          $b = [IO.File]::ReadAllBytes($src)
+          if ($b.Length -lt 65536 -or $b[0] -ne 0xE9) { throw 'invalid ESP32 app image' }
+          if ($b.Length -gt 0x180000) { throw "firmware exceeds known Launcher slot: $($b.Length)" }
+
+          Copy-Item $src $firmware -Force
+          Compress-Archive -Path .\host\* -DestinationPath $core -Force
+          Copy-Item .\scripts\install-to-sd.ps1 .\dist\install-to-sd.ps1 -Force
+          Copy-Item .\scripts\INSTALL-MAZ-POCKET.cmd .\dist\INSTALL-MAZ-POCKET.cmd -Force
+          Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
+          Copy-Item .\RELEASE_NOTES.md .\dist\RELEASE_NOTES.md -Force
+
+          $firmwareSha = (Get-FileHash $firmware -Algorithm SHA256).Hash.ToLowerInvariant()
+          $coreSha = (Get-FileHash $core -Algorithm SHA256).Hash.ToLowerInvariant()
+          $installerSha = (Get-FileHash .\dist\install-to-sd.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
+          $launcherSha = (Get-FileHash .\dist\INSTALL-MAZ-POCKET.cmd -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "$firmwareSha  Maz-Pocket-v0.5.1-M5Launcher.bin",
+            "$coreSha  MAZ-Core-v0.5.1.zip",
+            "$installerSha  install-to-sd.ps1",
+            "$launcherSha  INSTALL-MAZ-POCKET.cmd"
+          ) | Set-Content -Encoding ascii .\dist\SHA256SUMS.txt
+
+          New-Item -ItemType Directory -Path .\dist\install -Force | Out-Null
+          $installFiles = @(
+            $firmware,
+            $core,
+            '.\dist\install-to-sd.ps1',
+            '.\dist\INSTALL-MAZ-POCKET.cmd',
+            '.\dist\SHA256SUMS.txt',
+            '.\dist\QUICKSTART.txt',
+            '.\dist\RELEASE_NOTES.md'
+          )
+          Copy-Item -Path $installFiles -Destination .\dist\install\ -Force
+          Compress-Archive -Path .\dist\install\* -DestinationPath $bundle -Force
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.5.1 `
+            .\dist\Maz-Pocket-v0.5.1-M5Launcher.bin `
+            .\dist\MAZ-Core-v0.5.1.zip `
+            .\dist\MAZ-Pocket-v0.5.1-Install.zip `
+            .\dist\INSTALL-MAZ-POCKET.cmd `
+            .\dist\install-to-sd.ps1 `
+            .\dist\SHA256SUMS.txt `
+            .\dist\QUICKSTART.txt `
+            .\dist\RELEASE_NOTES.md `
+            --target "$env:GITHUB_SHA" `
+            --title "MAZ Pocket v0.5.1" `
+            --notes-file .\RELEASE_NOTES.md `
+            --latest
