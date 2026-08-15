@@ -1,6 +1,13 @@
 MAZ POCKET v0.5 — CARDPUTER ADV / M5LAUNCHER
 
-CARDPUTER
+FASTEST SAFE INSTALL
+1. Download MAZ-Pocket-v0.5-Install.zip from the build/release assets and extract it.
+2. Put the Cardputer microSD card in the Windows PC.
+3. Run: .\install-to-sd.ps1
+4. The script validates the ESP32 app image, refuses fixed disks, copies only the MAZ Pocket .bin, then verifies SHA-256.
+5. Safely eject the card, boot M5Launcher, select Maz-Pocket-v0.5-M5Launcher.bin, Install, then Launch.
+
+MANUAL CARDPUTER INSTALL
 1. Copy Maz-Pocket-v0.5-M5Launcher.bin to microSD.
 2. Boot M5Launcher, select the .bin, Install, then Launch.
 
@@ -41,16 +48,18 @@ LIVE SCREEN / WEB CONTROL
 - You can manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, reboot/return to Launcher and watch the Cardputer LCD at ~2 FPS.
 - Cardputer ADV has no built-in camera. This release streams the LCD; camera video needs external camera hardware.
 
-HIDDEN MAZ WORKS CORE CONSOLE
-- Route: /maz-core (not linked publicly, noindex).
-- The site contains NO private Core URL or token.
-- Enter your own private HTTPS Core endpoint + token in your browser.
+MAZ WORKS PRIVATE CONSOLES
+- /maz-core is the private human Core console.
+- /maz-pocket-ai is the private AI/Cardputer capability-link client.
+- Both are noindex and ship with NO private Core URL or token.
+- The AI bridge can create a capability URL whose secret is kept in the URL fragment, so Maz Works never receives it. Treat the full capability URL like a password and rotate the MAZ token if it is exposed.
+- Agents that support authenticated HTTP can use the copied AI access pack to reach the documented Core/Cardputer allow-list.
 - install-core.ps1 attempts private Tailscale Serve setup when Tailscale is already installed.
 
-CHATGPT -> LOCAL PC WITHOUT CODEX
-- install-core.ps1 enables the private GitHub bridge when GitHub CLI (gh) is already authenticated.
-- The bridge accepts only [MAZ CORE] issues in the configured PRIVATE repo and only executes MAZ Core's fixed allow-list.
-- Evidence is written back to the private issue; arbitrary shell commands are rejected.
+CHATGPT -> LOCAL PC / CARDPUTER
+- For ChatGPT with GitHub access, the existing private GitHub bridge remains the safest asynchronous route to MAZ Core.
+- For AI agents that can call authenticated HTTPS directly, use the Maz Works /maz-pocket-ai capability link/access pack.
+- Core exposes Cardputer status and live LCD through /core/cardputer/status and /core/cardputer/screen; do not expose a generic remote shell.
 
 IMPORTANT
 - The firmware .bin is an app-only M5Launcher image. Do NOT flash it at address 0x0.
