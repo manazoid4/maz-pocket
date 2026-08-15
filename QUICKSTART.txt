@@ -1,19 +1,19 @@
-MAZ POCKET v0.5 — CARDPUTER ADV / M5LAUNCHER
+MAZ POCKET v0.5.1 — CARDPUTER ADV / M5LAUNCHER
 
 FASTEST SAFE INSTALL
-1. Download MAZ-Pocket-v0.5-Install.zip from the build/release assets and extract it.
+1. Download MAZ-Pocket-v0.5.1-Install.zip from the latest GitHub release and extract it.
 2. Put the Cardputer microSD card in the Windows PC.
 3. Double-click INSTALL-MAZ-POCKET.cmd.
-4. It launches the verified copy helper, validates the ESP32 app image, refuses fixed disks, copies only the MAZ Pocket .bin, then verifies SHA-256.
-5. Safely eject the card, boot M5Launcher, select Maz-Pocket-v0.5-M5Launcher.bin, Install, then Launch.
+4. It validates the ESP32 app image, refuses fixed disks, copies only the MAZ Pocket .bin, then verifies SHA-256.
+5. Safely eject the card, boot M5Launcher, select Maz-Pocket-v0.5.1-M5Launcher.bin, Install, then Launch.
 
 If the .cmd launcher is blocked by local policy, run .\install-to-sd.ps1 from PowerShell instead.
 
 MANUAL CARDPUTER INSTALL
-1. Copy Maz-Pocket-v0.5-M5Launcher.bin to microSD.
+1. Copy Maz-Pocket-v0.5.1-M5Launcher.bin to microSD.
 2. Boot M5Launcher, select the .bin, Install, then Launch.
 
-WI-FI — YOU CANNOT GET STRANDED NOW
+WI-FI — YOU CANNOT GET STRANDED
 - Press W from Home, or open CONTROL > WI-FI.
 - Scan, choose a network, enter password, save as PRIMARY or BACKUP.
 - With no working saved network, MAZ Pocket starts:
@@ -23,14 +23,13 @@ WI-FI — YOU CANNOT GET STRANDED NOW
 - On normal Wi-Fi use http://mazpocket.local.
 
 MAZ CORE ON THE WINDOWS PC
-1. Extract MAZ-Core-v0.5.zip.
-2. Right-click PowerShell in that folder if you want the firewall rule created automatically.
-3. Run: .\install-core.ps1
-4. It installs/starts MAZ Core, selects lfm2.5-8b-a1b-gpu:latest, finds local projects, enables startup and prints the PC address + MAZ token.
-5. On Cardputer open CONTROL > MAZ CORE if pairing details need changing.
+1. Extract MAZ-Core-v0.5.1.zip.
+2. Run .\install-core.ps1 once.
+3. It installs/starts MAZ Core, selects the configured local Ollama model, finds local projects, enables startup and prints the PC address + MAZ token.
+4. On Cardputer open CONTROL > MAZ CORE if pairing details need changing.
 
 HOME
-COMM      voice/text assistant + PC control
+COMM      voice assistant + safe PC controls
 CAPTURE   voice/field capture + BrainDump
 OPS       Agent Nudge evidence + nudges
 CONTROL   Wi-Fi / MAZ Core / PC / diagnostics / settings / Launcher
@@ -39,8 +38,10 @@ FLOW      reminders / focus / sprint / tasks
 
 COMM RESPONSIVENESS
 - Recording is immediate and remains durable on-device.
-- Session creation, voice upload and optional spoken reply run on one bounded background worker, so a sleeping/unreachable PC does not need to freeze navigation.
+- Session creation, voice upload, optional spoken reply and the small PC command deck run through one bounded background worker.
+- A sleeping/unreachable PC should not pin the UI task.
 - You can leave COMM while a turn is working; returning to COMM collects the result.
+- Failed/offline voice stays in the outbox rather than being discarded.
 - This is still durable WAV/HTTP, not realtime microphone-frame streaming.
 
 MAZ CORE FROM THE CARDPUTER
@@ -53,25 +54,29 @@ MAZ CORE FROM THE CARDPUTER
 LIVE SCREEN / WEB CONTROL
 - Open http://mazpocket.local on the same LAN.
 - Unlock with the MAZ pairing token.
-- You can manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, reboot/return to Launcher and watch the Cardputer LCD at ~2 FPS.
-- Cardputer ADV has no built-in camera. This release streams the LCD; camera video needs external camera hardware.
+- Manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, reboot/return to Launcher and watch the Cardputer LCD at ~2 FPS.
 
-MAZ WORKS PRIVATE CONSOLES
-- /maz-core is the private human Core console.
-- /maz-pocket-ai is the private AI/Cardputer capability-link client.
-- Both are noindex and ship with NO private Core URL or token.
-- The AI bridge can create a capability URL whose secret is kept in the URL fragment, so Maz Works never receives it. Treat the full capability URL like a password and rotate the MAZ token if it is exposed.
-- AI clients that support authenticated HTTP can use the copied access pack to reach the documented Core/Cardputer allow-list.
-- When MAZ Core's private GitHub bridge is enabled, /maz-pocket-ai can also copy a private GitHub-queue prompt using the configured repository.
-- install-core.ps1 attempts private Tailscale Serve setup when Tailscale is already installed.
-
-AI -> LOCAL PC / CARDPUTER
-- An AI with GitHub access can use MAZ Core's private issue queue as the safest asynchronous path.
-- An AI that can call authenticated HTTPS directly can use the Maz Works /maz-pocket-ai capability link/access pack.
-- Core exposes Cardputer status and live LCD through /core/cardputer/status and /core/cardputer/screen; do not expose a generic remote shell.
+MAZ WORKS PRIVATE AI BRIDGE
+- /maz-pocket-ai is an unlinked, noindex capability client on Maz Works.
+- The public site contains NO private MAZ Core URL or token.
+- Supply your own private HTTPS Core URL + bearer token in the browser.
+- The page can produce a capability link/access pack for a trusted AI client.
+- URL-fragment credentials are not sent to Maz Works; still treat the full link like a password.
+- When MAZ Core's optional private GitHub bridge is enabled, an AI with GitHub access can use the private [MAZ CORE] issue queue.
+- Core/Cardputer access remains allow-listed; there is no generic remote shell.
 
 IMPORTANT
 - The firmware .bin is an app-only M5Launcher image. Do NOT flash it at address 0x0.
+- M5Launcher owns firmware installation and rollback.
 - SD stores firmware/data; executable apps still share the Cardputer's 8 MB internal flash.
-- Generic ArduinoOTA remains disabled; M5Launcher owns firmware installs safely.
+- Generic ArduinoOTA remains disabled.
 - Ctrl+K = full command palette. Ctrl+L = M5Launcher hand-back.
+
+PHYSICAL ADV ACCEPTANCE BEFORE CALLING IT FULLY PROVEN
+- 30+ minute soak with no reset/watchdog event.
+- 20+ COMM turns, including leaving/re-entering COMM mid-request.
+- Wi-Fi/Core loss and reconnect.
+- SD absent/unreadable/near-full behavior.
+- microphone record/playback cycles.
+- M5Launcher reinstall + rollback.
+- inspect serial [health] and [host-worker] minimum heap/stack/loop measurements.
