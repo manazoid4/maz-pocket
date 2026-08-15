@@ -1,61 +1,38 @@
-# Verification status — MAZ Pocket v0.2
+# MAZ Pocket verification
 
-Updated 2026-08-14. Compiling is not counted as a product demonstration.
+## Version naming
 
-## Verified in automation
+Canonical releases use **v0.1 / v0.2 / v0.3 / v0.4**. Historical preview tags are retained only as recovery/history references.
 
-| Check | Result |
-|---|---|
-| Cardputer ADV release build | PASS — PlatformIO 6.1.19, espressif32 6.9.0 |
-| Static memory | 126,756 B / 327,680 B (38.7%), including LVGL's 64 KiB pool and 6,720 B partial draw buffer |
-| App flash | 1,527,969 B / 3,145,728 B (48.6%) |
-| MAZ Host | 16 Python tests pass, including authenticated streamed WAV, Agent Nudge credential discovery, deterministic voice reminders and malformed BrainDump-output recovery |
-| Agent Nudge | Typecheck, 65 unit tests, 39 integration tests, 2 end-to-end tests and production build pass |
-| Live BrainDump host flow | PASS — generated speech was transcribed, highlighted, structured by the installed local model and returned in 6.64 s |
-| Release packaging | Produces only a 1,528,336 B Launcher-safe app binary (`SHA-256 41EB8A09AB769C168B71EA4BA08EDE34C8E8E4CA71317B859C84EAF478E8F620`); the destructive merged web image was removed |
+## Physically established on Cardputer ADV
 
-## Observed on the physical Cardputer ADV
+Previous builds have been installed through M5Launcher on the real Cardputer ADV. The hardware path has established Launcher-managed app installation, display, ADV keyboard initialization, storage initialization and Wi-Fi/host operation.
 
-- USB identity `303A:1001` was detected on COM5 and the chip identified as an
-  ESP32-S3 revision 0.2 with 8 MB flash.
-- Official M5Launcher 2.8.0 remains in its TEST partition. The one-command
-  installer prepared isolated `mazdata`, installed one MAZ OTA slot and observed
-  `MAZ Pocket 0.2.0 READY board=24 keyboard=ok storage=internal`.
-- The display SPI deadlock was reproduced and removed by moving SD to the
-  separate FSPI host. Repeated boots now reach the shell.
-- Device-to-laptop status is verified over the real LAN connection:
-  `wifi=online host=online nudge=ALL_SYNCED agents=8`.
-- LVGL 9.5.0 initialized its core, RGB565 display, aligned partial buffer and
-  Home widget tree on the physical device before the READY banner. The first
-  hardware attempt exposed a 2-byte-aligned draw buffer; applying LVGL's
-  required 4-byte alignment removed the assertion halt.
-- The current Launcher-installed build includes automatic offline Talk/BrainDump
-  dispatch, lossless record updates, clock-safe relative reminders, reachable
-  Sprint debrief and configured host binding. It boots and reports live status;
-  the interaction details remain in the acceptance list below.
-- MAZ Pocket's serial/keyboard Launcher hand-back was exercised. M5Launcher
-  booted without an abort, and the installer successfully replaced the old app.
-- A generated spoken WAV completed STT → local Ollama → answer. Warm timings:
-  upload 16 ms, STT 906 ms, model 929 ms, total 1.85 s. First cold run was
-  12.16 s, so the shipped laptop default uses the installed `gemma3:1b` model.
+The user also physically installed the v0.3-era build during this development cycle. That real-device test exposed two product problems that v0.4 directly addresses: the main UI hid too much functionality, and the browser ZIP flasher was not a reliable primary update experience. The v0.4 release therefore uses the six-surface Home and M5Launcher + SD-card `.bin` as the supported update path.
 
-## Physical acceptance still required for the new build
+## v0.4 release gates
 
-The Cardputer is currently absent from Windows USB (`303A:1001` is recorded
-but `Present=False`), so the new binary has not been installed or accepted on
-hardware yet. The prior Launcher-installed build remains the last physical
-proof described above.
+A v0.4 binary is acceptable only when CI passes:
 
-1. Confirm the LVGL-rendered home screen visually and press each Home shortcut.
-2. Confirm storage. The card observed during boot was not a valid FAT
-   volume to Arduino's SD driver; Launcher itself recommends SDHC, max 32 GB,
-   FAT32 and MBR.
-3. Run microphone, speaker and record/playback diagnostics using the device mic.
-4. Prove BrainDump raw preservation, highlight processing and useful Inbox output.
-5. Prove Sprint outcome/timer/debrief and reminder fire/done/snooze.
-6. Prove real stale detection, explicit nudge, sync and acknowledgement with a
-   deliberately stale test agent. Current hardware proof covers authenticated
-   real fleet status only.
+- MAZ Host pytest suite, including the v0.4 local-first model default.
+- Recovery/browser-flasher syntax and partition-safety tests (kept as regression coverage, not the primary install UX).
+- Cardputer ADV PlatformIO build.
+- ESP32 application magic check.
+- Minimum sensible app-image size.
+- Hard `0x180000` maximum image size matching the known Launcher app slot used by the physical installation path.
+- SHA-256 generation for the exact M5Launcher release binary.
 
-MAZ Works must not present these as demonstrated until this checklist is
-captured with real photos/screenshots and timings.
+## v0.4 behavior that must be checked on hardware after install
+
+- Home visibly shows COMM / CAPTURE / OPS / DESK / RECALL / FLOW and each opens the intended surface.
+- Saved Wi-Fi reconnects at boot and after a forced reconnect.
+- `mazpocket.local` resolves on the LAN (or the shown IP works) and the new responsive dashboard loads on phone/desktop.
+- Web status correctly reflects Wi-Fi, battery, storage, current app, host and agents.
+- Pairing-token lock prevents state-changing web actions until unlocked.
+- Web launch buttons open only allow-listed MAZ surfaces.
+- PC quick controls remain allow-listed and execute through MAZ Host.
+- Speaker/SD diagnostics, reboot and M5Launcher hand-back work from the dashboard.
+- COMM uses MAZ Host with `lfm2.5-8b-a1b-gpu:latest` when the host configuration is upgraded; responses about MAZ Pocket stay within the verified capability map rather than inventing apps.
+- Microphone capture, spoken reply and BrainDump remain functional.
+
+CI cannot prove acoustics, RF quality, physical keyboard feel or the actual local Ollama model installed on a user's PC. These remain physical acceptance checks after installing the released `.bin`.
