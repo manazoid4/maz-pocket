@@ -1,98 +1,75 @@
-MAZ POCKET v0.6 — CARDPUTER ADV / M5LAUNCHER
+MAZ POCKET v0.7 — FIELD QUICKSTART
+=================================
 
-FRESH WINDOWS SETUP — FASTEST PATH
-1. Download MAZ-Pocket-v0.6-Install.zip and extract it.
+WHAT TO DOWNLOAD
+----------------
+Laptop/client only:   MAZ-Core-v0.7.zip
+Cardputer only:       MAZ-Cardputer-v0.7.zip
+Everything together: MAZ-Pocket-v0.7-Install.zip
+
+The Cardputer ZIP contains the app-only M5Launcher firmware. M5Launcher owns install and rollback. Do NOT flash the app .bin at address 0x0.
+
+FIRST START / WINDOWS
+---------------------
+1. Extract MAZ-Pocket-v0.7-Install.zip.
 2. Double-click START-HERE.cmd.
-3. MAZ Core is installed/updated under %LOCALAPPDATA%\MAZ Core and started automatically.
-4. Existing Core .env/config is preserved.
-5. If a v0.6 Cardputer is connected over USB, Core address/token pairing is attempted without touching its Wi-Fi credentials.
-6. If exactly one removable microSD is connected, setup offers to verify/copy the v0.6 firmware there.
-7. Put the SD in the Cardputer, boot M5Launcher, select Maz-Pocket-v0.6-M5Launcher.bin -> Install -> Launch.
-
-START-HERE never formats a drive and never flashes Cardputer partitions directly.
-
-NORMAL PHONE UPDATE — AFTER THE HARDENED PORTAL IS INSTALLED
-1. Download Maz-Pocket-v0.6-M5Launcher.bin on the phone.
-2. Be on the same LAN as the Cardputer and open http://mazpocket.local.
-3. Unlock with the MAZ pairing token.
-4. Under STAGE NEXT FIRMWARE choose the .bin and tap VERIFY + STAGE TO SD.
-5. Wait for the verified SHA-256 success message.
-6. Tap M5LAUNCHER, install the staged image, then Launch.
-
-The upload is staged on SD only. MAZ Pocket checks safe size, ESP image magic and SHA-256. M5Launcher remains the installer/rollback owner.
-
-MANUAL microSD FALLBACK
-1. Copy Maz-Pocket-v0.6-M5Launcher.bin to microSD, or double-click INSTALL-MAZ-POCKET.cmd on Windows.
-2. Boot M5Launcher, select the .bin, Install, then Launch.
-
-WI-FI — YOU CANNOT GET STRANDED
-- Press W from Home, or open CONTROL > WI-FI.
-- Scan, choose a network, enter password, save as PRIMARY or BACKUP.
-- With no working saved network, MAZ Pocket starts:
-    Wi-Fi: MAZ-Pocket-Setup
-    password: mazpocket
-    browser: http://192.168.4.1
-- On normal Wi-Fi use http://mazpocket.local.
-
-MAZ CORE
-- START-HERE installs Core to %LOCALAPPDATA%\MAZ Core so deleting the downloaded ZIP does not break startup.
-- Core starts at Windows sign-in.
-- LOCAL AI route: primary installed Ollama model -> backup installed Ollama model -> clear failure. It never uses cloud.
-- AUTO route: primary -> backup -> configured cloud only if both locals fail.
-- CLOUD route: configured cloud directly.
-- With a v0.6 Cardputer over USB, pair.ps1 can update only Core address/token and leaves known-good Wi-Fi alone.
+3. MAZ Core installs/updates in the normal per-user location and preserves an existing .env.
+4. Install/launch Maz-Pocket-v0.7-M5Launcher.bin using M5Launcher.
 
 HOME
-COMM      voice assistant + safe PC controls
-CAPTURE   voice/field capture + BrainDump
-OPS       Agent Nudge evidence + nudges
-CONTROL   Wi-Fi / MAZ Core / PC / diagnostics / settings / Launcher
-RECALL    inbox / notes / snippets / viewer
-FLOW      reminders / focus / sprint / tasks
+----
+NOW shows one useful priority, not a dashboard.
+1 / 2 / 3 / 4 = your four quick actions.
+Fn + 1/2/3/4 = cycle that slot to another safe action.
+Default: 1 TALK / 2 NOTE / 3 LAP / 4 BEAM.
 
-COMM RESPONSIVENESS
-- Recording is immediate and remains durable on-device.
-- Session creation, voice upload, optional spoken reply and the small PC command deck run through one bounded background worker.
-- A sleeping/unreachable PC should not pin the UI task.
-- You can leave COMM while a turn is working; returning to COMM collects the result.
-- Failed/offline voice stays in the outbox rather than being discarded.
-- v0.6 keeps durable WAV/HTTP as the production voice path. Realtime microphone-frame streaming is deferred until physical ADV testing proves it reliable.
+GLOBAL
+------
+Fn + Space = Context Ask: hold, speak about the current screen/item, release.
+Fn + F     = FIELD mode on/off.
+Ctrl + K   = command palette.
+Ctrl + L   = return to M5Launcher.
+Fn + M on Home = harmless retro Easter egg.
 
-MAZ CORE FROM THE CARDPUTER
-- CONTROL > CONTROL CENTER > MAZ CORE.
-- See real local projects/branches/dirty state.
-- Run safe project jobs: git status, tests, build, fetch, fast-forward pull.
-- Builds/tests run on the PC as background jobs so the handheld stays responsive.
-- There is no arbitrary remote shell.
+BEAM
+----
+Pocket -> laptop:
+CONTROL -> BEAM -> N -> type -> ENTER. If Core is offline it stays in Outbox and sends later.
 
-LIVE SCREEN / WEB CONTROL
-- Open http://mazpocket.local on the same LAN.
-- Unlock with the MAZ pairing token.
-- Manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, stage the next app image, reboot/return to Launcher and watch the Cardputer LCD.
+Laptop -> Pocket:
+Copy text or a URL, then run BEAM-TO-POCKET.cmd from the MAZ Core folder. You can also POST through MAZ Core /beam/to-pocket.
 
-MAZ WORKS PRIVATE AI BRIDGE
-- /maz-pocket-ai is an unlinked, noindex capability client on Maz Works.
-- The public site contains NO private MAZ Core URL or token.
-- Supply your own private HTTPS Core URL + bearer token in the browser.
-- The page can produce a capability link/access pack for a trusted AI client.
-- URL-fragment credentials are not sent to Maz Works; still treat the full link like a password.
-- When MAZ Core's optional private GitHub bridge is enabled, an AI with GitHub access can use the private [MAZ CORE] issue queue.
-- Core/Cardputer access remains allow-listed; there is no generic remote shell.
+OUTBOX
+------
+Failed/offline COMM recordings, Context Ask turns and outgoing Beams are kept. MAZ Pocket retries the oldest queued work automatically after Wi-Fi/Core returns. Home NOW shows the queue count.
 
-IMPORTANT
-- The firmware .bin is an app-only M5Launcher image. Do NOT flash it at address 0x0.
-- M5Launcher owns firmware installation and rollback.
-- SD stores firmware/data; executable apps still share the Cardputer's 8 MB internal flash.
-- Generic ArduinoOTA remains disabled.
-- Ctrl+K = full command palette. Ctrl+L = M5Launcher hand-back.
+LAPTOP STATUS
+-------------
+CONTROL -> LAPTOP. It shows a small on-demand CPU/RAM/GPU/VRAM/battery/Ollama snapshot. R refreshes. FIELD mode reduces refresh frequency.
 
-PHYSICAL ADV ACCEPTANCE BEFORE CALLING v0.6 FULLY PROVEN
-- 30+ minute soak with no reset/watchdog event.
-- 20+ COMM turns, including leaving/re-entering COMM mid-request.
-- Wi-Fi/Core loss and reconnect.
-- phone live-screen polling and verified firmware staging.
-- SD absent/unreadable/near-full/interrupted-upload behavior.
-- USB Core-only pairing.
-- microphone record/playback cycles.
-- M5Launcher reinstall + rollback.
-- inspect serial [health] and [host-worker] minimum heap/stack/loop measurements.
+SHIFT
+-----
+FLOW -> SHIFT CLOCK -> ENTER start/stop. Home NOW shows elapsed shift time. Completed elapsed time is saved locally.
+
+LOCAL AI PROFILE
+----------------
+SMART = default balanced mode (ordinary turns 4K context, 5m warm model).
+SAVE  = unload local model after each response.
+FAST  = keep model warm longer.
+Set MAZ_AI_PROFILE=smart|save|fast in MAZ Core .env. Existing LOCAL/AUTO/CLOUD routing stays separate.
+
+PHONE FIRMWARE STAGING
+----------------------
+On the same LAN open http://mazpocket.local, unlock, choose a compatible M5Launcher app .bin, verify/stage to SD, then return to M5Launcher to install it. MAZ Pocket does not self-flash.
+
+BEFORE A WEEK IN THE FIELD
+--------------------------
+- Confirm Wi-Fi + MAZ Core pairing.
+- Try one normal COMM turn and one Context Ask.
+- Turn Wi-Fi off, record a voice turn, restore Wi-Fi, confirm OUTBOX clears.
+- Beam text in both directions.
+- Open LAPTOP and check CPU/RAM/GPU/VRAM.
+- Start/stop SHIFT CLOCK.
+- Confirm Ctrl+L returns to M5Launcher and v0.6 rollback still exists.
+
+See RELEASE_NOTES.md and docs/V070-FIELD.md for the full validation gate.

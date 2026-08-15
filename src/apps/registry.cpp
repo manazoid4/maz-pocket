@@ -7,17 +7,20 @@ namespace apps {
 
 namespace {
 const Descriptor TABLE[] = {
-    {"home",      "Home",        nullptr,   "home menu",                                      0,     false, makeHome},
-    {"talk",      "Call PC",     "COMM",   "call pc voice communicator remote control",      KEY_T, true,  makeComm},
-    {"braindump", "Capture",     "CAPTURE","capture thought field log highlight voice",      KEY_B, true,  makeCapture},
-    {"nudge",     "Agent Ops",   "OPS",    "agent fleet operations nudge assurance sync",    KEY_N, true,  makeAgentsV3},
-    {"desk",      "Control",     "CONTROL","control wifi pc device storage settings core",   0,     true,  makeDesk},
-    {"recall",    "Recall",      "RECALL", "recall inbox notes snippets viewer outputs",     0,     true,  makeRecall},
-    {"flow",      "Flow",        "FLOW",   "flow reminders focus sprint tasks workflows",    0,     true,  makeFlow},
+    {"home",      "Home",        nullptr,   "home menu now quick actions field",                    0,     false, makeHome},
+    {"talk",      "Call PC",     "COMM",   "call pc voice communicator remote control context ask", KEY_T, true,  makeComm},
+    {"braindump", "Capture",     "CAPTURE","capture thought field log highlight voice",            KEY_B, true,  makeCapture},
+    {"nudge",     "Agent Ops",   "OPS",    "agent fleet operations nudge assurance sync",          KEY_N, true,  makeAgentsV3},
+    {"desk",      "Control",     "CONTROL","control wifi pc device storage settings core laptop",  0,     true,  makeDesk},
+    {"recall",    "Recall",      "RECALL", "recall inbox notes snippets viewer outputs beam",      0,     true,  makeRecall},
+    {"flow",      "Flow",        "FLOW",   "flow reminders focus sprint tasks shift workflows",    0,     true,  makeFlow},
 
     {"control",   "Control Center", "CTRL", "control center device network pc core screen",   0,     false, makeControlCenter},
     {"network",   "Wi-Fi",       "WI-FI",  "wifi network scan connect reconnect hotspot",     KEY_W, false, makeNetworkV5},
     {"core",      "MAZ Core",    "CORE",   "core pc projects builds tests git local ai",      0,     false, makeCoreConsole},
+    {"laptop",    "Laptop",      "LAP",    "laptop cpu ram gpu vram battery ollama status",    0,     false, makeLaptop},
+    {"beam",      "Beam",        "BEAM",   "beam laptop pocket text url clipboard offline",    0,     false, makeBeam},
+    {"shift",     "Shift Clock", "SHIFT",  "shift work field elapsed timer log",               0,     false, makeShift},
 
     {"snake",     "Snake",       nullptr, "snake game arcade retro fun",               0, false, makeSnake},
     {"hyperdrive","Hyperdrive",  nullptr, "hyperdrive starfield imu tilt motion demo", 0, false, makeHyperdrive},
@@ -32,7 +35,7 @@ const Descriptor TABLE[] = {
     {"recorder",  "Recorder",    nullptr, "recorder record memo audio wav",          0,     false, makeRecorder},
     {"calc",      "Calculator",  "Calc",  "calculator calc math sum",                KEY_C, false, makeCalculator},
     {"stopwatch", "Stopwatch",   nullptr, "stopwatch timer lap count",               0,     false, makeStopwatch},
-    {"qr",        "Beam",        "Beam",  "beam qr code share phone url text wifi",   KEY_Q, false, makeQr},
+    {"qr",        "QR",          "QR",    "qr code share phone url text wifi",       KEY_Q, false, makeQr},
     {"viewer",    "Text Viewer", "Viewer","viewer read file text md txt",            KEY_V, false, makeViewer},
     {"gen",       "Generator",   nullptr, "generator password passphrase random",    KEY_G, false, makeGenerator},
     {"snippets",  "Snippets",    nullptr, "snippets text clip email phrase",         KEY_P, false, makeSnippets},

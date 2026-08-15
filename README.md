@@ -1,94 +1,89 @@
 # MAZ Pocket
 
-MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV** plus **MAZ Core**, a local Windows companion that supplies real project/PC context and safe actions.
+MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV** plus **MAZ Core**, the lightweight Windows companion that supplies AI, PC context and safe actions.
 
-## Current release: v0.6
+## Current release candidate: v0.7 — FIELD
 
-Home stays intentionally small:
+v0.7 keeps the six-surface product intact:
 
-- **COMM** — voice conversation, spoken replies and safe PC controls.
+- **COMM** — voice conversation, Context Ask and safe PC controls.
 - **CAPTURE** — field capture, recordings and BrainDump.
 - **OPS** — Agent Nudge evidence, status and nudges.
-- **CONTROL** — Wi-Fi, MAZ Core, PC/COMM, diagnostics, settings and M5Launcher.
-- **RECALL** — inbox, notes, snippets and viewer.
-- **FLOW** — reminders, focus, sprint and tasks.
+- **CONTROL** — Wi-Fi, laptop status, Beam, MAZ Core, diagnostics and settings.
+- **RECALL** — inbox, received Beams, notes, snippets and viewer.
+- **FLOW** — shift clock, reminders, focus, sprint and tasks.
 
-**W from Home opens Wi-Fi directly. Ctrl+K opens everything. Ctrl+L returns to M5Launcher.**
+No seventh top-level app was added. The Cardputer remains a pocket command surface rather than an ESP32 app drawer.
 
-v0.6 is the **friction release**: install, pairing, updates and local AI resilience improve without adding another top-level app. COMM keeps the proven durable WAV/HTTP transport and one bounded Host worker; realtime microphone-frame streaming remains a later hardware-tested experiment.
+## Home: NOW + four quick keys
 
-## Fastest setup on Windows
+Home now uses the existing compact strip as **NOW**. It shows one high-priority fact such as an agent needing you, queued offline work, an active shift, a due reminder, a received Beam or Core being offline.
 
-Fresh setup is one entry point:
+Keys **1–4** launch four persistent quick actions. Defaults are:
 
-1. Download `MAZ-Pocket-v0.6-Install.zip` and extract it.
-2. Double-click **`START-HERE.cmd`**.
-3. MAZ Core is installed/updated under `%LOCALAPPDATA%\MAZ Core`, preserving an existing `.env`.
-4. If a v0.6 Cardputer is connected over USB, Core address/token pairing is attempted without changing its Wi-Fi credentials.
-5. If exactly one removable microSD is present, setup offers to verify/copy the firmware there. It never formats a disk and never flashes the Cardputer directly.
-6. The local portal opens at `http://mazpocket.local` when available.
+`1 TALK   2 NOTE   3 LAP   4 BEAM`
 
-M5Launcher remains the only firmware install/rollback owner.
+Hold **Fn + 1/2/3/4** to cycle that slot through the fixed safe list: Talk, Capture, Laptop, Beam, Shift, Focus 25, Lock PC, Play/Pause, Mute, Recall, Flow and M5Launcher. Quick actions are identifiers, never shell commands.
 
-## Normal updates from your phone
+## Context Ask
 
-Once the Cardputer is running the hardened portal from v0.5.2+:
+From almost any screen, hold **Fn + Space**, speak the question, then release Space. MAZ Pocket captures only a tiny snapshot of the currently focused item and sends it as explicitly untrusted context with the voice question. It does not dump a database or expose secrets.
 
-1. Download the new `Maz-Pocket-v0.6-M5Launcher.bin` on the phone.
-2. On the same LAN, open `http://mazpocket.local`.
-3. Unlock with the MAZ pairing token.
-4. Choose the `.bin` under **STAGE NEXT FIRMWARE** and tap **VERIFY + STAGE TO SD**.
-5. Tap **M5LAUNCHER**, install the verified staged image, then Launch.
+Examples: “summarise this”, “what should I do next?”, “what did I miss?”
 
-The device streams the upload to a temporary SD file, checks safe size bounds, ESP image magic and SHA-256, then promotes only a verified image. MAZ Pocket never writes firmware partitions itself.
+## Beam
 
-## Wi-Fi that is always recoverable
+Beam moves short text/URLs between laptop and Pocket without pretending to be a file-transfer system or remote terminal.
 
-CONTROL → WI-FI can show status, reconnect, scan/connect primary Wi-Fi, save a backup network, disconnect, forget credentials and start a setup hotspot.
+- Laptop → Pocket: MAZ Core keeps a durable queue until the Cardputer pulls it.
+- Pocket → laptop: queued offline on the Cardputer, then saved to Core history; Windows also copies it to the clipboard when available.
+- Received text is **data only** and is never executed.
+- `host/BEAM-TO-POCKET.cmd` beams the Windows clipboard (or supplied text) to the Pocket.
 
-If no saved network works, MAZ Pocket starts:
+## Offline Outbox
 
-- SSID: `MAZ-Pocket-Setup`
-- password: `mazpocket`
-- setup page: `http://192.168.4.1`
+COMM already protected failed recordings; v0.7 turns that into an automatic service. Voice turns, Context Ask recordings and outgoing Beams survive Core/Wi-Fi loss as durable records. A single existing Host worker retries the oldest queued item with bounded backoff when connectivity returns. No extra worker fleet or queue database is added.
 
-On a normal LAN, use `http://mazpocket.local`.
+## Laptop snapshot
 
-## `mazpocket.local`
+CONTROL → LAPTOP shows an on-demand cached snapshot of:
 
-The device-hosted control plane exposes device/network/Core status, primary+backup Wi-Fi, six-surface launchers, allow-listed PC controls, diagnostics, Core config, reboot, M5Launcher hand-back, a ~2 FPS 240x135 LCD mirror and verified phone-to-SD firmware staging.
+- CPU and RAM use;
+- NVIDIA GPU utilisation, VRAM and temperature when `nvidia-smi` is available;
+- laptop battery/charging when Windows exposes it;
+- Ollama loaded model, model VRAM and context length.
 
-Cardputer ADV has no built-in camera. Camera video therefore remains an external-hardware extension rather than a claimed firmware feature.
+There is no background telemetry sampler thread. The laptop does the work and caches it briefly; the Cardputer only renders the result.
 
-## MAZ Core
+## FIELD mode + Shift Clock
 
-The Windows PC is the persistent brain. v0.6 installs Core into a stable per-user location rather than relying on a Downloads extraction folder.
+**Fn + F** toggles FIELD mode. FIELD mode shortens screen dim timing, slows low-value background refreshes and keeps Outbox/Beam useful. FLOW → SHIFT CLOCK stores completed shift elapsed time locally and makes the active shift the Home NOW item.
 
-MAZ Core provides:
+## Smarter, lighter local AI
 
-- local Ollama routing with **primary → backup local model** failover;
-- LOCAL mode that never silently spills into cloud;
-- AUTO mode that can use configured cloud only after both local models fail;
-- real project discovery and branch/dirty/recent-commit evidence;
-- bounded project/Obsidian search and non-secret file reads;
-- allow-listed git status/fetch/fast-forward pull, detected test/build jobs and open-folder action;
-- background project jobs so builds/tests do not freeze the handheld;
-- Cardputer status and live-LCD proxy;
-- Agent Nudge integration;
-- optional private GitHub `[MAZ CORE]` issue bridge for AI clients with GitHub access, still using the same fixed allow-list and **no arbitrary remote shell**.
+MAZ Core exposes one understandable `MAZ_AI_PROFILE`:
 
-## Private Maz Works AI bridge
+- **smart** (default): ordinary Pocket turns use 4096 context, grow only for larger grounded prompts, and keep the local model warm for 5 minutes;
+- **save**: small context and immediate unload after a response;
+- **fast**: adaptive context and a 30-minute warm model.
 
-Maz Works contains an **unlinked, `noindex`** `/maz-pocket-ai` client alongside `/maz-core`. No private Core URL or token is committed to the public site. Your browser supplies them at runtime.
+LOCAL still never silently falls through to cloud. AUTO still tries configured local models before optional cloud. MAZ Core records Ollama load/prompt/output timing metadata so performance changes can be measured instead of guessed.
 
-The AI bridge can create a private capability link/access pack for a trusted AI client that supports authenticated HTTPS. When the optional GitHub bridge is enabled, it can also provide private-queue instructions for an AI with GitHub access.
+## Install / update
 
-A capability link is a secret: rotate the Core token if it is exposed.
+Fresh Windows setup remains `START-HERE.cmd`. M5Launcher remains the only firmware installer/rollback owner; MAZ Pocket never writes firmware partitions itself.
+
+Every releasable build now **must** emit:
+
+- `MAZ-Core-v<version>.zip` — complete laptop/client package;
+- `MAZ-Cardputer-v<version>.zip` — complete app-only handheld package;
+- `MAZ-Pocket-v<version>-Install.zip` — convenience bundle containing both;
+- the raw M5Launcher `.bin` and SHA-256 evidence.
+
+This is enforced in CI and documented in `docs/RELEASE_RULES.md`.
 
 ## Safety / rollback boundary
 
-The firmware `.bin` is an **app-only M5Launcher image**. Do not flash it at address `0x0`. Generic ArduinoOTA remains disabled because M5Launcher owns firmware installation and rollback.
+The target is StampS3A / ESP32-S3FN8 with 8 MB flash and no PSRAM. The firmware image is app-only for M5Launcher and must not be flashed at address `0x0`. Generic direct self-OTA remains disabled. PC actions remain allow-listed; Beam cannot execute received text; there is no arbitrary remote shell.
 
-The target is StampS3A / ESP32-S3FN8 with 8 MB flash and no PSRAM. CI enforces the known Launcher app ceiling, but the final field gate remains physical hardware testing: soak, repeated COMM, Wi-Fi/Core loss, SD faults, phone staging, USB Core-only pairing, audio cycles and M5Launcher rollback while observing runtime health measurements.
-
-See `QUICKSTART.txt`, `RELEASE_NOTES.md`, `docs/V060-PLAN.md` and `docs/V05-HARDENING.md`.
+CI can prove compile/tests/package integrity, not physical hardware behaviour. v0.6 remains the rollback release until v0.7 passes the real-device field gate in `docs/V070-FIELD.md`.

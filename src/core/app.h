@@ -1,10 +1,8 @@
 // MAZ Pocket — the app contract.
-//
-// Every screen is an App with the same lifecycle, which is what makes the
-// future assistant modules (Call-over-network, Recall, Forge, Pulse) additive
-// rather than surgical: they implement this interface and register a factory.
 #pragma once
 #include <M5Unified.h>
+
+#include <string>
 
 #include "keys.h"
 
@@ -14,22 +12,22 @@ class App {
 public:
     virtual ~App() = default;
 
-    virtual const char* id() const    = 0;  // stable, used by command palette
+    virtual const char* id() const    = 0;
     virtual const char* title() const = 0;
 
     virtual void onEnter() {}
     virtual void onExit() {}
 
-    // Return true if the key was consumed. Unconsumed keys fall through to the
-    // shell, which owns ESC-to-back and the global shortcuts.
     virtual bool onKey(const KeyEvent&) { return false; }
 
-    virtual void        update() {}  // logic tick, ~60Hz
+    virtual void        update() {}
     virtual void        render(M5Canvas&) = 0;
     virtual const char* hints() const { return "ESC back"; }
 
-    // Apps mark themselves dirty; the shell only pushes pixels when something
-    // changed, which is what keeps idle battery drain sane.
+    // Tiny, bounded context for Fn+Space Context Ask. Apps should describe only
+    // the currently visible/selected item — never dump a database or secrets.
+    virtual std::string contextSnapshot() const { return title(); }
+
     void invalidate() { _dirty = true; }
     bool dirty() const { return _dirty; }
     void clean() { _dirty = false; }

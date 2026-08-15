@@ -1,9 +1,4 @@
-// MAZ Pocket — the small pile of state the whole device agrees on.
-//
-// The status bar, Home and the notification system all need to know "is a
-// recording running", "is Focus counting down", "are we online". Passing that
-// through constructors would couple every app to every other; a single owned
-// snapshot keeps the dependency graph flat and the redraws cheap.
+// MAZ Pocket — shared lightweight state snapshot.
 #pragma once
 #include <stdint.h>
 
@@ -14,41 +9,28 @@ namespace maz {
 enum class Storage : uint8_t { None, Internal, SD };
 
 struct SysState {
-    // clock
     uint32_t bootMillis = 0;
-    bool     timeValid  = false;  // false until NTP or manual set
+    bool     timeValid  = false;
 
-    // power
-    int  batteryPct       = -1;  // -1 = unknown
+    int  batteryPct       = -1;
     bool charging         = false;
     bool lowBatteryWarned = false;
 
-    // storage
     Storage storage    = Storage::None;
     bool    sdPresent  = false;
     bool    internalFs = false;
-    // A card answered on the bus but carried no usable filesystem. Distinct
-    // from "no card": an unformatted card silently demotes you to internal
-    // flash, which is the volatile backend, and you would never know.
     bool    sdUnreadable = false;
-    // Internal LittleFS came up empty because it had to be formatted — which
-    // means whatever was stored there is gone. Flashing a different partition
-    // table (M5Launcher's vs ours) moves the data region and triggers this.
     bool    internalFormatted = false;
 
-    // network
     bool        wifiOn        = false;
     bool        wifiConnected = false;
     std::string wifiSsid;
     std::string ip;
 
-    // MAZ Host compute endpoint. Never faked: if it is not configured we say
-    // so rather than showing a hopeful green dot.
     std::string hostAddr;
     uint16_t    hostPort   = 0;
     bool        hostOnline = false;
 
-    // Agent assurance summary. These are deterministic host facts, never LLM guesses.
     uint8_t     agentsWorking = 0;
     uint8_t     agentsWaiting = 0;
     uint8_t     agentsStale   = 0;
@@ -56,21 +38,37 @@ struct SysState {
     bool        nudgeDue      = false;
     uint32_t    nudgeCheckedAt = 0;
 
-    // Navigation. The chrome draws the back affordance from this, so it stays
-    // correct on every screen without each app remembering to say so itself.
-    uint8_t navDepth = 1;  // shell stack size; 1 == Home, nothing behind it
+    uint8_t navDepth = 1;
 
-    // live activity, surfaced in the status bar
     bool        recording    = false;
     uint32_t    recSeconds   = 0;
     bool        focusRunning = false;
-    uint32_t    focusRemain  = 0;  // seconds
+    uint32_t    focusRemain  = 0;
     std::string focusLabel;
 
-    // Cardputer ADV runtime health. The board has no PSRAM, so these measured
-    // values are more useful than theoretical allocation rules. They are
-    // observational only: MAZ Pocket never reboots itself just because a
-    // threshold was crossed.
+    uint8_t  outboxQueued = 0;
+    uint8_t  beamUnread = 0;
+    bool     shiftRunning = false;
+    uint32_t shiftSeconds = 0;
+    bool     fieldMode = false;
+
+    bool     laptopStatusOk = false;
+    int      laptopCpuPct = -1;
+    int      laptopRamPct = -1;
+    int      laptopBatteryPct = -1;
+    bool     laptopCharging = false;
+    bool     laptopGpuAvailable = false;
+    int      laptopGpuPct = -1;
+    int      laptopVramUsedMb = 0;
+    int      laptopVramTotalMb = 0;
+    int      laptopGpuTempC = -1;
+    bool     ollamaOnline = false;
+    bool     ollamaLoaded = false;
+    std::string ollamaModel;
+    int      ollamaVramMb = 0;
+    int      ollamaContext = 0;
+    uint32_t laptopStatusAt = 0;
+
     uint32_t freeHeap           = 0;
     uint32_t minFreeHeap        = 0;
     uint32_t largestFreeBlock   = 0;

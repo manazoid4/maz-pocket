@@ -1,69 +1,61 @@
-# MAZ Pocket v0.6
+# MAZ Pocket v0.7 — FIELD
 
-The **friction release** for Cardputer ADV. v0.6 deliberately improves installation, pairing, updating and local-AI resilience instead of expanding the six-surface menu.
+v0.7 turns the v0.6 friction foundation into a useful everyday/field command surface without expanding the six-surface Home menu.
 
-## Highest-leverage changes
+## Pocket changes
 
-- **One start button on Windows:** extract `MAZ-Pocket-v0.6-Install.zip` and double-click `START-HERE.cmd`.
-- **Stable MAZ Core install:** Core is installed/updated under `%LOCALAPPDATA%\MAZ Core`, so deleting the release ZIP or Downloads folder does not break startup. Existing `.env` is preserved.
-- **Core-only USB pairing:** a v0.6 Cardputer can receive the PC address/port/token without asking for or replacing known-good Wi-Fi credentials.
-- **Phone-first future updates:** the hardened local portal can accept an authenticated app `.bin`, stream it to SD, verify safe size + ESP image magic + SHA-256, and stage it for M5Launcher. MAZ Pocket itself never flashes a firmware partition.
-- **Local AI failover:** LOCAL tries the configured primary Ollama model and then a configured/installed backup, but never falls through to cloud. AUTO tries both local models before optional cloud.
-- **Single version source:** firmware identity, install helpers and release packaging now derive from root `VERSION`, with CI guards against stale hard-coded release names.
-- **v0.5.2 web hardening is included:** the old foreground-blocking portal parser is replaced by the bounded `portal_v2` state machine, LCD mirroring is authenticated, browser PC actions use the existing bounded Host worker, and interrupted firmware staging cleans up temporary files.
+- **NOW on Home** chooses one useful priority: agent question, Outbox, shift, reminder, Beam, stale/waiting agents or Core-offline state.
+- **Four persistent quick keys** on 1–4; Fn+number cycles each slot through a fixed allow-list.
+- **Context Ask** on Fn+Space captures a bounded snapshot of the focused screen/item and pairs it with a spoken question.
+- **Automatic Offline Outbox** retries failed voice turns, Context Ask audio and outgoing Beams with bounded backoff.
+- **Beam** sends/receives short text and URLs. Received data is never executable.
+- **Laptop** view shows one cached CPU/RAM/GPU/VRAM/battery/Ollama snapshot instead of streaming graphs.
+- **FIELD mode** (Fn+F) reduces background refresh and shortens display dim timing while keeping Outbox/Beam active.
+- **Shift Clock** lives in FLOW and saves completed elapsed time.
+- Home no longer hard-codes the stale `MAZ 0.5` label.
+- Small `Fn+M` Home Easter egg adds retro flavour without another dependency or game engine.
 
-## Product surfaces remain focused
+## MAZ Core / laptop changes
 
-- **COMM** — voice assistant + safe PC controls.
-- **CAPTURE** — voice/field capture + BrainDump.
-- **OPS** — Agent Nudge evidence + nudges.
-- **CONTROL** — Wi-Fi, MAZ Core, PC, diagnostics, settings and M5Launcher.
-- **RECALL** — inbox, notes, snippets and viewer.
-- **FLOW** — reminders, focus, sprint and tasks.
+- Durable Beam queue/history with Windows clipboard handoff for Pocket -> laptop.
+- `BEAM-TO-POCKET.cmd`/`beam.ps1` sends clipboard text or a supplied string to the handheld queue.
+- On-demand laptop telemetry uses psutil, `nvidia-smi` when available and Ollama `/api/ps`; no sampler thread.
+- `MAZ_AI_PROFILE=smart|save|fast` separates performance/resource policy from LOCAL/AUTO/CLOUD routing.
+- SMART defaults ordinary local requests to 4096 context and a 5-minute keep-alive, increasing context only for larger grounded prompts.
+- SAVE unloads immediately; FAST keeps the local model warm for 30 minutes.
+- Ollama response metadata records context, load time, prompt/output tokens and total time in `/models` status.
+- MAZ Core/FastAPI public status now derives version identity from the release `VERSION` file instead of stale literals.
 
-No extra top-level apps were added for v0.6.
+## Packaging rule added
 
-## Fresh install
+Every releasable PR/build must produce all three ZIPs:
 
-1. Download `MAZ-Pocket-v0.6-Install.zip` and extract it.
-2. Double-click `START-HERE.cmd`.
-3. Core installs/updates and starts automatically.
-4. If exactly one removable microSD is detected, setup offers to copy the verified app image.
-5. Put the card in the Cardputer, boot M5Launcher, select `Maz-Pocket-v0.6-M5Launcher.bin`, Install, then Launch.
+1. `MAZ-Core-v0.7.zip` — laptop/client.
+2. `MAZ-Cardputer-v0.7.zip` — Cardputer/M5Launcher package.
+3. `MAZ-Pocket-v0.7-Install.zip` — convenience bundle containing both.
 
-The legacy `INSTALL-MAZ-POCKET.cmd` microSD helper remains available as a fallback.
+CI fails if the split packages are missing. `docs/RELEASE_RULES.md` makes this a permanent project rule.
 
-## Normal phone update after the hardened portal is installed
+## Deliberately not added
 
-1. Download `Maz-Pocket-v0.6-M5Launcher.bin` to the phone.
-2. Open `http://mazpocket.local` on the same LAN and unlock it.
-3. Choose the `.bin` under **STAGE NEXT FIRMWARE**.
-4. Verify/stage it to SD.
-5. Return to M5Launcher and install the staged app image.
-
-## What was deliberately deferred
-
-A prior experimental branch implemented realtime microphone-frame streaming plus a much broader async/protocol refactor. The useful low-risk local-model failover work was brought into v0.6, but realtime COMM streaming is **not** merged wholesale. Durable WAV/HTTP remains the production voice path until physical Cardputer ADV testing proves streaming is at least as reliable under Wi-Fi/Core loss, audio cycles and memory pressure.
-
-## Safety boundaries
-
-- Firmware remains an **app-only M5Launcher image**. Never flash it at address `0x0`.
-- M5Launcher owns firmware installation and rollback.
-- CI enforces the known `0x180000` Launcher app ceiling.
-- Generic ArduinoOTA/direct self-flashing remains disabled.
-- PC/Core actions stay allow-listed; there is no arbitrary remote shell.
-- Maz Works stores no private Core token or endpoint.
+No new top-level app, weather/news/browser/email client, arbitrary remote shell, realtime monitoring daemon, second framebuffer, realtime microphone streaming refactor or direct self-OTA.
 
 ## Physical validation gate
 
-CI can validate source/tests/image/package integrity, but the real Cardputer ADV still has to prove the field path. Before treating v0.6 as hardware-proven, run:
+CI passing is not hardware proof. Before calling v0.7 field-proven, test on the actual Cardputer ADV:
 
-- 30+ minute soak with no reset/watchdog event;
-- 20+ COMM turns, including exiting/re-entering COMM mid-request;
-- Wi-Fi and MAZ Core loss/reconnect;
-- phone LCD polling and firmware staging;
-- SD absent/unreadable/near-full and interrupted upload cases;
-- Core-only USB pairing;
-- repeated microphone record/playback cycles;
-- M5Launcher reinstall and rollback;
-- inspect `[health]` and `[host-worker]` measurements for heap/stack/loop headroom.
+- 30+ minute normal soak and 30+ minute FIELD soak with no reset/watchdog;
+- 20+ ordinary COMM turns plus 10+ Context Ask turns from different screens;
+- leave/re-enter COMM mid-request without losing the recording/result;
+- Wi-Fi/Core loss during voice, then automatic Outbox retry after reconnect;
+- multiple queued voice turns maintain oldest-first order;
+- outgoing Beam while offline then reconnect; laptop -> Pocket Beam; QR/save paths;
+- Laptop status refresh with Core up/down and NVIDIA tools present/absent;
+- Fn+1..4 persistence across reboot; Fn+F FIELD persistence;
+- shift start/stop and saved record;
+- SD absent/unreadable/near-full while queueing audio;
+- phone LCD polling and firmware staging remain responsive;
+- M5Launcher hand-back, reinstall and v0.6 rollback;
+- inspect `[health]` and `[host-worker]` heap/stack/loop evidence.
+
+v0.6 remains the rollback release until this gate is satisfied.

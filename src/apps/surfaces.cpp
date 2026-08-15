@@ -46,6 +46,12 @@ public:
         return false;
     }
 
+    std::string contextSnapshot() const override {
+        if (_count <= 0) return _heading;
+        return std::string(_heading) + " selected " + _items[_cursor.sel].label +
+               " (" + _items[_cursor.sel].sub + ")";
+    }
+
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
         ui::header(g, _heading, _status);
@@ -90,6 +96,8 @@ private:
 
 constexpr HubItem CONTROL_ITEMS[] = {
     {"CONTROL CENTER", "everything",     "control"},
+    {"LAPTOP",         "CPU / GPU / AI", "laptop"},
+    {"BEAM",           "PC <-> Pocket",  "beam"},
     {"WI-FI",          "scan / connect", "network"},
     {"MAZ CORE",       "projects / jobs","core"},
     {"PC / COMM",      "voice + control","talk"},
@@ -99,12 +107,14 @@ constexpr HubItem CONTROL_ITEMS[] = {
 
 constexpr HubItem RECALL_ITEMS[] = {
     {"INBOX", "agent results", "inbox"},
+    {"BEAM", "received text", "beam"},
     {"NOTES", "saved text", "notes"},
     {"SNIPPETS", "quick reuse", "snippets"},
     {"VIEWER", "txt / md", "viewer"},
 };
 
 constexpr HubItem FLOW_ITEMS[] = {
+    {"SHIFT CLOCK", "field work", "shift"},
     {"REMINDERS", "nudges", "reminders"},
     {"FOCUS", "timer", "focus"},
     {"SPRINT", "outcome", "sprint"},

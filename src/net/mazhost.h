@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
@@ -65,11 +66,41 @@ struct CoreJob {
     std::string error;
 };
 
+struct BeamMessage {
+    bool ok = false;
+    bool hasMessage = false;
+    std::string id;
+    std::string kind;
+    std::string text;
+    std::string error;
+};
+
+struct SystemStatus {
+    bool ok = false;
+    int cpuPct = -1;
+    int ramPct = -1;
+    int batteryPct = -1;
+    bool charging = false;
+    bool gpuAvailable = false;
+    int gpuPct = -1;
+    int vramUsedMb = 0;
+    int vramTotalMb = 0;
+    int gpuTempC = -1;
+    bool ollamaOnline = false;
+    bool ollamaLoaded = false;
+    std::string ollamaModel;
+    int ollamaVramMb = 0;
+    int ollamaContext = 0;
+    std::string error;
+};
+
 bool configured();
 bool health();
 const char* linkName();
 std::string startSession();
 Reply talkText(const std::string& session, const std::string& text);
+Reply talkTextContext(const std::string& session, const std::string& text,
+                      const std::string& context);
 Reply talkAudio(const std::string& session, const std::string& wavPath);
 Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
@@ -77,6 +108,12 @@ Reply pcAction(const std::string& action);
 bool speak(const std::string& text, const std::string& wavPath);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);
+
+// v0.7 FIELD endpoints. Received Beam content is data only and is never used as
+// a command. Telemetry is a cached one-shot laptop snapshot, not a stream.
+Reply beamSend(const std::string& text);
+BeamMessage beamPull();
+SystemStatus systemStatus();
 
 CoreStatus coreStatus();
 std::vector<CoreProject> coreProjects(std::string& error);

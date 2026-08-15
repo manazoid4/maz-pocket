@@ -5,6 +5,7 @@
 
 #include "audio/voice.h"
 #include "core/ambient.h"
+#include "core/field.h"
 #include "core/health.h"
 #include "core/notify.h"
 #include "core/settings.h"
@@ -50,11 +51,9 @@ void setup() {
     net::begin();
     Serial.println("[boot] network");
 
-    // USB/LAN device control and the phone-friendly local portal share the
-    // existing MAZ pairing token, while firmware installation remains owned by
-    // M5Launcher rather than a generic OTA writer.
     control::begin();
     portal::begin();
+    field::begin();
 
     if (Cfg.lastKnownEpoch > 0) {
         timeval tv;
@@ -86,6 +85,8 @@ void setup() {
         notify::post(Note::Warn, "Internal storage reset", "previous notes and recordings are gone");
     if (Sys.sdUnreadable)
         notify::post(Note::Warn, "SD card unreadable", "format it as FAT32 to keep data safely");
+    if (Cfg.fieldMode)
+        notify::post(Note::Info, "FIELD mode restored", "lower background + faster dim");
 }
 
 void loop() {
