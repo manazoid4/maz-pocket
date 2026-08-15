@@ -3,9 +3,11 @@ MAZ POCKET v0.5 — CARDPUTER ADV / M5LAUNCHER
 FASTEST SAFE INSTALL
 1. Download MAZ-Pocket-v0.5-Install.zip from the build/release assets and extract it.
 2. Put the Cardputer microSD card in the Windows PC.
-3. Run: .\install-to-sd.ps1
-4. The script validates the ESP32 app image, refuses fixed disks, copies only the MAZ Pocket .bin, then verifies SHA-256.
+3. Double-click INSTALL-MAZ-POCKET.cmd.
+4. It launches the verified copy helper, validates the ESP32 app image, refuses fixed disks, copies only the MAZ Pocket .bin, then verifies SHA-256.
 5. Safely eject the card, boot M5Launcher, select Maz-Pocket-v0.5-M5Launcher.bin, Install, then Launch.
+
+If the .cmd launcher is blocked by local policy, run .\install-to-sd.ps1 from PowerShell instead.
 
 MANUAL CARDPUTER INSTALL
 1. Copy Maz-Pocket-v0.5-M5Launcher.bin to microSD.
@@ -54,6 +56,7 @@ MAZ WORKS PRIVATE CONSOLES
 - Both are noindex and ship with NO private Core URL or token.
 - The AI bridge can create a capability URL whose secret is kept in the URL fragment, so Maz Works never receives it. Treat the full capability URL like a password and rotate the MAZ token if it is exposed.
 - Agents that support authenticated HTTP can use the copied AI access pack to reach the documented Core/Cardputer allow-list.
+- When MAZ Core's private GitHub bridge is enabled, /maz-pocket-ai can also copy a ChatGPT-specific GitHub bridge prompt using the configured private queue repository.
 - install-core.ps1 attempts private Tailscale Serve setup when Tailscale is already installed.
 
 CHATGPT -> LOCAL PC / CARDPUTER
