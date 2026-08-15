@@ -19,8 +19,8 @@ $Address = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
 } | Select-Object -First 1 -ExpandProperty IPAddress)
 $ConfiguredToken = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
 Write-Host "MAZ Core is ready."
-Write-Host "On MAZ Pocket use CONTROL > MAZ CORE / legacy host config if pairing is needed:"
+Write-Host "On MAZ Pocket use CONTROL > MAZ CORE if pairing is needed:"
 Write-Host "  Address: ${Address}:8787"
 Write-Host "  Token:   $ConfiguredToken"
-Write-Host "Run .\run.ps1 to start Core, or .\install-core.ps1 for the full v0.5 one-shot setup."
+Write-Host "Run .\run.ps1 to start Core, or double-click INSTALL-MAZ-CORE.cmd for the full v0.5.1 setup."
 Write-Host "With MAZ Pocket open over USB, .\pair.ps1 remains available for serial pairing."
