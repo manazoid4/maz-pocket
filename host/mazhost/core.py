@@ -1,8 +1,9 @@
 """MAZ Core: factual local-PC tools for MAZ Pocket and the private web console.
 
-The Core deliberately exposes a small allow-list. It can inspect projects and
-run their normal test/build/git maintenance commands, but there is no generic
-remote shell endpoint.
+Core exposes a deliberately small allow-list. It can inspect projects and run
+normal test/build/git maintenance commands, but there is no generic remote
+shell endpoint. Expensive repo summaries are cached so a dashboard refresh or
+ordinary chat turn never spawns Git across every local repository.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +39,12 @@ TEXT_EXTENSIONS = {
     ".html", ".ps1", ".sh",
 }
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", ".pio", "dist", "build", ".next"}
+SECRET_NAMES = {
+    ".npmrc", ".pypirc", "credentials.json", "credentials.yml", "credentials.yaml",
+    "secrets.json", "secrets.yml", "secrets.yaml", "id_rsa", "id_ed25519",
+}
+SECRET_EXTENSIONS = {".key", ".pem", ".p12", ".pfx", ".kdbx"}
+SUMMARY_TTL_SECONDS = 12.0
 
 
 class CoreError(RuntimeError):
@@ -46,10 +55,15 @@ class MazCore:
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
         self.client = client or httpx.Client(timeout=12)
+        self._cache_lock = threading.Lock()
+        self._summary_cache: list[dict[str, Any]] = []
+        self._summary_cache_at = 0.0
 
     # ---------------------------------------------------------------- system
     def status(self) -> dict[str, Any]:
-        projects = self.projects(limit=80)
+        # Counting paths is cheap. Do not run status/log in every repo merely to
+        # render /health or the Maz Works dashboard.
+        project_count = len(self._project_paths(limit=80))
         return {
             "ok": True,
             "version": "0.5.0",
@@ -61,7 +75,7 @@ class MazCore:
             "git": bool(shutil.which("git")),
             "platformio": bool(shutil.which("pio") or shutil.which("platformio")),
             "project_roots": [str(path) for path in self.settings.project_root_paths],
-            "project_count": len(projects),
+            "project_count": project_count,
             "obsidian": str(self._obsidian_root() or ""),
             "bridge": self.settings.bridge_enabled,
             "bridge_repo": self.settings.bridge_repo if self.settings.bridge_enabled else "",
@@ -99,6 +113,8 @@ class MazCore:
             except OSError:
                 children = []
             candidates.extend(children)
+            # One extra level catches common Desktop/Projects/workspace layouts
+            # without turning discovery into an unbounded filesystem crawl.
             for child in children[:80]:
                 if self._looks_like_project(child):
                     continue
@@ -136,7 +152,8 @@ class MazCore:
         if (path / ".git").exists():
             branch_result = self._git(path, "branch", "--show-current")
             if branch_result["ok"]:
-                branch = branch_result["output"].strip().splitlines()[0] if branch_result["output"].strip() else "detached"
+                raw = branch_result["output"].strip()
+                branch = raw.splitlines()[0] if raw else "detached"
             status_result = self._git(path, "status", "--porcelain")
             if status_result["ok"]:
                 dirty = len([line for line in status_result["output"].splitlines() if line.strip()])
@@ -165,8 +182,22 @@ class MazCore:
             return "go"
         return "git"
 
+    def _invalidate_project_cache(self) -> None:
+        with self._cache_lock:
+            self._summary_cache = []
+            self._summary_cache_at = 0.0
+
     def projects(self, limit: int = 60) -> list[dict[str, Any]]:
-        return [self._project_summary(path) for path in self._project_paths(limit=limit)]
+        now = time.monotonic()
+        with self._cache_lock:
+            if self._summary_cache and now - self._summary_cache_at < SUMMARY_TTL_SECONDS:
+                return [dict(item) for item in self._summary_cache[:limit]]
+
+        summaries = [self._project_summary(path) for path in self._project_paths(limit=80)]
+        with self._cache_lock:
+            self._summary_cache = summaries
+            self._summary_cache_at = now
+        return [dict(item) for item in summaries[:limit]]
 
     def _find_project(self, name: str) -> Path:
         wanted = name.strip().lower()
@@ -192,12 +223,23 @@ class MazCore:
         try:
             return sorted(
                 p.name for p in path.iterdir()
-                if p.is_file() and p.name not in {".env"}
+                if p.is_file() and not self._secret_name(p)
             )[:40]
         except OSError:
             return []
 
     # ------------------------------------------------------------- safe files
+    @staticmethod
+    def _secret_name(path: Path) -> bool:
+        lower = path.name.lower()
+        return (
+            lower == ".env"
+            or lower.startswith(".env.")
+            or lower in SECRET_NAMES
+            or path.suffix.lower() in SECRET_EXTENSIONS
+            or "secret" in lower and path.suffix.lower() in {".json", ".yml", ".yaml", ".txt"}
+        )
+
     def _safe_path(self, project: str, relative: str) -> Path:
         root = self._find_project(project).resolve()
         candidate = (root / relative).resolve()
@@ -207,7 +249,7 @@ class MazCore:
             raise CoreError("path_outside_project") from error
         if not candidate.is_file():
             raise CoreError("file_not_found")
-        if candidate.name == ".env" or candidate.suffix.lower() in {".key", ".pem", ".p12", ".pfx"}:
+        if self._secret_name(candidate):
             raise CoreError("secret_file_blocked")
         return candidate
 
@@ -224,19 +266,12 @@ class MazCore:
         path = Path(self.settings.obsidian_root).expanduser()
         return path.resolve() if path.exists() and path.is_dir() else None
 
-    def search(self, query: str, project: str = "", limit: int = 30) -> dict[str, Any]:
+    def _search_roots(
+        self, query: str, roots: list[tuple[str, Path]], limit: int
+    ) -> dict[str, Any]:
         needle = query.strip().lower()
         if len(needle) < 2:
             raise CoreError("query_too_short")
-        roots: list[tuple[str, Path]] = []
-        if project:
-            roots.append((project, self._find_project(project)))
-        else:
-            roots.extend((path.name, path) for path in self._project_paths(limit=40))
-            obsidian = self._obsidian_root()
-            if obsidian:
-                roots.append(("Obsidian", obsidian))
-
         hits: list[dict[str, Any]] = []
         for label, root in roots:
             for path in self._iter_text_files(root, max_files=700):
@@ -246,8 +281,7 @@ class MazCore:
                     text = path.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
                     continue
-                low = text.lower()
-                pos = low.find(needle)
+                pos = text.lower().find(needle)
                 if pos < 0:
                     continue
                 start = max(0, pos - 120)
@@ -265,14 +299,26 @@ class MazCore:
                     return {"query": query, "hits": hits}
         return {"query": query, "hits": hits}
 
+    def search(self, query: str, project: str = "", limit: int = 30) -> dict[str, Any]:
+        roots: list[tuple[str, Path]] = []
+        if project:
+            roots.append((project, self._find_project(project)))
+        else:
+            roots.extend((path.name, path) for path in self._project_paths(limit=40))
+            obsidian = self._obsidian_root()
+            if obsidian:
+                roots.append(("Obsidian", obsidian))
+        return self._search_roots(query, roots, limit)
+
     def _iter_text_files(self, root: Path, max_files: int):
         count = 0
         for base, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
             for filename in files:
-                if filename == ".env" or Path(filename).suffix.lower() not in TEXT_EXTENSIONS:
+                path = Path(base) / filename
+                if self._secret_name(path) or path.suffix.lower() not in TEXT_EXTENSIONS:
                     continue
-                yield Path(base) / filename
+                yield path
                 count += 1
                 if count >= max_files:
                     return
@@ -286,11 +332,17 @@ class MazCore:
             raise CoreError("action_not_allowed")
         path = self._find_project(project)
         if action == "git_status":
-            return {"action": action, "project": project, **self._git(path, "status", "--short", "--branch")}
+            result = {"action": action, "project": project, **self._git(path, "status", "--short", "--branch")}
+            self._invalidate_project_cache()
+            return result
         if action == "git_fetch":
-            return {"action": action, "project": project, **self._git(path, "fetch", "--prune", timeout=45)}
+            result = {"action": action, "project": project, **self._git(path, "fetch", "--prune", timeout=45)}
+            self._invalidate_project_cache()
+            return result
         if action == "git_pull_ff":
-            return {"action": action, "project": project, **self._git(path, "pull", "--ff-only", timeout=45)}
+            result = {"action": action, "project": project, **self._git(path, "pull", "--ff-only", timeout=45)}
+            self._invalidate_project_cache()
+            return result
         if action == "tests":
             cmd = self._test_command(path)
             if not cmd:
@@ -382,35 +434,52 @@ class MazCore:
         if not self.settings.core_enabled:
             return ""
         lower = text.lower()
-        projects = self.projects(limit=40)
-        matched = [p for p in projects if p["name"].lower() in lower]
+        paths = self._project_paths(limit=60)
+        matched_paths = [path for path in paths if path.name.lower() in lower]
+
+        # No Git fan-out for generic chat. Only projects explicitly named by
+        # the user get deep branch/status/recent-commit evidence.
         evidence: dict[str, Any] = {
             "pc": {
                 "hostname": socket.gethostname(),
                 "ollama_model": self.settings.ollama_model,
             },
-            "projects": matched[:3] if matched else [
-                {"name": p["name"], "branch": p["branch"], "dirty": p["dirty"]}
-                for p in projects[:15]
+            "known_projects": [
+                {"name": path.name, "kind": self._project_kind(path)} for path in paths[:20]
             ],
         }
-        if matched:
+        if matched_paths:
             detailed = []
-            for item in matched[:2]:
+            for path in matched_paths[:2]:
                 try:
-                    detailed.append(self.project(item["name"]))
+                    detailed.append(self.project(path.name))
                 except CoreError:
                     pass
             evidence["matched_project_evidence"] = detailed
+
         if any(word in lower for word in ("cardputer", "pocket", "device", "wifi")):
             evidence["cardputer"] = self.cardputer_status()
+
         if any(word in lower for word in ("note", "memory", "obsidian", "remember")):
-            try:
-                terms = [w for w in re.findall(r"[a-zA-Z0-9_-]{4,}", text) if w.lower() not in {"what", "with", "from", "that", "this"}]
-                if terms:
-                    evidence["memory_hits"] = self.search(terms[-1], limit=6)["hits"]
-            except CoreError:
-                pass
+            terms = [
+                word for word in re.findall(r"[a-zA-Z0-9_-]{4,}", text)
+                if word.lower() not in {"what", "with", "from", "that", "this", "remember"}
+            ]
+            if terms:
+                try:
+                    if matched_paths:
+                        evidence["memory_hits"] = self.search(
+                            terms[-1], matched_paths[0].name, limit=6
+                        )["hits"]
+                    else:
+                        obsidian = self._obsidian_root()
+                        if obsidian:
+                            evidence["memory_hits"] = self._search_roots(
+                                terms[-1], [("Obsidian", obsidian)], 6
+                            )["hits"]
+                except CoreError:
+                    pass
+
         encoded = json.dumps(evidence, ensure_ascii=False, default=str)
         return "\nMAZ Core factual evidence (use this, do not invent beyond it):\n" + encoded[:7000]
 
