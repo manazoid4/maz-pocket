@@ -1,83 +1,74 @@
 # MAZ Pocket
 
-MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV**, designed as a small physical front-end for voice capture, PC control, reminders and AI-agent workflows.
+MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV** plus **MAZ Core**, a local Windows companion that supplies real project/PC context and safe actions.
 
-## v0.4
+## v0.5 milestone
 
-The device presents six primary surfaces directly on Home:
+Home stays intentionally small:
 
-- **COMM** — voice/text conversation with MAZ Host, spoken replies and PC controls.
-- **CAPTURE** — fast field capture and voice notes.
-- **OPS** — Agent Nudge status, inspection and nudges.
-- **DESK** — PC/device controls, Wi-Fi, diagnostics and settings.
-- **RECALL** — inbox, notes, snippets and text viewer.
+- **COMM** — voice/text conversation, spoken replies, PC control.
+- **CAPTURE** — field capture, recordings and BrainDump.
+- **OPS** — Agent Nudge evidence, status and nudges.
+- **CONTROL** — Wi-Fi, MAZ Core, PC/COMM, diagnostics, settings and M5Launcher.
+- **RECALL** — inbox, notes, snippets and viewer.
 - **FLOW** — reminders, focus, sprint and tasks.
 
-Long-tail utilities remain available through **Ctrl+K**. **Ctrl+L** performs the guarded hand-back to M5Launcher.
+**W from Home opens Wi-Fi directly. Ctrl+K opens everything. Ctrl+L returns to M5Launcher.**
 
-## Installation
+## Wi-Fi that is always recoverable
 
-1. Download `Maz-Pocket-v0.4-M5Launcher.bin` from the GitHub Release.
-2. Copy it to the Cardputer microSD card.
-3. Boot M5Launcher.
-4. Select the `.bin`, install it into an app slot and launch it.
+v0.5 makes networking first-class on the device. CONTROL → WI-FI can show status, reconnect, scan/connect primary Wi-Fi, save a backup network, disconnect, forget credentials and start a setup hotspot.
 
-The release binary is an **app-only image**, not a complete ESP32 flash image. Do not write it to address `0x0` as a full-device firmware.
+If no saved network works, MAZ Pocket starts:
 
-## Wi-Fi
+- SSID: `MAZ-Pocket-Setup`
+- password: `mazpocket`
+- setup page: `http://192.168.4.1`
 
-MAZ Pocket stores Wi-Fi credentials in NVS. On boot it automatically attempts the saved network; the networking layer supports a second saved network. If the connection drops, it retries with bounded exponential backoff.
-
-First-time setup is available on-device under **DESK → Connections**: scan, choose a network and enter its password.
+On a normal LAN, use `http://mazpocket.local`.
 
 ## `mazpocket.local`
 
-Once the Cardputer is connected, open `http://mazpocket.local` from a phone or computer on the same network. The v0.4 dashboard is designed as a proper remote control rather than a diagnostics page. It provides:
+The device-hosted v0.5 control plane exposes the same capabilities instead of inventing a separate UI: device/network/Core status, primary+backup Wi-Fi, six-surface launchers, PC controls, diagnostics, Core config, reboot, M5Launcher hand-back and a **~2 FPS 240x135 LCD mirror**.
 
-- live Wi-Fi, IP, signal, battery, storage, current-app, MAZ Host and Agent Nudge status;
-- one-tap launch of COMM / CAPTURE / OPS / DESK / RECALL / FLOW on the Cardputer;
-- allow-listed PC controls for desktop, media, volume, mute and lock;
-- MAZ Host address, local/auto/cloud route and spoken-reply configuration;
-- backup Wi-Fi configuration;
-- Wi-Fi reconnect, host test, speaker/SD tests, reboot and M5Launcher hand-back.
+Cardputer ADV has no built-in camera. v0.5 therefore streams the real LCD; camera video is an external-hardware extension rather than a claimed software feature.
 
-Read-only status is available immediately. State-changing controls require the existing MAZ pairing token.
+## MAZ Core
 
-## Local AI
+The Windows PC is the persistent brain. `MAZ-Core-v0.5.zip` ships with the release; extract it and run `install-core.ps1` once.
 
-Heavy AI runs on MAZ Host, not the ESP32. The v0.4 preferred Ollama model is:
+MAZ Core provides:
 
-`lfm2.5-8b-a1b-gpu:latest`
+- `lfm2.5-8b-a1b-gpu:latest` through Ollama by default;
+- local project discovery and real branch/dirty/recent-commit evidence;
+- bounded project/Obsidian search and non-secret file reads;
+- allow-listed git status/fetch/fast-forward pull, detected test/build jobs and open-folder action;
+- background jobs so builds/tests never freeze the Cardputer;
+- Cardputer status and live-LCD proxy;
+- Agent Nudge integration;
+- optional private GitHub issue bridge: ChatGPT → private GitHub → MAZ Core → local PC, still using the same fixed allow-list and **no arbitrary remote shell**.
 
-MAZ Host defaults to local routing, low-temperature generation and an explicit verified MAZ Pocket capability map. This is intended to prevent the old behavior where a tiny generic model invented apps or answered vaguely about what the device could do.
+This fixes the old generic-AI architecture: the LLM interprets tool evidence; it is not itself the source of truth about your projects, PC, agents or device.
 
-Existing `host/.env` files override defaults. Upgrade them to:
+## Hidden Maz Works console
 
-```text
-MAZ_OLLAMA_MODEL=lfm2.5-8b-a1b-gpu:latest
-MAZ_DEFAULT_ROUTE=local
-```
+Maz Works contains an **unlinked, `noindex`** `/maz-core` client. No private Core URL or token is committed to the public site. Your own browser supplies them at runtime; the Core URL is localStorage-only and the token is sessionStorage-only.
 
-Agent state is only supplied to the model as live Agent Nudge evidence; roadmap ideas are explicitly separated from current features.
+For remote use from the HTTPS site, `install-core.ps1` can use an already-installed Tailscale client to expose MAZ Core through private Tailscale Serve. The private endpoint is never written into the site repository.
 
-## Storage
+## Install / update
 
-Cardputer ADV has **8 MB internal flash**. A large microSD card does not increase executable flash space. Use SD as the firmware library and data store; install only the apps you actively need and swap them through M5Launcher when internal flash is tight.
+1. Copy `Maz-Pocket-v0.5-M5Launcher.bin` to microSD.
+2. Boot M5Launcher.
+3. Select the `.bin`, Install, Launch.
+4. On PC extract `MAZ-Core-v0.5.zip` and run `install-core.ps1` once.
 
-## Updating
+The firmware `.bin` is an **app-only M5Launcher image**. Do not flash it at address `0x0`.
 
-Generic ArduinoOTA is intentionally disabled. With M5Launcher, several unrelated applications may share internal flash and a generic "next OTA slot" is not a safe ownership boundary.
-
-For v0.4 the supported update method is the same reliable path as installation: download the new M5Launcher `.bin`, keep it on SD and install/update it from M5Launcher.
-
-The experimental browser flasher code remains only for recovery research/tests and is **not the primary v0.4 user update path**.
+Generic ArduinoOTA remains disabled because M5Launcher can hold several unrelated applications in internal flash; MAZ must not guess which partition it owns. SD remains the firmware/data library and does not expand the Cardputer ADV's 8 MB executable flash.
 
 ## Version naming
 
-Canonical product versions use the short scheme: **v0.1 / v0.2 / v0.3 / v0.4**. Older GitHub preview tags remain only as historical/recovery references.
+Canonical names are **v0.1 / v0.2 / v0.3 / v0.4 / v0.5**. Older preview labels remain only as history/recovery references.
 
-## Build gates
-
-CI runs the MAZ Host tests, recovery-flasher safety tests, Cardputer ADV firmware build, ESP32 app-image validation and the known M5Launcher slot-size ceiling before producing the release binary.
-
-See `QUICKSTART.txt` and `RELEASE_NOTES.md` for the current release path.
+See `QUICKSTART.txt` and `RELEASE_NOTES.md` for the one-shot install path.
