@@ -1,42 +1,58 @@
-# MAZ Host
+# MAZ Core v0.5
 
-The Cardputer handles capture, keys, status and durable queues. MAZ Host runs speech-to-text, the local Ollama model, optional cloud fallback, deterministic PC controls and Agent Nudge access on the laptop.
+MAZ Core is the Windows companion for MAZ Pocket. The Cardputer stays a fast physical interface; Core owns speech-to-text, Ollama, factual project/PC context, safe project jobs, deterministic PC controls and Agent Nudge access.
+
+## One-shot install
 
 ```powershell
-cd host
-.\setup.ps1
-.\run.ps1
+.\install-core.ps1
 ```
 
-`setup.ps1` creates the virtual environment and device token, then prints the address/token to enter under **Connections → C** on MAZ Pocket.
+It creates the Python environment/token, pins `lfm2.5-8b-a1b-gpu:latest`, enables local routing, discovers normal Desktop/Projects roots, adds start-at-login, starts Core immediately, enables the private GitHub bridge when `gh` is already authenticated and attempts private Tailscale Serve when Tailscale is installed.
 
-## v0.4 local brain
+It prints the LAN address + pairing token for MAZ Pocket. Keep port 8787 on a trusted private network; do not raw-port-forward it to the internet.
 
-Preferred model:
+## Factual tools
 
-```text
-lfm2.5-8b-a1b-gpu:latest
-```
+Core discovers configured projects and exposes only bounded operations:
 
-The v0.4 defaults are local-first and the known old shipped `gemma3:1b` default is migrated automatically. A different model you deliberately configured is respected.
+- project/repo/branch/dirty/recent-commit status;
+- bounded project + optional Obsidian text search;
+- non-secret file reads inside configured project roots;
+- `git status`, `git fetch`, `git pull --ff-only`;
+- detected tests/builds for PlatformIO, Node, Python, Rust or Go projects;
+- open project folder on the PC;
+- Cardputer status + live LCD proxy.
 
-To pin it explicitly in `host/.env`:
+Build/test operations are available as background jobs. There is **no generic shell endpoint**.
+
+## ChatGPT bridge without Codex
+
+When enabled, Core polls the configured private GitHub repo for issues titled `[MAZ CORE] ...`. The issue body is JSON and can request only the same Core allow-list. Core writes evidence back as a private issue comment and closes the request. Unknown commands are rejected.
+
+Authentication comes from `MAZ_GITHUB_TOKEN` when deliberately configured, otherwise from the locally authenticated GitHub CLI (`gh auth token`).
+
+## Hidden Maz Works console
+
+The public Maz Works code contains only an unlinked/noindex browser client at `/maz-core`; it does not contain your Core URL or token. Enter a private HTTPS endpoint and token in your own browser. The endpoint is kept in localStorage and the token only in sessionStorage.
+
+## Local AI
+
+Default:
 
 ```text
 MAZ_OLLAMA_MODEL=lfm2.5-8b-a1b-gpu:latest
 MAZ_DEFAULT_ROUTE=local
 ```
 
-Generation uses a low temperature and a verified MAZ Pocket capability map. This is specifically intended to stop generic replies and invented app/features when COMM is asked about the device.
+The model is deliberately not the source of truth for local state. Every normal conversation gets compact MAZ Core evidence; Agent Nudge evidence is added for agent questions. If evidence is missing, the prompt requires the model to say it cannot verify the fact instead of inventing it.
 
-Keep port 8787 on a trusted private network; do not expose it through raw public port forwarding.
+## Serial acceptance
 
-## Reliable device monitoring
-
-MAZ Host includes bounded serial monitoring that can follow the Cardputer USB identity across resets and retain boot logs. Monitoring is opt-in so it cannot occupy the COM port during M5Launcher installs:
+The older bounded USB monitor remains opt-in for firmware acceptance:
 
 - `POST /device/monitor/start`
-- `GET /device` and `GET /device/logs`
-- `POST /device/monitor/stop` before installing firmware
+- `GET /device` / `GET /device/logs`
+- `POST /device/monitor/stop`
 
-The repository-level `scripts/accept-device.py` uses the same bounded USB transport for physical acceptance. Its `MAZOPEN`, `MAZKEY`, `MAZTYPE` and `MAZSCREEN` commands are local-serial only; they are deliberately not exposed by MAZ Host over the network.
+Stop serial monitoring before M5Launcher installs so it cannot occupy the COM port.

@@ -1,53 +1,59 @@
-MAZ POCKET v0.4 — CARDPUTER ADV / M5LAUNCHER
+MAZ POCKET v0.5 — CARDPUTER ADV / M5LAUNCHER
 
-INSTALL
-1. Download Maz-Pocket-v0.4-M5Launcher.bin.
-2. Put the .bin on the Cardputer microSD card.
-3. Boot M5Launcher.
-4. Open the SD/local file browser and select the .bin.
-5. Choose Install, then launch MAZ Pocket.
+CARDPUTER
+1. Copy Maz-Pocket-v0.5-M5Launcher.bin to microSD.
+2. Boot M5Launcher, select the .bin, Install, then Launch.
 
-IMPORTANT
-- This is an app-only M5Launcher image. Do NOT flash it at address 0x0 as a full-device image.
-- The SD card can hold lots of firmware/data, but installed apps still use the Cardputer ADV's 8 MB internal flash.
-- Keep extra .bin files on SD and swap installed firmware when internal flash is tight.
-- Generic ArduinoOTA is intentionally disabled because Launcher may contain several unrelated app partitions.
+WI-FI — YOU CANNOT GET STRANDED NOW
+- Press W from Home, or open CONTROL > WI-FI.
+- Scan, choose a network, enter password, save as PRIMARY or BACKUP.
+- With no working saved network, MAZ Pocket starts:
+    Wi-Fi: MAZ-Pocket-Setup
+    password: mazpocket
+    browser: http://192.168.4.1
+- On normal Wi-Fi use http://mazpocket.local.
 
-FIRST WI-FI SETUP
-- Open DESK > Connections.
-- Press S to scan.
-- Pick your Wi-Fi and enter the password.
-- MAZ Pocket saves it and automatically reconnects on later boots.
-- If Wi-Fi drops, MAZ Pocket retries automatically with bounded backoff.
-- A backup/second Wi-Fi can be saved later from mazpocket.local.
-
-WEB DASHBOARD
-- Put the Cardputer and phone/PC on the same Wi-Fi.
-- Open: http://mazpocket.local
-- If .local discovery fails, use the IP shown in DESK > Connections.
-- Status is read-only by default. Enter the MAZ Host pairing token to unlock controls.
-- The dashboard can open COMM/CAPTURE/OPS/DESK/RECALL/FLOW on the device, control PC media/desktop/lock, test host/storage/speaker, force Wi-Fi reconnect, edit MAZ Host/route/TTS/backup Wi-Fi, reboot and return to M5Launcher.
-
-LOCAL AI
-- Preferred Ollama model: lfm2.5-8b-a1b-gpu:latest
-- MAZ Host v0.4 defaults to LOCAL routing and this exact model.
-- If you already have host/.env from an older version, set:
-  MAZ_OLLAMA_MODEL=lfm2.5-8b-a1b-gpu:latest
-  MAZ_DEFAULT_ROUTE=local
-- v0.4 gives the model a verified MAZ Pocket capability map and low-temperature generation to reduce generic/hallucinated app answers.
+MAZ CORE ON THE WINDOWS PC
+1. Extract MAZ-Core-v0.5.zip.
+2. Right-click PowerShell in that folder if you want the firewall rule created automatically.
+3. Run: .\install-core.ps1
+4. It installs/starts MAZ Core, selects lfm2.5-8b-a1b-gpu:latest, finds local projects, enables startup and prints the PC address + MAZ token.
+5. On Cardputer open CONTROL > MAZ CORE if pairing details need changing.
 
 HOME
-COMM     voice conversation + PC controls
-CAPTURE  field capture / voice notes
-OPS      Agent Nudge status and nudges
-DESK     PC/device controls and connections
-RECALL   inbox, notes, snippets and viewer
-FLOW     reminders, focus, sprint and tasks
+COMM      real voice/text assistant + PC control
+CAPTURE   voice/field capture + BrainDump
+OPS       Agent Nudge evidence + nudges
+CONTROL   Wi-Fi / MAZ Core / PC / diagnostics / settings / Launcher
+RECALL    inbox / notes / snippets / viewer
+FLOW      reminders / focus / sprint / tasks
 
-FAST KEYS
-- SPACE: COMM / voice
-- Ctrl+K: full utility palette
-- Ctrl+L: guarded return to M5Launcher
+MAZ CORE FROM THE CARDPUTER
+- CONTROL > CONTROL CENTER > MAZ CORE.
+- See real local projects/branches/dirty state.
+- Run safe project jobs: git status, tests, build, fetch, fast-forward pull.
+- Builds/tests run on the PC as background jobs so the handheld stays responsive.
+- There is no arbitrary remote shell.
 
-VERSION NAMES
-Use v0.1 / v0.2 / v0.3 / v0.4. Older historical preview tags may remain on GitHub only as recovery/history.
+LIVE SCREEN / WEB CONTROL
+- Open http://mazpocket.local on the same LAN.
+- Unlock with the MAZ pairing token.
+- You can manage Wi-Fi, open device surfaces, control the PC, configure Core, run diagnostics, reboot/return to Launcher and watch the Cardputer LCD at ~2 FPS.
+- Cardputer ADV has no built-in camera. This release streams the LCD; camera video needs external camera hardware.
+
+HIDDEN MAZ WORKS CORE CONSOLE
+- Route: /maz-core (not linked publicly, noindex).
+- The site contains NO private Core URL or token.
+- Enter your own private HTTPS Core endpoint + token in your browser.
+- install-core.ps1 attempts private Tailscale Serve setup when Tailscale is already installed.
+
+CHATGPT -> LOCAL PC WITHOUT CODEX
+- install-core.ps1 enables the private GitHub bridge when GitHub CLI (gh) is already authenticated.
+- The bridge accepts only [MAZ CORE] issues in the configured PRIVATE repo and only executes MAZ Core's fixed allow-list.
+- Evidence is written back to the private issue; arbitrary shell commands are rejected.
+
+IMPORTANT
+- The firmware .bin is an app-only M5Launcher image. Do NOT flash it at address 0x0.
+- SD stores firmware/data; executable apps still share the Cardputer's 8 MB internal flash.
+- Generic ArduinoOTA remains disabled; M5Launcher owns firmware installs safely.
+- Ctrl+K = full command palette. Ctrl+L = M5Launcher hand-back.

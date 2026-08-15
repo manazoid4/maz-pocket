@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <string>
 
@@ -49,8 +50,16 @@ public:
         g.fillScreen(BG);
         ui::header(g, _heading, _status);
 
-        for (int row = 0; row < _count && row < 4; ++row) {
-            const int idx = row;
+        constexpr int visible = 4;
+        if (_cursor.sel < _cursor.first) _cursor.first = _cursor.sel;
+        if (_cursor.sel >= _cursor.first + visible)
+            _cursor.first = _cursor.sel - visible + 1;
+        const int maxFirst = std::max(0, _count - visible);
+        if (_cursor.first > maxFirst) _cursor.first = maxFirst;
+
+        for (int row = 0; row < visible; ++row) {
+            const int idx = _cursor.first + row;
+            if (idx >= _count) break;
             const int y = BODY_Y + 17 + row * 25;
             const bool selected = idx == _cursor.sel;
             const uint16_t fill = selected ? ACCENT : PANEL;
@@ -66,6 +75,7 @@ public:
             g.setTextColor(selected ? BG : DIM, fill);
             g.drawString(_items[idx].sub, SCREEN_W - PAD - 6, y + 3);
         }
+        ui::scrollBar(g, _count, _cursor.first, visible);
         g.setTextDatum(top_left);
     }
 
@@ -78,11 +88,13 @@ private:
     ListCursor _cursor;
 };
 
-constexpr HubItem DESK_ITEMS[] = {
-    {"PC COMMANDS", "media / lock", "talk"},
-    {"CONNECTIONS", "wifi / host", "wifi"},
-    {"TOOLS", "diagnostics", "tools"},
-    {"SETTINGS", "device", "settings"},
+constexpr HubItem CONTROL_ITEMS[] = {
+    {"CONTROL CENTER", "everything",     "control"},
+    {"WI-FI",          "scan / connect", "network"},
+    {"MAZ CORE",       "projects / jobs","core"},
+    {"PC / COMM",      "voice + control","talk"},
+    {"DIAGNOSTICS",    "hardware",       "tools"},
+    {"SETTINGS",       "device",         "settings"},
 };
 
 constexpr HubItem RECALL_ITEMS[] = {
@@ -102,8 +114,8 @@ constexpr HubItem FLOW_ITEMS[] = {
 }  // namespace
 
 App* makeDesk() {
-    return new SurfaceHub("desk", "DESK / CONTROL", "PC + DEVICE",
-                          DESK_ITEMS, sizeof(DESK_ITEMS) / sizeof(DESK_ITEMS[0]));
+    return new SurfaceHub("desk", "CONTROL", "PC + DEVICE",
+                          CONTROL_ITEMS, sizeof(CONTROL_ITEMS) / sizeof(CONTROL_ITEMS[0]));
 }
 
 App* makeRecall() {

@@ -33,7 +33,7 @@ jobs:
           pip install -r host/requirements.txt
           pip install "click>=8.0.4,<8.4"
 
-      - name: Test MAZ Host
+      - name: Test MAZ Core + Host
         run: python -m pytest host/tests -q
 
       - name: Keep recovery flasher safety tests green
@@ -54,23 +54,29 @@ jobs:
         run: |
           python -c "from pathlib import Path; b=Path('dist/maz-pocket-app.bin').read_bytes(); assert len(b)>=65536 and b[0]==0xE9, 'invalid ESP32 app image'; assert len(b)<=0x180000, f'{len(b)} exceeds known Launcher slot'; print('ESP image OK',len(b),'bytes')"
 
-      - name: Prepare v0.4 SD-install package
+      - name: Prepare v0.5 install package
         shell: pwsh
         run: |
-          Copy-Item .\dist\maz-pocket-app.bin .\dist\Maz-Pocket-v0.4-M5Launcher.bin -Force
-          $sha = (Get-FileHash .\dist\Maz-Pocket-v0.4-M5Launcher.bin -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha  Maz-Pocket-v0.4-M5Launcher.bin" | Set-Content -Encoding ascii .\dist\SHA256SUMS.txt
+          Copy-Item .\dist\maz-pocket-app.bin .\dist\Maz-Pocket-v0.5-M5Launcher.bin -Force
+          Compress-Archive -Path .\host\* -DestinationPath .\dist\MAZ-Core-v0.5.zip -Force
+          $firmwareSha = (Get-FileHash .\dist\Maz-Pocket-v0.5-M5Launcher.bin -Algorithm SHA256).Hash.ToLowerInvariant()
+          $coreSha = (Get-FileHash .\dist\MAZ-Core-v0.5.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "$firmwareSha  Maz-Pocket-v0.5-M5Launcher.bin",
+            "$coreSha  MAZ-Core-v0.5.zip"
+          ) | Set-Content -Encoding ascii .\dist\SHA256SUMS.txt
           Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
           Copy-Item .\RELEASE_NOTES.md .\dist\RELEASE_NOTES.md -Force
-          Get-ChildItem .\dist\Maz-Pocket-v0.4-M5Launcher.bin, .\dist\SHA256SUMS.txt | Select-Object Name,Length
+          Get-ChildItem .\dist\Maz-Pocket-v0.5-M5Launcher.bin, .\dist\MAZ-Core-v0.5.zip, .\dist\SHA256SUMS.txt | Select-Object Name,Length
           Get-Content .\dist\SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: maz-pocket-v0.4
+          name: maz-pocket-v0.5
           if-no-files-found: error
           path: |
-            dist/Maz-Pocket-v0.4-M5Launcher.bin
+            dist/Maz-Pocket-v0.5-M5Launcher.bin
+            dist/MAZ-Core-v0.5.zip
             dist/SHA256SUMS.txt
             dist/QUICKSTART.txt
             dist/RELEASE_NOTES.md
