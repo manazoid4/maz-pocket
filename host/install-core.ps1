@@ -19,6 +19,13 @@ function Set-MazEnv([string]$Name, [string]$Value) {
     $lines | Set-Content -Encoding utf8 $EnvPath
 }
 
+function Get-MazEnv([string]$Name) {
+    $escaped = [regex]::Escape($Name)
+    $match = Select-String -Path $EnvPath -Pattern "^$escaped=(.*)$" | Select-Object -First 1
+    if ($match -and $match.Matches.Count) { return $match.Matches[0].Groups[1].Value.Trim() }
+    return ""
+}
+
 $Desktop = Join-Path $env:USERPROFILE "Desktop"
 $Projects = Join-Path $env:USERPROFILE "Projects"
 $Roots = @($Desktop)
@@ -28,11 +35,40 @@ Set-MazEnv "MAZ_PROJECT_ROOTS" ($Roots -join ";")
 
 $Obsidian = Join-Path $Desktop "Obsidian Main Vault"
 if (Test-Path $Obsidian) { Set-MazEnv "MAZ_OBSIDIAN_ROOT" $Obsidian }
-Set-MazEnv "MAZ_OLLAMA_MODEL" "lfm2.5-8b-a1b-gpu:latest"
 Set-MazEnv "MAZ_DEFAULT_ROUTE" "local"
 Set-MazEnv "MAZ_CARDPUTER_URL" "http://mazpocket.local"
 Set-MazEnv "MAZ_WEB_ORIGINS" "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 Set-MazEnv "MAZ_BRIDGE_REPO" "manazoid4/maz-pocket"
+
+# Never overwrite a working local model with a model name that is not actually
+# installed. Prefer known small/local models, otherwise use the first model
+# Ollama reports. If Ollama is offline, preserve the existing .env value.
+$CurrentModel = Get-MazEnv "MAZ_OLLAMA_MODEL"
+$SelectedModel = $CurrentModel
+try {
+    $Tags = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -Method Get -TimeoutSec 2
+    $Installed = @($Tags.models | ForEach-Object { $_.name } | Where-Object { $_ })
+    if ($Installed.Count -gt 0) {
+        if (-not $CurrentModel -or $Installed -notcontains $CurrentModel) {
+            $Preferred = @(
+                "qwen3.5:4b",
+                "lfm2.5-8b-a1b-gpu:latest",
+                "qwen3:4b-q4_K_M",
+                "qwen3:4b",
+                "gemma3:4b",
+                "llama3.1:8b"
+            )
+            $SelectedModel = $Preferred | Where-Object { $Installed -contains $_ } | Select-Object -First 1
+            if (-not $SelectedModel) { $SelectedModel = $Installed[0] }
+        }
+        Set-MazEnv "MAZ_OLLAMA_MODEL" $SelectedModel
+        Write-Host "Local AI model: $SelectedModel"
+    } else {
+        Write-Warning "Ollama is reachable but no local models are installed; keeping MAZ_OLLAMA_MODEL=$CurrentModel"
+    }
+} catch {
+    Write-Warning "Ollama is not reachable yet; preserving MAZ_OLLAMA_MODEL=$CurrentModel"
+}
 
 $Bridge = $false
 $Gh = Get-Command gh -ErrorAction SilentlyContinue
@@ -82,12 +118,13 @@ if ($Tail) {
 $Address = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
     $_.IPAddress -notlike "127.*" -and $_.PrefixOrigin -ne "WellKnown"
 } | Select-Object -First 1 -ExpandProperty IPAddress)
-$Token = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
+$Token = Get-MazEnv "MAZ_TOKEN"
 
 Write-Host ""
 Write-Host "MAZ Core v0.5.1 READY"
 Write-Host "PC address: ${Address}:8787"
 Write-Host "Pair token: $Token"
+Write-Host "Local model: $(Get-MazEnv 'MAZ_OLLAMA_MODEL')"
 Write-Host "GitHub bridge: $(if ($Bridge) { 'ON' } else { 'OFF - sign into gh if you want AI -> private GitHub -> PC commands' })"
 Write-Host "Cardputer: CONTROL > MAZ CORE, enter the address/token if not already paired."
 Write-Host "Maz Works: /maz-core for the human console, /maz-pocket-ai for the private AI capability client."
