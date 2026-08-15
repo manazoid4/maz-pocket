@@ -1,5 +1,6 @@
 #include "host_worker.h"
 
+#include <Arduino.h>
 #include <atomic>
 #include <utility>
 
@@ -51,10 +52,15 @@ void worker(void*) {
         gResult.speechPath = speechReady ? speechPath : "";
         gResult.speechReady = speechReady;
         gResult.reply = std::move(reply);
-        // ESP-IDF reports this value in bytes.
-        gStackHighWater.store(
-            static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr)),
-            std::memory_order_release);
+
+        // ESP-IDF reports this value in bytes. Record it after the expensive
+        // HTTP/TLS/TTS path so real ADV soak tests tell us whether 8 KB is
+        // appropriately sized instead of guessing from desktop builds.
+        const uint32_t highWater =
+            static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
+        gStackHighWater.store(highWater, std::memory_order_release);
+        Serial.printf("[host-worker] stack_free_min=%lu bytes\n",
+                      static_cast<unsigned long>(highWater));
         gState.store(State::Done, std::memory_order_release);
     }
 }
