@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.background import BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
@@ -16,11 +18,13 @@ from .braindump import structure_braindump
 from .device import DeviceMonitor
 from .llm import Models, Route
 from .nudge import NudgeClient
+from .pc import PCController
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
 from .security import Security
 from .sessions import SessionStore
 from .stt import SpeechToText
+from .tts import SpeechOut
 
 
 class TextTurn(BaseModel):
@@ -34,6 +38,23 @@ class ExtractRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20_000)
 
 
+class SpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1_400)
+
+
+class PCActionRequest(BaseModel):
+    action: Literal[
+        "desktop",
+        "play_pause",
+        "mute",
+        "volume_down",
+        "volume_up",
+        "previous_track",
+        "next_track",
+        "lock",
+    ]
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -41,17 +62,20 @@ def create_app(
     models: Models | None = None,
     nudge: NudgeClient | None = None,
     device: DeviceMonitor | None = None,
+    pc: PCController | None = None,
 ) -> FastAPI:
     cfg = settings or Settings()
     security = Security(cfg)
     speech = stt or SpeechToText(cfg)
+    speech_out = SpeechOut(cfg)
     model_router = models or Models(cfg)
     nudge_client = nudge or NudgeClient(cfg)
     device_monitor = device or DeviceMonitor(cfg)
+    pc_controller = pc or PCController()
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
     api = FastAPI(
         title="MAZ Host",
-        version="0.2.0",
+        version="0.3.0",
         dependencies=[Depends(security.authorize)],
     )
 
@@ -67,20 +91,35 @@ def create_app(
                 context = "\nAgent Nudge is unavailable; say that plainly."
         return [{"role": "system", "content": SYSTEM_PROMPT + context}, *history, {"role": "user", "content": text}]
 
+    def deterministic_command(session_id: str, text: str, command: dict, actions: list) -> dict:
+        if command["type"] == "reminder.create":
+            reply = f"Reminder set: {command['title']}"
+            provider = "deterministic-local"
+        elif command["type"] == "pc.action":
+            try:
+                result = pc_controller.perform(command["action"])
+            except RuntimeError as error:
+                raise HTTPException(503, str(error)) from error
+            reply = f"PC: {result.label}"
+            provider = "pc-local"
+        else:
+            raise HTTPException(400, "unsupported_command")
+
+        sessions.add_turn(session_id, text, reply)
+        return {
+            "text": text,
+            "reply": reply,
+            "provider": provider,
+            "actions": actions,
+            "commands": [command],
+            "timings": {"llm_ms": 0},
+        }
+
     def answer(session_id: str, text: str, route: Route) -> dict:
         refined = refine(text)
         command = parse_command(refined.text)
         if command:
-            reply = f"Reminder set: {command['title']}"
-            sessions.add_turn(session_id, refined.text, reply)
-            return {
-                "text": refined.text,
-                "reply": reply,
-                "provider": "deterministic-local",
-                "actions": refined.actions,
-                "commands": [command],
-                "timings": {"llm_ms": 0},
-            }
+            return deterministic_command(session_id, refined.text, command, refined.actions)
         started = time.perf_counter()
         try:
             reply, provider = model_router.chat(grounded_messages(session_id, refined.text), route)
@@ -100,10 +139,12 @@ def create_app(
     def health():
         return {
             "ok": True,
+            "version": "0.3.0",
             "stt": speech.available(),
             "llm": model_router.status(),
             "nudge": nudge_client.status(),
-            "tts": cfg.tts_enabled,
+            "tts": speech_out.available(),
+            "pc_control": pc_controller.available,
         }
 
     @api.get("/models")
@@ -137,6 +178,23 @@ def create_app(
     @api.post("/turn/text")
     def turn_text(turn: TextTurn):
         return answer(turn.session_id, turn.text, turn.route)
+
+    @api.post("/pc/action")
+    def pc_action(body: PCActionRequest):
+        try:
+            result = pc_controller.perform(body.action)
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
+        return {"ok": True, "action": result.action, "reply": result.label, "provider": "pc-local"}
+
+    @api.post("/speak")
+    def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
+        try:
+            path = speech_out.synthesize(body.text)
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
+        background_tasks.add_task(path.unlink, missing_ok=True)
+        return FileResponse(path, media_type="audio/wav", filename="maz-reply.wav")
 
     @api.post("/turn")
     async def turn_audio(
@@ -173,7 +231,6 @@ def create_app(
         x_maz_session: Annotated[str, Header()],
         x_maz_route: Annotated[Route, Header()] = "auto",
     ):
-        """ESP32-friendly WAV upload; the body is streamed, never buffered."""
         upload_started = time.perf_counter()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
@@ -198,12 +255,6 @@ def create_app(
 
     @api.post("/transcribe/raw")
     async def transcribe_raw(request: Request):
-        """Speech to text and nothing else.
-
-        /turn/raw also runs the model, which is the wrong shape for dictation:
-        filling in a field must not cost a model round-trip, must not touch the
-        conversation session, and must hand back exactly what was said.
-        """
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
             async for chunk in request.stream():
@@ -268,7 +319,6 @@ def create_app(
         request: Request,
         x_maz_highlights: Annotated[str, Header()] = "[]",
     ):
-        """Streaming BrainDump upload with highlight seconds in one header."""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
             size = 0
             async for chunk in request.stream():

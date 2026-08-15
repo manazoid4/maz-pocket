@@ -99,7 +99,11 @@ void update() {
     if (now) {
         Sys.ip = WiFi.localIP().toString().c_str();
         if (!gWasConnected) {
-            notify::post(Note::Success, "Wi-Fi connected", Sys.wifiSsid);
+            // Keep the small v0.2 confirmation the user already relies on,
+            // and make the new phone-first control surface discoverable at the
+            // exact moment it becomes useful.
+            notify::post(Note::Success, "Wi-Fi connected",
+                         Sys.wifiSsid + " / mazpocket.local");
             syncClock();
         }
         gWasConnected = true;
@@ -108,7 +112,7 @@ void update() {
     }
 
     if (gWasConnected) {
-        notify::post(Note::Warn, "Wi-Fi lost", "retrying");
+        notify::post(Note::Warn, "Wi-Fi lost", "retrying automatically");
         gWasConnected  = false;
         Sys.hostOnline = false;
         gNextRetry     = millis() + gBackoff;

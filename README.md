@@ -1,80 +1,130 @@
 # MAZ Pocket
 
-MAZ Pocket turns the M5Stack Cardputer ADV into a dedicated physical interface
-to intelligence running on a laptop. The device stays focused on fast capture,
-visible state, shortcuts, timers, reminders and agent assurance; MAZ Host does
-STT and local/cloud model work.
+MAZ Pocket turns the M5Stack Cardputer ADV into a pocket field terminal for the
+computer, agents and personal tools you already use.
 
-The glanceable Home surface is rendered with pinned LVGL 9.5.0 over the
-existing M5Unified framebuffer. This adds reusable embedded widgets and styles
-without replacing the proven ADV keyboard, storage, audio or Launcher paths.
-The official sources and retained MIT notice are recorded in
-[docs/research/LVGL.md](docs/research/LVGL.md).
+The current firmware keeps Home deliberately focused on three proven surfaces:
 
-## Try it today
+- **COMM** — push-to-talk to MAZ Host, persistent conversation, spoken replies
+  and a bounded Windows command deck.
+- **LOG** — raw-first field/captain's log with highlights and host processing.
+- **OPS** — Agent Nudge fleet state, evidence and explicit nudge actions.
 
-Start MAZ Host with `host/run.ps1`, then use the eight Home tiles or their
-single-letter shortcuts: **T** Talk, **B** BrainDump, **I** Inbox, **D**
-Decision, **F** Focus, **S** Sprint, **N** Nudge and **R** Reminders. Hold
-SPACE from Home to speak. `/` opens every additional utility.
+The approved v0.4 direction expands the product to six primary interaction
+surfaces — **COMM, CAPTURE, OPS, DESK, RECALL and FLOW** — without turning Home
+into an app drawer. See [`docs/V04-ROADMAP.md`](docs/V04-ROADMAP.md). Existing
+utilities remain available through `Ctrl+K` until they are absorbed into one of
+those surfaces.
 
-For a repeatable physical acceptance run, connect the Cardputer over USB and
-run `host/.venv/Scripts/python.exe scripts/accept-device.py`. It opens and
-renders every first-class screen, drives the actual app key handlers, records
-through the device mic, exercises the live host, and returns the device Home.
-The control commands exist only on the local USB serial interface.
+## mazpocket.local
 
-## The eight fast surfaces
+Once the Cardputer is paired and connected to Wi-Fi, open:
 
-| Key | Surface | Purpose |
-|---|---|---|
-| `T` | MAZ Talk | Hold SPACE, speak, receive a visible laptop-generated answer. |
-| `B` | BrainDump | Records immediately; `H` highlights, `P` pauses, raw audio always survives. |
-| `I` | Inbox | Useful answers and processed outputs, not another notes app. |
-| `D` | Decision | Captures both what and why. |
-| `F` | Focus | A deliberately small timer. |
-| `S` | Sprint | Intended outcome, 25-minute timer, then voice debrief entry. |
-| `N` | Nudge | Evidence-backed agent state and explicit nudging. |
-| `R` | Reminders | Local reminders with done and snooze actions. |
-
-`Ctrl+K` opens every secondary utility. Captures and queued turns use SD when
-available and internal LittleFS otherwise. Audio is streamed; the ADV has no
-PSRAM and never buffers a whole WAV in memory.
-
-## Run the laptop compute layer
-
-```powershell
-cd host
-.\setup.ps1
-Start-Process powershell -ArgumentList '-File', '.\run.ps1' -WindowStyle Hidden
-.\pair.ps1
+```text
+http://mazpocket.local
 ```
 
-`pair.ps1` finds the Cardputer and laptop address automatically and asks for the
-Wi-Fi password in a private prompt. Agent Nudge remains loopback-only; MAZ Host
-reads its owner-only local credential and acts as the authenticated LAN proxy.
+This page is served **by the Cardputer itself** using mDNS; it is not a public
+Internet control panel. The first useful control-plane cut includes:
 
-## Build and install
+- live firmware, battery, storage, heap and IMU state;
+- Wi-Fi/IP/RSSI, MAZ Host link and agent summary;
+- authenticated Wi-Fi + MAZ Host configuration;
+- LOCAL / AUTO / CLOUD route selection and spoken-reply toggle;
+- speaker self-test;
+- four-second microphone test with live level meter;
+- MAZ Host reachability probe;
+- authenticated browser firmware OTA from a `.bin` file;
+- reboot and safe M5Launcher hand-back.
+
+Write operations reuse the existing MAZ pairing token. The token is never
+rendered back by firmware; the browser keeps what you type in session storage.
+First pairing still happens over USB so an unconfigured device never exposes a
+network setup secret.
+
+If `.local` resolution is unavailable on a particular Windows/network setup,
+open the Cardputer's numeric IP shown in **Connections** or by the Windows
+updater, for example `http://192.168.1.42`.
+
+## COMM / Call PC
+
+MAZ Pocket tries the local MAZ Host address first for minimum latency, then an
+optional verified HTTPS remote address when away from home. The Cardputer owns
+mic/speaker/UI; the PC performs STT, model routing, Agent Nudge access, bounded
+machine actions and optional TTS. API/model keys stay off the ESP32.
+
+Press **C** inside COMM and LEFT/RIGHT through the bounded command deck:
+
+`DESKTOP` · `PLAY` · `MUTE` · `VOL -` · `VOL +` · `LOCK`
+
+Direct phrases such as `mute my pc`, `show desktop`, `next track` or `lock my
+computer` are parsed deterministically and skip the LLM. There is no arbitrary
+remote shell.
+
+## Hidden extras and utilities
+
+`Ctrl+K` exposes Notes, Tasks, Focus, Sprint, Reminders, Inbox, Recorder,
+Calculator, Stopwatch, Beam/QR, Text Viewer, Generator, Snippets, Connections,
+Tools and Settings. Snake and the BMI270-driven Hyperdrive demo remain hidden
+extras rather than product priorities.
+
+## Updates
+
+The Windows package contains the exact Cardputer firmware produced by the same
+CI run. It supports USB install through M5Launcher, authenticated Wi-Fi
+ArduinoOTA, pairing and optional remote Call PC provisioning.
+
+For development:
 
 ```powershell
 .\scripts\install.ps1
+cd host
+.\setup.ps1
+.\run.ps1
 ```
 
-- This is the only supported install path. It builds MAZ Pocket, hands control
-  back to M5Launcher when needed, prepares isolated MAZ storage, uses
-  M5Launcher's pinned official serial flasher, and verifies the real boot banner.
-- `Ctrl+L` or **Tools → Back to M5Launcher** returns to Launcher. Re-running the
-  same command replaces the old MAZ slot instead of filling flash with copies.
+After this web-control-plane build is installed, normal LAN firmware iterations
+can also use **mazpocket.local → Browser OTA** and select the newly built
+`maz-pocket-app.bin`.
 
-MAZ Pocket never formats shared Launcher storage. The installer creates a named
-2 MB LittleFS partition for settings, queues and metadata. Use a FAT32 SDHC card
-for longer audio capture; offline text/timers/reminders still use internal storage.
+## Architecture
 
-## Verification truth
+```text
+Cardputer ADV
+  COMM / CAPTURE / OPS
+  future: DESK / RECALL / FLOW
+       |
+       +-- mazpocket.local (device admin + browser OTA)
+       |
+       +-- LAN first / verified HTTPS fallback
+       v
+MAZ Host (Windows)
+  STT / TTS / model routing
+  bounded PC controls
+  Agent Nudge
+  future generic tool protocol
+```
 
-Host tests and the Cardputer ADV target build run in CI. Physical-device results
-are recorded separately in [docs/VERIFICATION.md](docs/VERIFICATION.md); a compile
-is never presented as a hardware demonstration.
+The ADV has no PSRAM, so heavy generative reasoning remains on the PC/cloud.
+Local firmware is reserved for deterministic actions, cache/offline behaviour,
+UI, audio, networking and narrowly useful edge logic.
 
-MIT licensed. The MAZ UI and assets are original; third-party references and
-licence decisions are listed under `docs/research/`.
+## Anti-bloat and security gates
+
+The application has a **2,100,000-byte firmware ceiling** in CI even though its
+OTA slot is larger. Spare flash is headroom, not a feature quota.
+
+- no arbitrary remote shell;
+- no silent agent/tool auto-approval;
+- authenticated network mutation and OTA;
+- raw captures survive before AI processing;
+- cloud/model secrets stay PC-side where possible;
+- compile success is never presented as physical-hardware proof.
+
+GitHub Actions runs host tests, syntax-checks the updater, builds the Cardputer
+ADV target, enforces the firmware budget and packages the Windows updater plus
+firmware. Physical acceptance remains tracked separately in
+`docs/VERIFICATION.md`.
+
+MIT licensed. Third-party references and licence decisions are recorded under
+`docs/`.

@@ -1,8 +1,4 @@
 // MAZ Pocket — the app registry.
-//
-// One table drives Home's grid, the command palette and the global shortcuts,
-// so adding an assistant module later means adding one row here, not editing
-// three screens. `keywords` is what the palette actually matches against.
 #pragma once
 #include <stddef.h>
 
@@ -15,14 +11,10 @@ namespace apps {
 struct Descriptor {
     const char* id;
     const char* title;
-    // What the Home table shows. A cell is 92px wide at montserrat_14, so a
-    // long `title` would ellipsise into something you cannot recognise at a
-    // glance. The palette keeps the full title, where the extra words help you
-    // search. nullptr means the title already fits.
     const char* shortTitle;
-    const char* keywords;  // space separated, lower case
-    uint8_t     shortcut;  // HID code that opens it from Home, 0 = none
-    bool        onHome;    // sorts onto Home's first page
+    const char* keywords;
+    uint8_t     shortcut;
+    bool        onHome;
     App* (*make)();
 
     const char* cellTitle() const { return shortTitle ? shortTitle : title; }
@@ -32,10 +24,9 @@ const Descriptor* table(size_t& count);
 const Descriptor* find(const char* id);
 App*              create(const char* id);
 
-// Factories. Defined across apps/*.cpp; declared here so the registry is the
-// only file that needs to know they all exist.
 App* makeHome();
 App* makeCall();
+App* makeCallV3();
 App* makeCapture();
 App* makeNotes();
 App* makeFocus();
@@ -55,7 +46,10 @@ App* makeInbox();
 App* makeDecision();
 App* makeSprint();
 App* makeNudge();
+App* makeAgentsV3();
 App* makeReminders();
+App* makeSnake();
+App* makeHyperdrive();
 void scheduleReminder(store::Record& reminder, uint32_t delaySeconds);
 void updateProductServices();
 

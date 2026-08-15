@@ -1,17 +1,19 @@
-name: Firmware
+name: Maz Pocket v0.3
 
 on:
   push:
-    branches: [main]
+    branches: [main, "agent/**"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Push and pull_request events for the same feature branch are the same build.
+# Keying on the source branch avoids burning two Windows runners and cancelling
+# useful firmware compiles every time a file changes.
 concurrency:
-  group: pages
+  group: maz-pocket-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -19,26 +21,55 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install platformio esptool
-      - shell: pwsh
+          cache: pip
+          cache-dependency-path: host/requirements.txt
+
+      - name: Install build and host dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio pytest pyinstaller
+          pip install -r host/requirements.txt
+          # uvicorn[standard] currently resolves Click 8.4+, while PlatformIO
+          # 6.1.x requires <8.4. Both are happy on the common 8.3 line.
+          pip install "click>=8.0.4,<8.4"
+
+      - name: Test MAZ Host
+        run: python -m pytest host/tests -q
+
+      - name: Check updater Python
+        run: python -m py_compile updater/ota.py updater/maz_updater.py
+
+      - name: Build Cardputer ADV firmware
+        shell: pwsh
         run: ./scripts/package-release.ps1
+
+      - name: Build Windows updater
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name MazPocketUpdater `
+            --paths updater `
+            --add-data "dist/maz-pocket-app.bin;firmware" `
+            --collect-all esptool `
+            --hidden-import serial.tools.list_ports_windows `
+            updater/maz_updater.py
+          Copy-Item .\dist\MazPocketUpdater.exe .\dist\MazPocketUpdater-v0.3.exe -Force
+          Copy-Item .\QUICKSTART.txt .\dist\QUICKSTART.txt -Force
+
+      - name: Show artifact sizes
+        shell: pwsh
+        run: Get-ChildItem dist | Select-Object Name,Length | Format-Table -AutoSize
+
       - uses: actions/upload-artifact@v4
         with:
-          name: maz-pocket-firmware
-          path: dist/*.bin
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: flash
-
-  deploy:
-    needs: build
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          name: maz-pocket-v0.3-windows
+          if-no-files-found: error
+          path: |
+            dist/maz-pocket-app.bin
+            dist/MazPocketUpdater-v0.3.exe
+            dist/QUICKSTART.txt

@@ -7,6 +7,7 @@
 #include <time.h>
 
 #include "audio/voice.h"
+#include "core/ambient.h"
 #include "core/notify.h"
 #include "core/settings.h"
 #include "core/launcher.h"
@@ -16,6 +17,7 @@
 #include "net/control.h"
 #include "net/mazhost.h"
 #include "net/net.h"
+#include "net/web.h"
 #include "storage/store.h"
 
 using namespace maz;
@@ -28,7 +30,10 @@ void setup() {
     auto cfg          = M5.config();
     cfg.internal_spk  = true;
     cfg.internal_mic  = true;
-    cfg.internal_imu  = false;  // BMI270 is unused in v0.1; skip the probe
+    // v0.3.1 uses the ADV's BMI270 for the tiny Hyperdrive showcase. Keeping
+    // the hardware enabled also gives future gesture shortcuts somewhere real
+    // to start without adding another driver stack.
+    cfg.internal_imu  = true;
     cfg.clear_display = true;
     M5.begin(cfg);
     M5.Display.setRotation(1);
@@ -52,9 +57,11 @@ void setup() {
     Serial.println("[boot] audio");
     net::begin();
     Serial.println("[boot] network");
-    // The control surface answers on USB immediately and binds its Wi-Fi
-    // listener as soon as there is an address to bind to.
+    // USB/LAN control and the browser control plane reuse the same pairing
+    // token, but remain separate transports so neither one can destabilise the
+    // other during recovery or firmware update.
     control::begin();
+    web::begin();
 
     // Restore a plausible clock so files stamped before any NTP sync are at
     // least ordered correctly. Sys.timeValid stays false until a real sync.
@@ -96,7 +103,12 @@ void setup() {
 
 void loop() {
     control::update();
+    web::update();
     shell::loop();
+    // Preserve the small helpful v0.2-style reminders: this observes already
+    // known state and only speaks when something changes, so it adds no polls
+    // or background latency.
+    ambient::update();
     // A short yield keeps the watchdog happy and the radio serviced without
     // making input feel laggy.
     delay(2);
