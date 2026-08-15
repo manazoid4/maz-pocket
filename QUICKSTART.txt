@@ -1,45 +1,61 @@
-MAZ POCKET — v0.03 SAFE UPDATE
+MAZ POCKET — v0.03 PHONE-FIRST UPDATE
 
-UPGRADE FROM v0.02
-1. Close any older Maz Pocket updater.
-2. Extract this ZIP on Windows.
-3. Connect the Cardputer ADV with its USB data cable.
-4. Run MazPocketUpdater-v0.3.exe.
-5. Confirm the title says "Maz Pocket Updater 0.3.2".
-6. Click UPDATE MAZ POCKET once.
-7. Leave the cable connected until it says Maz Pocket v0.03 ready.
+NORMAL UPDATE FROM v0.02
+1. Use Google Chrome on Android, or Chrome/Edge on a computer.
+2. Open: https://mazos-site.vercel.app/maz-pocket/flasher/
+3. Connect the Cardputer ADV by USB data cable.
+4. Tap CONNECT & UPDATE v0.03.
+5. Choose the Cardputer when the browser asks.
+6. Leave the cable connected until the page says v0.03 FLASHED + VERIFIED.
+
+IF IT CANNOT ENTER DOWNLOAD MODE
+- Unplug the Cardputer.
+- Hold G0 (upper-right).
+- Plug USB back in while holding G0, then release it.
+- Tap CONNECT & UPDATE again.
 
 THAT IS ALL
+- No Windows updater EXE.
+- No COM port selection.
 - No FIND button.
 - No IP address.
-- No host token.
-- No M5Launcher screen or boot banner.
+- No host token for flashing.
+- No M5Launcher boot-banner timing.
 - No manual partition commands.
 
-WHAT THE UPDATER DOES
-- Reads the Cardputer's live partition table and OTA selection.
-- Identifies the selected Maz Pocket slot instead of using a hard-coded offset.
-- Verifies the new firmware fits before erasing anything.
-- Saves a full recovery copy under %APPDATA%\MazPocket\recovery.
-- Never writes the partition table, NVS/settings, M5Launcher, SD data, or sibling apps.
-- Writes v0.03 through the ESP32-S3 ROM flasher with --no-stub.
-- Reads the new firmware back and requires an exact SHA256 match.
-- Requires a v0.03 USB or Wi-Fi boot acceptance response.
-- If a write/verify/boot check fails and USB remains reachable, restores the exact previous flash state automatically.
+WHAT THE WEB FLASHER DOES
+- Reads the LIVE ESP32 partition table from your Cardputer.
+- Finds exactly one existing Launcher app partition labelled MAZ-Pocket.
+- Refuses before writing if the v0.03 image does not fit that live partition.
+- Downloads a full raw backup of the existing MAZ-Pocket partition first.
+- Writes ONLY the MAZ-Pocket partition.
+- Never full-erases the flash.
+- Never writes the partition table, NVS/settings, M5Launcher, SD data, Bruce or sibling firmware.
+- Reads v0.03 back and requires an exact SHA-256 match.
+- If verification fails, it attempts an automatic rollback.
+- If the older failed updater already damaged the v0.02 image header, a known-good physical-hardware-accepted v0.02 recovery image is available to the rollback path.
 
 MAZPOCKET.LOCAL AFTER v0.03
-- Open http://mazpocket.local while your phone and Cardputer are on the same Wi-Fi.
-- The dashboard shows Browser OTA as SAFE only when it can prove a separate Maz-owned OTA partner is available.
-- If it says USB ONLY, browser flashing is intentionally disabled so Bruce/M5Launcher/another firmware cannot be overwritten.
-- Browser OTA requires the existing MAZ pairing token.
+- Put your phone and Cardputer on the same Wi-Fi.
+- Open http://mazpocket.local
+- It is the small status/control/diagnostics page, NOT the firmware writer.
+- Status is visible immediately.
+- Sensitive controls/config require the existing MAZ pairing token.
+- Self-test includes speaker, mic, MAZ Host and a small non-destructive SD read/write check.
+- Firmware button sends you to the safe online Web Serial flasher.
 - If .local does not resolve, use the IP shown by Maz Pocket.
 
 DEVICE
 - Home: COMM / LOG / OPS.
 - Ctrl+K: all utilities plus Snake / Hyperdrive / Beam.
+- Helpful v0.02-style state-change reminders remain enabled.
 - Ctrl+L: guarded M5Launcher hand-back.
 
-BUILD STATUS
-- The ZIP is produced only after host tests, updater planner tests, Python checks,
-  Cardputer ADV compile, real firmware-image validation, Windows EXE packaging,
-  size checks and artifact upload all pass.
+BUILD GATES
+- MAZ Host tests.
+- Browser flasher JavaScript syntax check.
+- Cardputer ADV firmware compile.
+- ESP32 app-image validation.
+- Hard 0x180000-byte compatibility ceiling matching the physical v0.02 M5Launcher slot.
+- Known-good v0.02 recovery SHA verification.
+- Phone-first web-flasher package generation.
