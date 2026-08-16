@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+
+import httpx
+
 from mazhost.config import Settings
 from mazhost.llm import Models
 
@@ -72,3 +76,27 @@ def test_auto_uses_cloud_only_after_both_locals_fail(monkeypatch):
 
     assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("cloud ok", "cloud")
     assert calls == ["primary:test", "backup:test"]
+
+
+def test_cloud_request_explicitly_disables_streaming_for_9router_compatibility():
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "cloud ready"}}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    models = Models(
+        settings(
+            cloud_key="test-cloud-key",
+            cloud_url="http://9router.test/v1",
+            cloud_model="cloud:test",
+        ),
+        client=client,
+    )
+
+    assert models.chat([{"role": "user", "content": "hi"}], "cloud") == ("cloud ready", "cloud")
+    assert seen["stream"] is False
