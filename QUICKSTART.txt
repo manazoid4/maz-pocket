@@ -1,20 +1,20 @@
-MAZ POCKET v0.7 — FIELD QUICKSTART
+MAZ POCKET v0.7.1 — FIELD QUICKSTART
 =================================
 
 WHAT TO DOWNLOAD
 ----------------
-Laptop/client only:   MAZ-Core-v0.7.zip
-Cardputer only:       MAZ-Cardputer-v0.7.zip
-Everything together: MAZ-Pocket-v0.7-Install.zip
+Laptop/client only:   MAZ-Core-v0.7.1.zip
+Cardputer only:       MAZ-Cardputer-v0.7.1.zip
+Everything together: MAZ-Pocket-v0.7.1-Install.zip
 
 The Cardputer ZIP contains the app-only M5Launcher firmware. M5Launcher owns install and rollback. Do NOT flash the app .bin at address 0x0.
 
 FIRST START / WINDOWS
 ---------------------
-1. Extract MAZ-Pocket-v0.7-Install.zip.
+1. Extract MAZ-Pocket-v0.7.1-Install.zip.
 2. Double-click START-HERE.cmd.
 3. MAZ Core installs/updates in the normal per-user location and preserves an existing .env.
-4. Install/launch Maz-Pocket-v0.7-M5Launcher.bin using M5Launcher.
+4. Install/launch Maz-Pocket-v0.7.1-M5Launcher.bin using M5Launcher.
 
 HOME
 ----

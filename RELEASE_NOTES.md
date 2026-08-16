@@ -1,4 +1,28 @@
-# MAZ Pocket v0.7 — FIELD
+# MAZ Pocket v0.7.1 — FIELD (installer hotfix)
+
+v0.7.1 is a release-engineering hotfix on top of v0.7 FIELD. Every Pocket and MAZ Core capability below is unchanged; only the Windows install path and its CI gate were repaired.
+
+## What was broken in v0.7
+
+`START-HERE.cmd` launches `powershell.exe`, which on a normal Windows machine is Windows PowerShell 5.1. That edition decodes a script with no byte-order mark using the ANSI code page, so the two UTF-8 em dashes in `setup-all.ps1` were read as cp1252 characters ending in `0x94` — a smart closing quote that PowerShell accepts as a string delimiter. The quoting silently unbalanced and setup died with misleading errors:
+
+```
+setup-all.ps1:85 char:5   Unexpected token '}' in expression or statement.
+setup-all.ps1:89 char:7   Unexpected token 'elseif' in expression or statement.
+```
+
+The braces were never unbalanced. CI missed it because it parsed repository sources under `pwsh` (PowerShell 7), which reads UTF-8 correctly and never exercised the shipped ZIP or the 5.1 fallback.
+
+## What v0.7.1 changes
+
+- Executed installer scripts (`START-HERE.cmd`, `setup-all.ps1`, `INSTALL-MAZ-POCKET.cmd`, `install-to-sd.ps1`) are plain ASCII, enforced by CI and again by `prepare-release.ps1` at packaging time.
+- Those scripts ship with a UTF-8 BOM so Windows PowerShell 5.1 cannot guess the encoding.
+- `START-HERE.cmd` prefers `pwsh.exe` when installed and still falls back to Windows PowerShell 5.1.
+- CI builds the release package, extracts the generated `MAZ-Pocket-v0.7.1-Install.zip`, and parses plus dry-runs the scripts inside it with real `powershell.exe` on both the 5.1 fallback and the preferred shell. A syntax or encoding regression now fails the build.
+
+Upgrading is Core-side and installer-side only. v0.7 firmware behaviour is unchanged; reinstall the v0.7.1 `.bin` through M5Launcher so device and Core report the same version.
+
+---
 
 v0.7 turns the v0.6 friction foundation into a useful everyday/field command surface without expanding the six-surface Home menu.
 

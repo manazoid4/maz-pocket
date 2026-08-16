@@ -48,6 +48,26 @@ foreach ($entry in $PackageFiles.GetEnumerator()) {
     Copy-Item $entry.Value (Join-Path $Dist $entry.Key) -Force
 }
 
+# v0.7.1: START-HERE.cmd runs the shipped installer through whichever PowerShell
+# the machine has, and a normal Windows box only has Windows PowerShell 5.1.
+# 5.1 decodes a BOM-less file using the ANSI code page, so a UTF-8 em dash
+# arrives as three cp1252 characters, the last of which (0x94) is a smart
+# closing quote that PowerShell accepts as a string delimiter. That silently
+# unbalanced the quoting in v0.7 and produced bogus brace/elseif parse errors.
+# Two independent guards: refuse to ship non-ASCII in an executed installer, and
+# write a UTF-8 BOM so 5.1 can never guess the encoding wrong again.
+$ExecutedInstallers = @("START-HERE.cmd", "setup-all.ps1", "INSTALL-MAZ-POCKET.cmd", "install-to-sd.ps1")
+$Utf8Bom = New-Object System.Text.UTF8Encoding($true)
+foreach ($name in $ExecutedInstallers) {
+    $path = Join-Path $Dist $name
+    $text = [IO.File]::ReadAllText($path)
+    $bad = [regex]::Matches($text, '[^\x00-\x7F]')
+    if ($bad.Count -gt 0) {
+        throw "Installer $name contains $($bad.Count) non-ASCII character(s); Windows PowerShell 5.1 cannot be trusted to decode them. Use plain ASCII punctuation."
+    }
+    [IO.File]::WriteAllText($path, $text, $Utf8Bom)
+}
+
 # Cardputer-only package rule: every release/PR artifact must contain a complete
 # handheld ZIP as well as the client ZIP. This is deliberately app-only;
 # M5Launcher remains the installer and rollback owner.

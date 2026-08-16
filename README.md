@@ -2,7 +2,7 @@
 
 MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV** plus **MAZ Core**, the lightweight Windows companion that supplies AI, PC context and safe actions.
 
-## Current release candidate: v0.7 — FIELD
+## Current release candidate: v0.7.1 — FIELD (installer hotfix)
 
 v0.7 keeps the six-surface product intact:
 

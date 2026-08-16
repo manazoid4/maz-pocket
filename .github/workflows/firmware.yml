@@ -72,6 +72,32 @@ jobs:
             }
           }
 
+      - name: Keep executed installers ASCII-only for Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          # v0.7 shipped an em dash in setup-all.ps1. Windows PowerShell 5.1
+          # decodes a BOM-less file with the ANSI code page, turning it into
+          # three cp1252 characters ending in 0x94 - a smart closing quote that
+          # PowerShell accepts as a string delimiter. The quoting silently
+          # unbalanced and users got bogus '}' / 'elseif' parse errors.
+          $files = @(
+            '.\scripts\START-HERE.cmd',
+            '.\scripts\setup-all.ps1',
+            '.\scripts\INSTALL-MAZ-POCKET.cmd',
+            '.\scripts\install-to-sd.ps1'
+          )
+          $failed = $false
+          foreach ($file in $files) {
+            $text = [IO.File]::ReadAllText((Resolve-Path $file))
+            $bad = [regex]::Matches($text, '[^\x00-\x7F]')
+            if ($bad.Count -gt 0) {
+              Write-Host "::error file=$file::contains $($bad.Count) non-ASCII character(s)"
+              $failed = $true
+            }
+          }
+          if ($failed) { throw 'Executed installer scripts must be plain ASCII' }
+          Write-Host 'Installer scripts are ASCII-only'
+
       - name: Keep recovery flasher safety tests green
         shell: pwsh
         run: |
@@ -108,6 +134,48 @@ jobs:
           if (-not (Test-Path (Join-Path $tmp "Maz-Pocket-v$v-M5Launcher.bin"))) { throw 'Cardputer ZIP missing firmware' }
           if (-not (Test-Path (Join-Path $tmp 'QUICKSTART.txt'))) { throw 'Cardputer ZIP missing quickstart' }
           Write-Host 'Client + Cardputer + combined ZIP rule OK'
+
+      # The consumer path is START-HERE.cmd -> powershell.exe (Windows
+      # PowerShell 5.1), running the scripts INSIDE the downloaded ZIP. Parsing
+      # repository sources under pwsh proved neither. This step extracts the
+      # generated Install ZIP and validates exactly what a user double-clicks.
+      - name: Validate shipped installer under Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+          $zip = ".\dist\MAZ-Pocket-v$v-Install.zip"
+          $tmp = Join-Path $env:RUNNER_TEMP 'maz-install-ps51'
+          Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive $zip $tmp
+          $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          if (-not (Test-Path $ps51)) { throw "Windows PowerShell 5.1 not found at $ps51" }
+
+          foreach ($script in @('setup-all.ps1', 'install-to-sd.ps1')) {
+            $target = Join-Path $tmp $script
+            if (-not (Test-Path $target)) { throw "Install ZIP is missing $script" }
+            $bytes = [IO.File]::ReadAllBytes($target)
+            if (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) {
+              throw "$script shipped without a UTF-8 BOM; Windows PowerShell 5.1 would decode it as ANSI"
+            }
+            & $ps51 -NoProfile -ExecutionPolicy Bypass -Command "`$e=`$null; `$t=`$null; [void][System.Management.Automation.Language.Parser]::ParseFile('$target', [ref]`$t, [ref]`$e); if (`$e.Count) { `$e | ForEach-Object { Write-Host `$_.Message }; exit 1 }"
+            if ($LASTEXITCODE -ne 0) { throw "$script fails to parse under Windows PowerShell 5.1" }
+            Write-Host "$script parses under Windows PowerShell 5.1"
+          }
+
+          # Regression test for the real entry point. -SkipCore -SkipSd
+          # -NoBrowser makes this a dry run: no install, no SD write, no
+          # browser. stdin is redirected so the trailing `pause` cannot hang CI.
+          Push-Location $tmp
+          $env:MAZ_FORCE_WINDOWS_POWERSHELL = '1'
+          cmd /c ".\START-HERE.cmd -SkipCore -SkipSd -NoBrowser < NUL"
+          $forced = $LASTEXITCODE
+          Remove-Item Env:\MAZ_FORCE_WINDOWS_POWERSHELL
+          cmd /c ".\START-HERE.cmd -SkipCore -SkipSd -NoBrowser < NUL"
+          $preferred = $LASTEXITCODE
+          Pop-Location
+          if ($forced -ne 0) { throw "START-HERE.cmd -> setup-all.ps1 failed on the Windows PowerShell 5.1 fallback (exit $forced)" }
+          if ($preferred -ne 0) { throw "START-HERE.cmd -> setup-all.ps1 failed on the preferred PowerShell (exit $preferred)" }
+          Write-Host 'START-HERE.cmd -> setup-all.ps1 dry run OK on both Windows PowerShell 5.1 and pwsh'
 
       - uses: actions/upload-artifact@v4
         with:
