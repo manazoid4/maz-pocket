@@ -136,6 +136,11 @@ class Models:
                 "model": self.settings.cloud_model,
                 "messages": messages,
                 "temperature": 0.2,
+                # OpenAI-compatible gateways do not agree on the default. A
+                # local 9router endpoint streams unless told otherwise, which
+                # returns concatenated SSE chunks and breaks the single-object
+                # parse below. Ask for one complete response explicitly.
+                "stream": False,
             },
         )
         response.raise_for_status()
