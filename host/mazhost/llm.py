@@ -142,6 +142,10 @@ class Models:
                 "model": self.settings.cloud_model,
                 "messages": messages,
                 "temperature": 0.2,
+                # 9router/OpenAI-compatible gateways may default to SSE. Core
+                # currently parses one complete JSON response, so make that
+                # contract explicit instead of relying on provider defaults.
+                "stream": False,
             },
         )
         response.raise_for_status()
