@@ -95,34 +95,47 @@ private:
     ListCursor _cursor;
 };
 
+constexpr HubItem AGENT_ITEMS[] = {
+    {"AGENT STATUS", "who is doing what", "nudge"},
+    {"PLAN", "think before code", "plan"},
+    {"CREW", "split agent work", "crew"},
+    {"RETRO", "learn from work", "retro"},
+    {"PROJECTS", "build / test / git", "core"},
+};
+
 constexpr HubItem CONTROL_ITEMS[] = {
-    {"CONTROL CENTER", "everything",     "control"},
-    {"LAPTOP",         "CPU / GPU / AI", "laptop"},
-    {"BEAM",           "PC <-> Pocket",  "beam"},
-    {"WI-FI",          "scan / connect", "network"},
-    {"MAZ CORE",       "projects / jobs","core"},
-    {"PC / COMM",      "voice + control","talk"},
-    {"DIAGNOSTICS",    "hardware",       "tools"},
-    {"SETTINGS",       "device",         "settings"},
+    {"LAPTOP STATUS", "CPU / GPU / AI", "laptop"},
+    {"PROJECTS + BUILDS", "git / tests", "core"},
+    {"SEND TO PC", "text / links", "beam"},
+    {"WI-FI", "scan / connect", "network"},
+    {"DEVICE TESTS", "hardware checks", "tools"},
+    {"SETTINGS", "device + AI", "settings"},
+    {"CONTROL CENTER", "advanced controls", "control"},
 };
 
 constexpr HubItem RECALL_ITEMS[] = {
-    {"INBOX", "agent results", "inbox"},
-    {"BEAM", "received text", "beam"},
+    {"RESULTS INBOX", "AI + agent outputs", "inbox"},
+    {"PROMPT DECK", "build prompts", "prompts"},
     {"NOTES", "saved text", "notes"},
+    {"SEND TO PC", "received / sent", "beam"},
     {"SNIPPETS", "quick reuse", "snippets"},
-    {"VIEWER", "txt / md", "viewer"},
+    {"TEXT VIEWER", "txt / md", "viewer"},
 };
 
 constexpr HubItem FLOW_ITEMS[] = {
-    {"SHIFT CLOCK", "field work", "shift"},
-    {"REMINDERS", "nudges", "reminders"},
-    {"FOCUS", "timer", "focus"},
-    {"SPRINT", "outcome", "sprint"},
+    {"FOCUS TIMER", "stay on task", "focus"},
+    {"WORK SPRINT", "25m outcome", "sprint"},
     {"TASKS", "next actions", "tasks"},
+    {"REMINDERS", "don't forget", "reminders"},
+    {"SHIFT CLOCK", "field work", "shift"},
 };
 
 }  // namespace
+
+App* makeAgentsHub() {
+    return new SurfaceHub("agents", "AGENTS", "PLAN + RUN + LEARN",
+                          AGENT_ITEMS, sizeof(AGENT_ITEMS) / sizeof(AGENT_ITEMS[0]));
+}
 
 App* makeDesk() {
     return new SurfaceHub("desk", "CONTROL", "PC + DEVICE",
@@ -130,12 +143,12 @@ App* makeDesk() {
 }
 
 App* makeRecall() {
-    return new SurfaceHub("recall", "RECALL / MEMORY", "LOCAL + SD",
+    return new SurfaceHub("recall", "MEMORY", "RESULTS + PROMPTS",
                           RECALL_ITEMS, sizeof(RECALL_ITEMS) / sizeof(RECALL_ITEMS[0]));
 }
 
 App* makeFlow() {
-    return new SurfaceHub("flow", "FLOW / ROUTINES", "TIME + ACTION",
+    return new SurfaceHub("flow", "FOCUS", "TIME + ACTION",
                           FLOW_ITEMS, sizeof(FLOW_ITEMS) / sizeof(FLOW_ITEMS[0]));
 }
 
