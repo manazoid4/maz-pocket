@@ -62,8 +62,10 @@ class Models:
         if self.settings.ai_profile == "save":
             return 0
         if self.settings.ai_profile == "fast":
-            return "30m"
-        return "5m"
+            return "60m"
+        # SMART now biases toward interactive latency. Five minutes caused a
+        # cold model reload during ordinary gaps between Pocket conversations.
+        return "15m"
 
     def _context_size(self, messages: list[dict[str, str]]) -> int:
         # Character count is intentionally cheap; tokenizing on the laptop just
@@ -85,6 +87,10 @@ class Models:
             "top_p": 0.85,
             "repeat_penalty": 1.05,
             "num_ctx": self._context_size(messages),
+            # The handheld prompt explicitly asks for compact answers. Bounding
+            # generation prevents a verbose local model from making the user
+            # wait for text that cannot usefully fit on the Pocket screen.
+            "num_predict": 160,
         }
         if model == self.settings.ollama_backup_model:
             options.update({"temperature": 0.30, "top_p": 0.90, "top_k": 30})

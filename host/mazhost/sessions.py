@@ -21,7 +21,7 @@ class Session:
 
 
 class SessionStore:
-    def __init__(self, max_turns: int = 24, ttl_minutes: int = 120) -> None:
+    def __init__(self, max_turns: int = 12, ttl_minutes: int = 120) -> None:
         self._max_turns = max_turns
         self._ttl = ttl_minutes * 60
         self._sessions: dict[str, Session] = {}
