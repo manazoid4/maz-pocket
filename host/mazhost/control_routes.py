@@ -7,6 +7,9 @@ from .authority import AuthorityBroker, AuthorityError, Scope
 from .debug_capsule import DebugCapsules
 from .executor import ElevatedExecutor, ExecutionError, Shell
 from .phone_control import build_phone_app
+from .stt import SpeechToText
+from .teach_capture import TeachCapture
+from .teach_routes import install_teach_routes
 from .workflow_routes import install_workflow_routes
 from .workflows import WorkflowService
 
@@ -62,6 +65,11 @@ def install_control_routes(
         api, WorkflowService(settings, model_router, core_service, nudge_client)
     )
 
+    # Teach recording stays PC-side. A dedicated STT wrapper is cheap until it
+    # is used; its default/BALANCED paths are CPU int8 and do not consume the
+    # user's small GPU budget while screen recording.
+    install_teach_routes(api, TeachCapture(settings, SpeechToText(settings)))
+
     @api.get("/authority/token-id")
     def authority_token_id():
         return {"token_id": broker.token_id, "phone_url": "/control/"}
@@ -102,8 +110,6 @@ def install_control_routes(
 
     @api.post("/authority/revoke/{grant_id}")
     def authority_revoke(grant_id: str):
-        # Revocation is always safe to expose to the normal authenticated MAZ
-        # control plane; it removes power rather than granting it.
         try:
             return {"ok": True, "grant": broker.revoke(grant_id)}
         except AuthorityError as error:
