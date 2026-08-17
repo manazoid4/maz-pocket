@@ -8,6 +8,7 @@
 #include "../audio/voice.h"
 #include "../core/notify.h"
 #include "../core/settings.h"
+#include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../net/mazhost.h"
@@ -381,7 +382,13 @@ public:
             invalidate();
             return true;
         }
-        if (_summary.agents.empty()) return false;
+        if (_summary.agents.empty()) {
+            if (e.code == KEY_ENTER && !_summary.ok) {
+                shell::pushById("talk");
+                return true;
+            }
+            return false;
+        }
         if (e.code == KEY_ENTER) { _detail = !_detail; invalidate(); return true; }
         if (e.code == KEY_N) {
             const auto result = host::sendNudge(_summary.agents[_cursor.sel].id);

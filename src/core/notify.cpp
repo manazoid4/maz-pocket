@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../ui/theme.h"
+#include "shell.h"
 
 namespace maz {
 namespace notify {
@@ -37,6 +38,7 @@ void post(Note kind, const std::string& title, const std::string& detail) {
     t.shownAt = millis();
     t.live    = true;
     sfx::forNote(kind);
+    shell::wake();
     ESP_LOGI("note", "%s - %s", title.c_str(), detail.c_str());
 }
 
@@ -44,7 +46,11 @@ bool active() { return t.live; }
 void dismiss() { t.live = false; }
 
 void update() {
-    if (t.live && millis() - t.shownAt > T_TOAST) t.live = false;
+    // Warn/Error carry something worth reading twice; give them longer on
+    // screen than a routine Info/Success toast.
+    const uint32_t life =
+        (t.kind == Note::Warn || t.kind == Note::Error) ? T_TOAST * 2 : T_TOAST;
+    if (t.live && millis() - t.shownAt > life) t.live = false;
 }
 
 void render(M5Canvas& g) {

@@ -355,7 +355,7 @@ public:
         if (_hostSetup) return "ENTER next/save   ESC cancel";
         if (_entering) return "ENTER connect   ESC cancel";
         if (_scanning) return "ENTER pick network";
-        return "W wifi   S scan   C host setup   H test";
+        return "W wifi  S scan  C host  H test";
     }
 
     bool onKey(const KeyEvent& e) override {
@@ -544,22 +544,19 @@ const char* HELP_LINES[] = {
     "#GLOBAL",
     "Ctrl+K      command palette",
     "Ctrl+L      back to M5Launcher",
+    "Fn+SPACE    context ask (Talk)",
+    "Fn+F        toggle field mode",
     "ESC         back (the <ESC chip)",
     "hold ESC    home from anywhere",
     "#HOME",
     "hold SPACE  voice capture",
-    "left/right  move, turn the page",
-    "TAB         next page of apps",
-    "1-8         open that cell",
-    "T B I D     talk, braindump,",
-    "            inbox, decision",
-    "F S N R     focus, sprint,",
-    "            nudge, reminders",
-    "C W Q V     calc, stopwatch,",
-    "            qr, viewer",
-    "G P H       generator, snippets,",
-    "            help",
-    "/           command palette",
+    "up/down     move a row",
+    "left/right  move a column",
+    "ENTER       open selected",
+    "1-4         quick action",
+    "Fn+1-4      cycle quick action",
+    "T B N       call pc, capture,",
+    "            agent ops",
     "#VOICE",
     "hold SPACE  talk (Call, Capture)",
     "P S D       play, save, delete",

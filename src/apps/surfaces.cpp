@@ -56,7 +56,8 @@ public:
         g.fillScreen(BG);
         ui::header(g, _heading, _status);
 
-        constexpr int visible = 4;
+        constexpr int visible = 5;
+        constexpr int pitch = 18;
         if (_cursor.sel < _cursor.first) _cursor.first = _cursor.sel;
         if (_cursor.sel >= _cursor.first + visible)
             _cursor.first = _cursor.sel - visible + 1;
@@ -66,13 +67,13 @@ public:
         for (int row = 0; row < visible; ++row) {
             const int idx = _cursor.first + row;
             if (idx >= _count) break;
-            const int y = BODY_Y + 17 + row * 25;
+            const int y = BODY_Y + 15 + row * pitch;
             const bool selected = idx == _cursor.sel;
             const uint16_t fill = selected ? ACCENT : PANEL;
             const uint16_t fg = selected ? BG : TEXT;
 
-            g.fillRoundRect(PAD, y, SCREEN_W - PAD * 2, 21, 4, fill);
-            g.drawRoundRect(PAD, y, SCREEN_W - PAD * 2, 21, 4, selected ? TEXT : LINE);
+            g.fillRoundRect(PAD, y, SCREEN_W - PAD * 2, 15, 4, fill);
+            g.drawRoundRect(PAD, y, SCREEN_W - PAD * 2, 15, 4, selected ? TEXT : LINE);
             g.setTextDatum(top_left);
             g.setFont(&fonts::Font0);
             g.setTextColor(fg, fill);

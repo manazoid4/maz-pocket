@@ -54,6 +54,10 @@ public:
             invalidate();
             return true;
         }
+        if (e.code == KEY_ENTER && !_status.ok) {
+            shell::pushById("wifi");
+            return true;
+        }
         return false;
     }
 
