@@ -141,7 +141,7 @@ private:
     }
 
     void rebuildHints() {
-        _hints = "1 "; _hints += field::quickLabel(1);
+        _hints = "hold SPACE call | 1 "; _hints += field::quickLabel(1);
         _hints += " 2 "; _hints += field::quickLabel(2);
         _hints += " 3 "; _hints += field::quickLabel(3);
         _hints += " 4 "; _hints += field::quickLabel(4);
@@ -150,9 +150,9 @@ private:
     static char iconFor(const Descriptor& d) {
         if (!strcmp(d.id, "talk")) return 'C';
         if (!strcmp(d.id, "braindump")) return '+';
-        if (!strcmp(d.id, "nudge")) return 'O';
+        if (!strcmp(d.id, "agents")) return 'A';
         if (!strcmp(d.id, "desk")) return '#';
-        if (!strcmp(d.id, "recall")) return 'R';
+        if (!strcmp(d.id, "recall")) return 'M';
         if (!strcmp(d.id, "flow")) return 'F';
         return '*';
     }
