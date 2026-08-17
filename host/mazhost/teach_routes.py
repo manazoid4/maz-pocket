@@ -25,7 +25,12 @@ class TeachStopRequest(BaseModel):
 def install_teach_routes(api: FastAPI, service: TeachCapture) -> None:
     @api.get("/teach/status")
     def teach_capabilities():
-        return {"ok": True, "available": service.available(), "displays": service.displays()}
+        return {
+            "ok": True,
+            "available": service.available(),
+            "displays": service.displays(),
+            "audio_devices": service.audio_devices(),
+        }
 
     @api.post("/teach/start")
     def teach_start(body: TeachStartRequest):
