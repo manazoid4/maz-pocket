@@ -11,7 +11,7 @@ namespace maz {
 namespace host_worker {
 namespace {
 
-constexpr uint32_t WORKER_STACK_BYTES = 8192;
+constexpr uint32_t WORKER_STACK_BYTES = 9216;
 constexpr UBaseType_t WORKER_PRIORITY = 1;
 
 std::atomic<State> gState{State::Idle};
@@ -26,6 +26,9 @@ std::string gAction;
 std::string gContext;
 std::string gRecordId;
 std::string gText;
+std::string gProject;
+std::string gTemplateId;
+WorkflowKind gWorkflowKind = WorkflowKind::Plan;
 
 TalkResult gTalkResult;
 PcActionResult gPcResult;
@@ -33,6 +36,7 @@ OutboxAudioResult gOutboxAudioResult;
 OutboxBeamResult gOutboxBeamResult;
 host::BeamMessage gBeamPullResult;
 host::SystemStatus gSystemResult;
+WorkflowResult gWorkflowResult;
 std::atomic<uint32_t> gStackHighWater{0};
 
 void resetToIdle() {
@@ -43,6 +47,8 @@ void resetToIdle() {
     gContext.clear();
     gRecordId.clear();
     gText.clear();
+    gProject.clear();
+    gTemplateId.clear();
     gKind.store(JobKind::None, std::memory_order_release);
     gState.store(State::Idle, std::memory_order_release);
 }
@@ -73,6 +79,19 @@ host::Reply contextAudio(const std::string& session, const std::string& path,
     host::Reply reply = host::talkTextContext(session, words, context.substr(0, 700));
     if (reply.ok) reply.transcript = words;
     return reply;
+}
+
+host::Reply runWorkflow() {
+    switch (gWorkflowKind) {
+        case WorkflowKind::Crew:
+            return host::workCrew(gText, gProject);
+        case WorkflowKind::Retro:
+            return host::workRetro(gProject, gText);
+        case WorkflowKind::Prompt:
+            return host::workPrompt(gTemplateId, gText, gProject);
+        default:
+            return host::workPlan(gText, gProject);
+    }
 }
 
 void worker(void*) {
@@ -123,6 +142,12 @@ void worker(void*) {
             gBeamPullResult = host::beamPull();
         } else if (kind == JobKind::SystemStatus) {
             gSystemResult = host::systemStatus();
+        } else if (kind == JobKind::Workflow) {
+            gWorkflowResult.kind = gWorkflowKind;
+            gWorkflowResult.task = gText;
+            gWorkflowResult.project = gProject;
+            gWorkflowResult.templateId = gTemplateId;
+            gWorkflowResult.reply = runWorkflow();
         }
 
         finishMeasurement();
@@ -157,6 +182,7 @@ void clearResults() {
     gOutboxBeamResult = OutboxBeamResult{};
     gBeamPullResult = host::BeamMessage{};
     gSystemResult = host::SystemStatus{};
+    gWorkflowResult = WorkflowResult{};
 }
 
 void publish(JobKind kind) {
@@ -229,6 +255,20 @@ bool submitSystemStatus() {
     return true;
 }
 
+bool submitWorkflow(WorkflowKind kind, const std::string& task,
+                    const std::string& project, const std::string& templateId) {
+    if (task.empty() && kind != WorkflowKind::Retro) return false;
+    if (!canSubmit()) return false;
+    if (!ensureWorker()) return false;
+    gWorkflowKind = kind;
+    gText = task;
+    gProject = project;
+    gTemplateId = templateId;
+    clearResults();
+    publish(JobKind::Workflow);
+    return true;
+}
+
 bool takeTalkResult(TalkResult& result) {
     if (state() != State::Done || jobKind() != JobKind::TalkAudio) return false;
     result = std::move(gTalkResult);
@@ -267,6 +307,13 @@ bool takeBeamPullResult(host::BeamMessage& result) {
 bool takeSystemStatusResult(host::SystemStatus& result) {
     if (state() != State::Done || jobKind() != JobKind::SystemStatus) return false;
     result = std::move(gSystemResult);
+    resetToIdle();
+    return true;
+}
+
+bool takeWorkflowResult(WorkflowResult& result) {
+    if (state() != State::Done || jobKind() != JobKind::Workflow) return false;
+    result = std::move(gWorkflowResult);
     resetToIdle();
     return true;
 }
