@@ -23,6 +23,19 @@ class Settings(BaseSettings):
 
     # Local-first brain. AUTO tries primary then backup locally before cloud.
     # LOCAL uses the same local chain but never spills to cloud.
+    #
+    # Two local engines are supported. OLLAMA manages models itself; LLAMACPP
+    # talks to an already-running llama-server over its OpenAI-compatible API,
+    # which is what this laptop runs day to day. Routing, profiles and the
+    # primary/backup chain behave identically on both.
+    local_engine: Literal["ollama", "llamacpp"] = "ollama"
+    llamacpp_url: str = "http://127.0.0.1:8080"
+    # llama-server serves whatever model it was started with, so the name is a
+    # label the request carries rather than a selector. A second llama-server on
+    # another port can still act as backup.
+    llamacpp_model: str = "local"
+    llamacpp_backup_url: str = ""
+    llamacpp_backup_model: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
     ollama_backup_model: str = "qwen3.5:4b"

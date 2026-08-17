@@ -70,8 +70,9 @@ class MazCore:
             "hostname": socket.gethostname(),
             "os": platform.platform(),
             "python": platform.python_version(),
-            "ollama_model": self.settings.ollama_model,
-            "ollama": self._ollama_status(),
+            "local_engine": self.settings.local_engine,
+            "ollama_model": self._selected_local_model(),
+            "ollama": self._local_runtime_status(),
             "git": bool(shutil.which("git")),
             "platformio": bool(shutil.which("pio") or shutil.which("platformio")),
             "project_roots": [str(path) for path in self.settings.project_root_paths],
@@ -82,7 +83,17 @@ class MazCore:
             "cardputer_url": self.settings.cardputer_url,
         }
 
-    def _ollama_status(self) -> dict[str, Any]:
+    def _selected_local_model(self) -> str:
+        if self.settings.local_engine == "llamacpp":
+            return self.settings.llamacpp_model
+        return self.settings.ollama_model
+
+    def _local_runtime_status(self) -> dict[str, Any]:
+        # The key stays `ollama` because Pocket firmware and the dashboard read
+        # it by that name. What it describes is whichever local engine is
+        # configured; `local_engine` alongside it says which one answered.
+        if self.settings.local_engine == "llamacpp":
+            return self._llamacpp_status()
         try:
             response = self.client.get(
                 f"{self.settings.ollama_url.rstrip('/')}/api/tags", timeout=2
@@ -96,6 +107,24 @@ class MazCore:
             }
         except (httpx.HTTPError, KeyError, TypeError, ValueError):
             return {"online": False, "selected_installed": False, "models": []}
+
+    def _llamacpp_status(self) -> dict[str, Any]:
+        base = self.settings.llamacpp_url.rstrip("/")
+        try:
+            response = self.client.get(f"{base}/health", timeout=2)
+            response.raise_for_status()
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            return {"online": False, "selected_installed": False, "models": []}
+        names: list[str] = []
+        try:
+            listed = self.client.get(f"{base}/v1/models", timeout=2)
+            listed.raise_for_status()
+            names = [str(item.get("id", "")) for item in listed.json().get("data", [])]
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            names = []
+        # A healthy llama-server is serving the one model it was launched with,
+        # so being online is the honest answer to "is the selection loaded".
+        return {"online": True, "selected_installed": True, "models": names[:30]}
 
     # --------------------------------------------------------------- projects
     def _looks_like_project(self, path: Path) -> bool:
@@ -442,7 +471,7 @@ class MazCore:
         evidence: dict[str, Any] = {
             "pc": {
                 "hostname": socket.gethostname(),
-                "ollama_model": self.settings.ollama_model,
+                "ollama_model": self._selected_local_model(),
             },
             "known_projects": [
                 {"name": path.name, "kind": self._project_kind(path)} for path in paths[:20]
