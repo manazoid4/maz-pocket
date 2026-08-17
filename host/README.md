@@ -18,6 +18,37 @@ For Core by itself, extract `MAZ-Core-v0.7.zip` and run `INSTALL-MAZ-CORE.cmd`. 
 
 All endpoints require the existing MAZ bearer token. Beam never becomes a remote shell.
 
+## Local engines: Ollama or llama.cpp
+
+`MAZ_LOCAL_ENGINE` selects which local runtime answers LOCAL and the local half of AUTO. Routing, profiles, the primary/backup chain and the 160-token answer bound are identical on both.
+
+- `ollama` (default) — Ollama manages the models and the keep-alive window.
+- `llamacpp` — MAZ Core calls an already-running `llama-server` over its OpenAI-compatible `/v1/chat/completions`. Start it first:
+
+```powershell
+$env:MAZ_LLAMACPP_SERVER_EXE = "C:\path\to\llama-server.exe"
+$env:MAZ_LLAMACPP_MODEL_PATH = "C:\path\to\model.gguf"
+.\host\start-llamacpp.ps1
+```
+
+Then set `MAZ_LOCAL_ENGINE=llamacpp` and `MAZ_LLAMACPP_URL=http://127.0.0.1:8080` in `host/.env`.
+
+MAZ Core never launches inference itself. One long-lived `llama-server` keeps the model resident, which is what makes a follow-up Pocket turn answer in about a second. `keep_alive` in the model status is an Ollama concept and does not apply to llama.cpp; `/props` supplies the context llama-server actually fitted after clamping to VRAM. `MAZ_LLAMACPP_BACKUP_URL` plus `MAZ_LLAMACPP_BACKUP_MODEL` point the backup step of the chain at a second server, typically a smaller model on another port.
+
+The server stays loopback-only. Authenticated MAZ Core remains the single LAN-facing gateway.
+
+## Cloud through 9router
+
+The cloud step is any OpenAI-compatible endpoint. Pointing it at a locally running 9router (`http://localhost:20128/dashboard`) keeps every non-local request on one routed key:
+
+```
+MAZ_CLOUD_URL=http://localhost:20128/v1
+MAZ_CLOUD_KEY=9router-local
+MAZ_CLOUD_MODEL=MazLatest
+```
+
+Requests are sent with `stream: false`, because a streaming gateway reply returns concatenated SSE chunks that the single-object parse cannot read. LOCAL never reaches this step.
+
 ## Local AI profiles
 
 Set `MAZ_AI_PROFILE` to one of:

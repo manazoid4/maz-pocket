@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -100,6 +101,10 @@ class SystemTelemetry:
         return {"available": True, **parsed} if parsed else {"available": False}
 
     def _ollama(self) -> dict[str, Any]:
+        # Same key, whichever local engine is configured. Pocket's Laptop view
+        # reads `ollama.loaded` and `ollama.model` and should not need to know.
+        if self.settings.local_engine == "llamacpp":
+            return self._llamacpp()
         try:
             response = self.client.get(f"{self.settings.ollama_url.rstrip('/')}/api/ps", timeout=2)
             response.raise_for_status()
@@ -116,4 +121,26 @@ class SystemTelemetry:
             "vram_mb": _mb(item.get("size_vram") or 0),
             "context": int(item.get("context_length") or 0),
             "expires_at": str(item.get("expires_at") or ""),
+        }
+
+    def _llamacpp(self) -> dict[str, Any]:
+        # llama-server keeps its model resident for its whole lifetime, so an
+        # online server is a loaded model. /props reports the fitted context,
+        # which is the number that matters after the server clamps -c to VRAM.
+        base = self.settings.llamacpp_url.rstrip("/")
+        try:
+            response = self.client.get(f"{base}/props", timeout=2)
+            response.raise_for_status()
+            props = response.json()
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            return {"online": False, "loaded": False}
+        generation = props.get("default_generation_settings") or {}
+        model = str(props.get("model_path") or self.settings.llamacpp_model)
+        return {
+            "online": True,
+            "loaded": True,
+            "model": Path(model).name or model,
+            "vram_mb": 0,
+            "context": int(generation.get("n_ctx") or 0),
+            "expires_at": "",
         }
