@@ -11,7 +11,7 @@ const Descriptor TABLE[] = {
     {"talk",      "Call MAZ",    "CALL",   "call maz voice assistant conversation playback cloud local context ask", KEY_T, true,  makeComm},
     {"braindump", "Capture",     "CAPTURE","capture thought field log highlight voice",            KEY_B, true,  makeCapture},
     {"agents",    "Agents",      "AGENTS", "agents plan crew retro nudge status assurance sync",   KEY_N, true,  makeAgentsHub},
-    {"desk",      "Control",     "CONTROL","control wifi pc device storage settings core laptop debug", 0, true, makeDesk},
+    {"desk",      "Control",     "CONTROL","control wifi pc device storage settings core laptop debug pairing phone", 0, true, makeDesk},
     {"recall",    "Memory",      "MEMORY", "memory inbox notes prompt deck snippets viewer skills knowledge", 0, true, makeRecall},
     {"flow",      "Focus",       "FOCUS",  "focus reminders sprint tasks shift workflows",         0,     true,  makeFlow},
 
@@ -24,6 +24,7 @@ const Descriptor TABLE[] = {
     {"control",   "Control Center", "CTRL", "control center device network pc core screen",   0,     false, makeControlCenter},
     {"network",   "Wi-Fi",       "WI-FI",  "wifi network scan connect reconnect hotspot",     KEY_W, false, makeNetworkV5},
     {"core",      "Projects & Builds", "CORE", "core pc projects builds tests git local ai",  0,     false, makeCoreConsole},
+    {"pairing",   "Pairing & Phone", "PAIR", "pairing token token id phone approval full control", 0, false, makePairing},
     {"laptop",    "Laptop Status", "LAP",  "laptop cpu ram gpu vram battery ollama status",    0,     false, makeLaptop},
     {"beam",      "Send to PC",  "BEAM",   "beam laptop pocket text url clipboard offline",    0,     false, makeBeam},
     {"shift",     "Shift Clock", "SHIFT",  "shift work field elapsed timer log",               0,     false, makeShift},
