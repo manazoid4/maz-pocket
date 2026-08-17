@@ -51,10 +51,9 @@ class TeachError(RuntimeError):
 class TeachCapture:
     """Explicit Windows screen capture for Teach-by-Demonstration.
 
-    The recorder is deliberately host-side and CPU-friendly. ffmpeg/gdigrab
-    handles video; MAZ Core only keeps session metadata, user MARK timestamps,
-    extracted scene frames and a cleaned Whisper transcript. No GPU is required
-    for recording or transcription in the default ECO/BALANCED profiles.
+    ffmpeg/gdigrab records a selected display/region and DirectShow captures the
+    configured/first available microphone. Recording is CPU-first; Whisper ECO
+    and BALANCED are CPU int8 so the baseline does not reserve the user's GPU.
     """
 
     def __init__(self, settings: Settings, stt: SpeechToText) -> None:
@@ -71,7 +70,7 @@ class TeachCapture:
         return {
             "windows": os.name == "nt",
             "ffmpeg": bool(shutil.which("ffmpeg")),
-            "mode": "ffmpeg-gdigrab",
+            "mode": "ffmpeg-gdigrab+dshow",
         }
 
     # ------------------------------------------------------------- displays
@@ -130,6 +129,38 @@ class TeachCapture:
                 return row
         raise TeachError("display_not_found")
 
+    # --------------------------------------------------------------- audio
+    def audio_devices(self) -> list[str]:
+        """Return DirectShow audio capture names from the installed ffmpeg."""
+        ffmpeg = shutil.which("ffmpeg")
+        if os.name != "nt" or not ffmpeg:
+            return []
+        try:
+            result = subprocess.run(
+                [ffmpeg, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+                capture_output=True, text=True, errors="replace", timeout=8,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        text = (result.stderr or "") + "\n" + (result.stdout or "")
+        devices: list[str] = []
+        for line in text.splitlines():
+            if "(audio)" not in line:
+                continue
+            match = re.search(r'"([^"]+)"\s*\(audio\)', line)
+            if match and match.group(1) not in devices:
+                devices.append(match.group(1))
+        return devices
+
+    def _audio_device(self, requested: str) -> str:
+        if requested.strip():
+            return requested.strip()
+        if self.settings.teach_audio_device.strip():
+            return self.settings.teach_audio_device.strip()
+        devices = self.audio_devices()
+        return devices[0] if devices else ""
+
     # --------------------------------------------------------------- capture
     def start(
         self,
@@ -147,10 +178,12 @@ class TeachCapture:
             raise TeachError("ffmpeg_not_found")
 
         display = self._select_display(display_id)
+        selected_audio = self._audio_device(audio_device)
         capture = {
             "display": asdict(display),
             "fps": max(2, min(int(fps or self.settings.teach_fps), 30)),
-            "audio_device": audio_device,
+            "audio_device": selected_audio,
+            "audio_auto_selected": bool(selected_audio and not audio_device and not self.settings.teach_audio_device),
             "cursor": bool(include_cursor),
             "resource_profile": self.settings.resource_profile,
             "vram_budget_mb": self.settings.vram_budget_mb,
@@ -192,13 +225,16 @@ class TeachCapture:
             "-draw_mouse", "1" if include_cursor else "0",
             "-i", "desktop",
         ]
-        if audio_device:
-            argv += ["-f", "dshow", "-i", f"audio={audio_device}", "-map", "0:v:0", "-map", "1:a:0"]
+        if selected_audio:
+            argv += [
+                "-f", "dshow", "-i", f"audio={selected_audio}",
+                "-map", "0:v:0", "-map", "1:a:0",
+            ]
         argv += [
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
             "-pix_fmt", "yuv420p",
         ]
-        if audio_device:
+        if selected_audio:
             argv += ["-c:a", "aac", "-b:a", "96k"]
         argv += [str(recording)]
 
@@ -280,8 +316,6 @@ class TeachCapture:
         if not ffmpeg:
             return
         target = Path(session.directory) / "frames" / "scene-%04d.jpg"
-        # Sparse scene-change extraction: AI consumes meaningful frames instead
-        # of replaying every 10-15fps image from the archival MP4.
         subprocess.run(
             [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", session.recording,
              "-vf", "select='gt(scene,0.10)',scale='min(960,iw)':-2",
@@ -289,10 +323,15 @@ class TeachCapture:
             capture_output=True, text=True, timeout=120,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        session.frames = [str(p) for p in sorted((Path(session.directory) / "frames").glob("scene-*.jpg"))[:160]]
+        session.frames = [
+            str(p) for p in sorted((Path(session.directory) / "frames").glob("scene-*.jpg"))[:160]
+        ]
         self._event(session, "scene_frames", {"count": len(session.frames)})
 
     def _transcribe(self, session: TeachSession) -> None:
+        # No audio track means screen + MARKs are still a valid demonstration.
+        if not session.capture.get("audio_device"):
+            return
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return
@@ -307,7 +346,11 @@ class TeachCapture:
             return
         session.transcript = self.stt.transcribe_profile(wav, self.settings.teach_voice_profile)
         (Path(session.directory) / "transcript.json").write_text(
-            json.dumps({"text": session.transcript, "profile": self.settings.teach_voice_profile}, indent=2),
+            json.dumps({
+                "text": session.transcript,
+                "profile": self.settings.teach_voice_profile,
+                "audio_device": session.capture.get("audio_device", ""),
+            }, indent=2),
             encoding="utf-8",
         )
         self._event(session, "transcript", {"chars": len(session.transcript)})
@@ -338,7 +381,9 @@ class TeachCapture:
             raise TeachError("session_not_found")
         try:
             raw = json.loads(manifest.read_text(encoding="utf-8"))
-            session = TeachSession(**{k: raw[k] for k in TeachSession.__dataclass_fields__ if k in raw})
+            session = TeachSession(**{
+                k: raw[k] for k in TeachSession.__dataclass_fields__ if k in raw
+            })
         except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
             raise TeachError("session_manifest_invalid") from error
         with self._lock:
