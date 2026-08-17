@@ -228,9 +228,9 @@ private:
     void renderResult(M5Canvas& g) {
         g.setFont(&fonts::Font0);
         g.setTextColor(_ok ? OK : WARN, BG);
-        g.drawString((_ok ? std::string("READY / ") : std::string("FAILED / ")) +
-                         (_provider.empty() ? "MAZ CORE" : _provider),
-                     PAD, BODY_Y + 17);
+        const std::string status = (_ok ? std::string("READY / ") : std::string("FAILED / ")) +
+                                   (_provider.empty() ? "MAZ CORE" : _provider);
+        g.drawString(status.c_str(), PAD, BODY_Y + 17);
         constexpr size_t WIDTH = 37;
         for (int row = 0; row < 5; ++row) {
             const size_t start = static_cast<size_t>(_scroll + row) * WIDTH;
