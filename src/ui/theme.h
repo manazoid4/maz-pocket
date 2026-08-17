@@ -17,7 +17,7 @@ constexpr int ROW_H    = 17;
 constexpr int ROWS_VISIBLE = BODY_H / ROW_H;
 constexpr int LIST_ROWS = ROWS_VISIBLE - 1;
 
-// v0.03.1 Home is the six-surface dashboard: COMM, CAPTURE, OPS, DESK,
+// Home is the six-surface dashboard: COMM, CAPTURE, OPS, CONTROL,
 // RECALL and FLOW. Utilities remain in Ctrl+K instead of competing on Home.
 constexpr int TABLE_Y      = BODY_Y + 27;
 constexpr int TABLE_COLS   = 3;
@@ -53,7 +53,9 @@ constexpr uint32_t ERR    = 0xFF4D50;
 }  // namespace rgb
 
 constexpr uint32_t T_FAST  = 120;
-constexpr uint32_t T_BOOT  = 900;
+// A boot logo should brand the device, not hold it hostage. Hardware and LVGL
+// init still happen normally; this only removes 650 ms of intentional waiting.
+constexpr uint32_t T_BOOT  = 250;
 constexpr uint32_t T_TOAST = 1800;
 
 }  // namespace theme

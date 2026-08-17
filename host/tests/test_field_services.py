@@ -50,11 +50,11 @@ def test_smart_profile_uses_small_context_until_needed():
     assert models._context_size([{"role": "user", "content": "hello"}]) == 4096
     assert models._context_size([{"role": "user", "content": "x" * 12_000}]) == 6144
     assert models._context_size([{"role": "user", "content": "x" * 22_000}]) == 8192
-    assert models._keep_alive() == "5m"
+    assert models._keep_alive() == "15m"
 
 
 def test_save_and_fast_profiles_only_change_resource_policy():
     save = Models(Settings(token="test-token-that-is-not-default", ai_profile="save", _env_file=None))
     fast = Models(Settings(token="test-token-that-is-not-default", ai_profile="fast", _env_file=None))
     assert save._keep_alive() == 0
-    assert fast._keep_alive() == "30m"
+    assert fast._keep_alive() == "60m"
