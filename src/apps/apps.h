@@ -29,6 +29,7 @@ App* makeCall();
 App* makeCallV3();
 App* makeComm();
 App* makeCapture();
+App* makeAgentsHub();
 App* makeDesk();
 App* makeRecall();
 App* makeFlow();
