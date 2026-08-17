@@ -10,11 +10,12 @@ const Descriptor TABLE[] = {
     {"home",      "Home",        nullptr,   "home menu now quick actions field",                    0,     false, makeHome},
     {"talk",      "Call MAZ",    "CALL",   "call maz voice assistant conversation playback cloud local context ask", KEY_T, true,  makeComm},
     {"braindump", "Capture",     "CAPTURE","capture thought field log highlight voice",            KEY_B, true,  makeCapture},
-    {"nudge",     "Agents",      "AGENTS", "agents plan crew retro nudge status assurance sync",   KEY_N, true,  makeAgentsV3},
+    {"agents",    "Agents",      "AGENTS", "agents plan crew retro nudge status assurance sync",   KEY_N, true,  makeAgentsHub},
     {"desk",      "Control",     "CONTROL","control wifi pc device storage settings core laptop debug", 0, true, makeDesk},
     {"recall",    "Memory",      "MEMORY", "memory inbox notes prompt deck snippets viewer skills knowledge", 0, true, makeRecall},
     {"flow",      "Focus",       "FOCUS",  "focus reminders sprint tasks shift workflows",         0,     true,  makeFlow},
 
+    {"nudge",     "Agent Status", "STATUS", "agent status nudge assurance sync evidence",          0, false, makeAgentsV3},
     {"plan",      "Plan",        "PLAN",   "plan think before code project implementation risk authority", 0, false, makePlan},
     {"prompts",   "Prompt Deck", "PROMPTS","prompt deck templates build bug review research maz", 0, false, makePromptDeck},
     {"crew",      "Crew",        "CREW",   "crew agents split work claude codex hermes collision", 0, false, makeCrew},
