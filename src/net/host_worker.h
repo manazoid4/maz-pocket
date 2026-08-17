@@ -17,7 +17,10 @@ enum class JobKind : uint8_t {
     OutboxBeam,
     BeamPull,
     SystemStatus,
+    Workflow,
 };
+
+enum class WorkflowKind : uint8_t { Plan, Crew, Retro, Prompt };
 
 struct TalkResult {
     std::string session;
@@ -45,6 +48,14 @@ struct OutboxBeamResult {
     host::Reply reply;
 };
 
+struct WorkflowResult {
+    WorkflowKind kind = WorkflowKind::Plan;
+    std::string task;
+    std::string project;
+    std::string templateId;
+    host::Reply reply;
+};
+
 bool submitTalkAudio(const std::string& session, const std::string& wavPath,
                      const std::string& speechPath = "",
                      const std::string& context = "");
@@ -54,6 +65,9 @@ bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
 bool submitOutboxBeam(const std::string& recordId, const std::string& text);
 bool submitBeamPull();
 bool submitSystemStatus();
+bool submitWorkflow(WorkflowKind kind, const std::string& task,
+                    const std::string& project = "",
+                    const std::string& templateId = "");
 
 bool takeTalkResult(TalkResult& result);
 bool takePcActionResult(PcActionResult& result);
@@ -61,6 +75,7 @@ bool takeOutboxAudioResult(OutboxAudioResult& result);
 bool takeOutboxBeamResult(OutboxBeamResult& result);
 bool takeBeamPullResult(host::BeamMessage& result);
 bool takeSystemStatusResult(host::SystemStatus& result);
+bool takeWorkflowResult(WorkflowResult& result);
 
 State state();
 JobKind jobKind();
