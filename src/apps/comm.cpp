@@ -1,4 +1,4 @@
-// COMM — responsive voice conversation with MAZ Core.
+// CALL MAZ — hold-to-talk voice conversation with spoken reply playback.
 #include <algorithm>
 #include <array>
 #include <string>
@@ -55,16 +55,16 @@ const char* controlLabel(const std::string& action) {
 class CommApp : public App {
 public:
     const char* id() const override { return "talk"; }
-    const char* title() const override { return "COMM"; }
+    const char* title() const override { return "CALL MAZ"; }
 
     const char* hints() const override {
-        if (_controlMode) return "< > choose   ENTER send   C voice";
+        if (_controlMode) return "< > choose   ENTER send   C back";
         if (voice::state() == voice::State::Listening)
-            return field::contextArmed() ? "release SPACE to Context Ask" : "release SPACE to send";
-        if (host_worker::busy()) return "PC working in background   ESC safe";
-        if (voice::isPlaying()) return "SPACE interrupt   P replay";
-        if (!_reply.empty()) return "SPACE reply   C controls   N new";
-        return "hold SPACE call   Fn+SPACE Context Ask";
+            return field::contextArmed() ? "release SPACE to ask about screen" : "release SPACE to send";
+        if (host_worker::busy()) return "MAZ thinking on PC   ESC safe";
+        if (voice::isPlaying()) return "SPACE stop voice   P replay";
+        if (!_reply.empty()) return "P replay   V voice ON/OFF   A AI   N new";
+        return "hold SPACE to call   A change AI   V voice";
     }
 
     void onEnter() override {
@@ -84,12 +84,12 @@ public:
             delete _sink;
             _sink = nullptr;
             if (stopped && !path.empty()) {
-                queueRaw(path, "COMM recording kept", field::context());
+                queueRaw(path, "Call recording kept", field::context());
                 field::clearContext();
             }
         }
         if (_haveTake && !_takePath.empty()) {
-            queueRaw(_takePath, "COMM take kept", field::context());
+            queueRaw(_takePath, "Call kept", field::context());
             field::clearContext();
             _takePath.clear();
             _haveTake = false;
@@ -111,7 +111,7 @@ public:
             if (voice::isPlaying()) voice::stopPlayback();
             consumeWorkerResult();
             if (host_worker::busy()) {
-                notify::post(Note::Info, "PC still working", "ESC is safe; result will wait");
+                notify::post(Note::Info, "MAZ still thinking", "result will wait for you");
                 return true;
             }
             if (voice::state() != voice::State::Listening) beginTake();
@@ -135,14 +135,22 @@ public:
             _reply.clear();
             field::clearContext();
             voice::stopPlayback();
-            notify::post(Note::Info, "Line cleared", "new conversation");
+            notify::post(Note::Info, "New call", "conversation cleared");
             invalidate();
             return true;
         }
         if (e.code == KEY_A && !host_worker::busy()) {
             Cfg.talkRoute = (Cfg.talkRoute + 1) % 3;
             Cfg.save();
-            notify::post(Note::Info, "Route", routeName());
+            notify::post(Note::Info, "AI route", routeName());
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_V && !host_worker::busy()) {
+            Cfg.ttsEnabled = !Cfg.ttsEnabled;
+            Cfg.save();
+            if (!Cfg.ttsEnabled) voice::stopPlayback();
+            notify::post(Note::Info, "Voice replies", Cfg.ttsEnabled ? "ON - MAZ will speak" : "OFF - text only");
             invalidate();
             return true;
         }
@@ -164,41 +172,43 @@ public:
     }
 
     std::string contextSnapshot() const override {
-        if (!_reply.empty()) return "COMM last reply: " + _reply.substr(0, 180);
-        return field::contextArmed() ? "COMM preparing Context Ask" : "COMM voice line";
+        if (!_reply.empty()) return "Call MAZ last reply: " + _reply.substr(0, 180);
+        return field::contextArmed() ? "Call MAZ preparing screen question" : "Call MAZ voice line";
     }
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
         if (_controlMode) { renderControl(g); return; }
-        ui::header(g, field::contextArmed() ? "CONTEXT ASK" : "COMM / PC", host::linkName());
+        ui::header(g, field::contextArmed() ? "ASK SCREEN" : "CALL MAZ", routeName());
 
         if (voice::state() == voice::State::Listening) {
             ui::panel(g, 71, BODY_Y + 19, 98, 52);
             g.setTextDatum(middle_center);
             g.setFont(&fonts::Font4);
             g.setTextColor(field::contextArmed() ? WARN : ACCENT2, PANEL);
-            g.drawString(field::contextArmed() ? "ASK" : "REC", SCREEN_W / 2, BODY_Y + 44);
+            g.drawString(field::contextArmed() ? "ASK" : "TALK", SCREEN_W / 2, BODY_Y + 44);
             g.setTextDatum(top_left);
             g.setFont(&fonts::Font0);
             g.setTextColor(DIM, BG);
-            g.drawString(("TX 00:" + two(voice::elapsedSeconds())).c_str(), 98, BODY_Y + 78);
+            g.drawString(("00:" + two(voice::elapsedSeconds())).c_str(), 104, BODY_Y + 78);
             return;
         }
 
         if (host_worker::busy() || _sending) {
-            retroPhone(g, host_worker::state() == host_worker::State::Queued ? "QUEUED FOR PC" : "PC WORKING", WARN);
+            retroPhone(g, host_worker::state() == host_worker::State::Queued ? "QUEUED" : "MAZ THINKING", WARN);
             return;
         }
-        if (voice::isPlaying()) { retroPhone(g, "PC TALKING", OK); return; }
+        if (voice::isPlaying()) { retroPhone(g, "MAZ SPEAKING", OK); return; }
         if (!_reply.empty()) {
             g.setFont(&fonts::Font0);
             g.setTextColor(ACCENT, BG);
-            g.drawString((std::string("PC> ") + host::linkName() + " / " + routeName()).c_str(), PAD, BODY_Y + 18);
+            std::string meta = std::string("MAZ> ") + routeName();
+            if (Cfg.ttsEnabled) meta += " / VOICE";
+            g.drawString(meta.c_str(), PAD, BODY_Y + 18);
             drawCommWrapped(g, _reply, BODY_Y + 34, _scroll);
             return;
         }
-        retroPhone(g, gCommSession.empty() ? "LINE READY" : "LINE OPEN", ACCENT);
+        retroPhone(g, gCommSession.empty() ? "HOLD SPACE TO CALL" : "CALL READY", ACCENT);
     }
 
 private:
@@ -215,7 +225,7 @@ private:
         g.setFont(&fonts::Font2);
         g.setTextColor(colour, PANEL);
         g.setTextDatum(middle_center);
-        g.drawString("PC", SCREEN_W / 2, BODY_Y + 40);
+        g.drawString("AI", SCREEN_W / 2, BODY_Y + 40);
         g.setTextDatum(top_center);
         g.setFont(&fonts::Font0);
         g.setTextColor(colour, BG);
@@ -224,7 +234,7 @@ private:
     }
 
     void renderControl(M5Canvas& g) {
-        ui::header(g, "COMMAND DECK", host::linkName());
+        ui::header(g, "PC QUICK CONTROL", host::linkName());
         const int prev = (_controlSel + CONTROL_COUNT - 1) % CONTROL_COUNT;
         const int next = (_controlSel + 1) % CONTROL_COUNT;
         g.setTextDatum(top_center);
@@ -238,7 +248,7 @@ private:
         g.drawString(CONTROLS[_controlSel].label, SCREEN_W / 2, BODY_Y + 33);
         g.setFont(&fonts::Font0);
         g.setTextColor(TEXT, PANEL);
-        g.drawString("ENTER / TRANSMIT", SCREEN_W / 2, BODY_Y + 54);
+        g.drawString("ENTER / SEND", SCREEN_W / 2, BODY_Y + 54);
         g.setTextColor(DIM, BG);
         g.drawString(CONTROLS[_controlSel].hint, SCREEN_W / 2, BODY_Y + 83);
         g.setTextDatum(top_left);
@@ -296,7 +306,7 @@ private:
         const std::string context = field::context();
         if (!host_worker::submitTalkAudio(gCommSession, _takePath, speechPath, context)) {
             _sending = false;
-            notify::post(Note::Error, "COMM busy", host_worker::stateName());
+            notify::post(Note::Error, "Call busy", host_worker::stateName());
             return;
         }
         _sendContext = context;
@@ -336,7 +346,7 @@ private:
 
         if (!result.reply.ok) {
             queueRaw(result.wavPath, result.reply.error.empty() ? "PC unavailable" : result.reply.error, result.context);
-            notify::post(Note::Warn, "PC unavailable", "voice turn kept in outbox");
+            notify::post(Note::Warn, "MAZ unavailable", "voice call kept in outbox");
             invalidate();
             return;
         }
@@ -346,7 +356,7 @@ private:
         store::Record answer;
         answer.kind = "inbox";
         answer.status = "open";
-        answer.title = result.context.empty() ? "COMM / PC" : "CONTEXT ASK / PC";
+        answer.title = result.context.empty() ? "CALL MAZ" : "ASK SCREEN";
         answer.body = result.reply.text;
         answer.source = result.reply.provider;
         answer.ref = result.wavPath;
@@ -368,7 +378,7 @@ private:
             voice::play(_speechPath);
         }
         sfx::confirm();
-        notify::post(Note::Success, result.context.empty() ? "Answer ready" : "Context answer ready",
+        notify::post(Note::Success, result.context.empty() ? "MAZ answered" : "Screen answer ready",
                      result.reply.provider.empty() ? "MAZ Core" : result.reply.provider);
         invalidate();
     }
@@ -379,7 +389,7 @@ private:
         store::Record queued;
         queued.kind = "outbox";
         queued.status = "queued";
-        queued.title = context.empty() ? "COMM voice turn" : "CONTEXT ASK voice turn";
+        queued.title = context.empty() ? "Call MAZ voice turn" : "Ask Screen voice turn";
         queued.body = context.empty() ? reason : context;
         queued.source = context.empty() ? "talk" : "talk-context";
         queued.ref = path;
