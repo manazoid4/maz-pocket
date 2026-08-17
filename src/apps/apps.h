@@ -58,8 +58,15 @@ App* makeReminders();
 App* makeSnake();
 App* makeHyperdrive();
 
-// v0.7 FIELD hidden utilities. They live inside CONTROL/FLOW/quick keys and do
-// not expand the six-surface Home menu.
+// v0.8 agent workbench. These live inside AGENTS/MEMORY; they do not expand
+// the six-tile Home surface.
+App* makePlan();
+App* makePromptDeck();
+App* makeCrew();
+App* makeRetro();
+
+// FIELD utilities. They live inside CONTROL/FLOW/quick keys and do not expand
+// the six-surface Home menu.
 App* makeLaptop();
 App* makeBeam();
 App* makeShift();
