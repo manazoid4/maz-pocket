@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from .agent_runner import AgentRunError, AgentRunner, Provider
 from .authority import AuthorityBroker, AuthorityError, Scope
 from .debug_capsule import DebugCapsules
 from .executor import ElevatedExecutor, ExecutionError, Shell
+from .llm import Route
 from .phone_control import build_phone_app
 from .stt import SpeechToText
 from .teach_capture import TeachCapture
@@ -36,6 +40,20 @@ class ExecuteBody(BaseModel):
     requires_admin: bool = False
 
 
+class AgentRunRequest(BaseModel):
+    provider: Provider
+    prompt: str = Field(min_length=1, max_length=40_000)
+    project: str = Field(min_length=1, max_length=160)
+    grant_token: str = Field(min_length=20, max_length=5000)
+
+
+class CrewExecuteRequest(BaseModel):
+    task: str = Field(min_length=1, max_length=8000)
+    project: str = Field(min_length=1, max_length=160)
+    grant_token: str = Field(min_length=20, max_length=5000)
+    route: Route = "auto"
+
+
 class DebugRequest(BaseModel):
     project: str = Field(default="", max_length=160)
 
@@ -54,21 +72,12 @@ def install_control_routes(
     nudge_client,
     device_monitor,
 ) -> None:
-    # Mounted app has its own phone-session authentication and intentionally
-    # does not inherit the model-facing bearer-token dependency.
     api.mount("/control", build_phone_app(settings, broker))
 
-    # Prompt Deck / PLAN / CREW / RETRO share current project + Nudge evidence
-    # and the already-configured model router. They do not get a second agent
-    # framework or scheduler.
-    install_workflow_routes(
-        api, WorkflowService(settings, model_router, core_service, nudge_client)
-    )
-
-    # Teach recording stays PC-side. A dedicated STT wrapper is cheap until it
-    # is used; its default/BALANCED paths are CPU int8 and do not consume the
-    # user's small GPU budget while screen recording.
+    workflows = WorkflowService(settings, model_router, core_service, nudge_client)
+    install_workflow_routes(api, workflows)
     install_teach_routes(api, TeachCapture(settings, SpeechToText(settings)))
+    agents = AgentRunner(settings, broker)
 
     @api.get("/authority/token-id")
     def authority_token_id():
@@ -134,6 +143,65 @@ def install_control_routes(
         except ExecutionError as error:
             raise HTTPException(403, str(error)) from error
 
+    # ------------------------------------------------------- installed agents
+    @api.get("/agents/providers")
+    def agent_providers():
+        return {"ok": True, "providers": agents.providers()}
+
+    @api.post("/agents/run")
+    def agent_run(body: AgentRunRequest):
+        try:
+            project = core_service.project(body.project)
+            return {"ok": True, "job": agents.start(
+                provider=body.provider,
+                prompt=body.prompt,
+                project=str(project["path"]),
+                grant_token=body.grant_token,
+            )}
+        except (AgentRunError, Exception) as error:
+            # Core project lookup and runner errors are both explicit; do not
+            # silently fall back to running an agent in an arbitrary cwd.
+            raise HTTPException(400, str(error)) from error
+
+    @api.get("/agents/job/{job_id}")
+    def agent_job(job_id: str):
+        try:
+            return {"ok": True, "job": agents.job(job_id)}
+        except AgentRunError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @api.get("/agents/jobs")
+    def agent_jobs(limit: int = 20):
+        return {"ok": True, "jobs": agents.jobs(limit)}
+
+    # CREW planning is available without elevation. Execution is a separate
+    # endpoint and requires a signed PROJECT FULL-or-broader phone grant.
+    @api.post("/work/crew/execute")
+    def crew_execute(body: CrewExecuteRequest):
+        try:
+            project = core_service.project(body.project)
+            plan = workflows.crew(body.task, body.project, body.route)
+            return {"ok": True, "crew": agents.start_crew(
+                plan=plan,
+                task=body.task,
+                project=str(project["path"]),
+                grant_token=body.grant_token,
+            )}
+        except (AgentRunError, Exception) as error:
+            raise HTTPException(400, str(error)) from error
+
+    @api.get("/work/crew/job/{job_id}")
+    def crew_job(job_id: str):
+        try:
+            return {"ok": True, "crew": agents.crew_job(job_id)}
+        except AgentRunError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @api.get("/work/crew/jobs")
+    def crew_jobs(limit: int = 20):
+        return {"ok": True, "jobs": agents.crew_jobs(limit)}
+
+    # ------------------------------------------------------------- debugging
     @api.post("/debug/capsule")
     def debug_capsule(body: DebugRequest):
         project = body.project
