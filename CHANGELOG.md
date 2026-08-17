@@ -1,11 +1,13 @@
 # Changelog
 
-## v0.7.1 — installer hotfix
+## v0.7.1 — installer hotfix, speed pass and packaging cleanup
 
 - Fixed the Windows install path. `START-HERE.cmd` runs `powershell.exe`, and Windows PowerShell 5.1 decodes a BOM-less script with the ANSI code page. Two em dashes in `setup-all.ps1` therefore arrived as cp1252 text ending in `0x94`, a smart closing quote that PowerShell accepts as a string delimiter, which unbalanced the quoting and produced misleading `}` / `elseif` parse errors at lines 85-92.
 - Executed installer scripts are now plain ASCII and are packaged with a UTF-8 BOM, so neither PowerShell edition can mis-decode them.
 - `START-HERE.cmd` prefers `pwsh.exe` when present and still falls back to Windows PowerShell 5.1.
 - CI now builds the release package, extracts the generated `MAZ-Pocket-v<version>-Install.zip` and validates the scripts users actually download by parsing and dry-running them under real `powershell.exe`, on both the 5.1 fallback and the preferred shell.
+- Speed pass: Pocket boot animation cut from 900 ms to 250 ms, the stale v0.5 system prompt replaced with a compact v0.7 one, retained history halved from 24 to 12 turns, SMART/FAST Ollama keep-alive raised to 15/60 minutes, and handheld local generation capped at 160 tokens.
+- Packaging cleanup: `MAZ-Core-vX.Y.zip` now ships runtime files only — `tests/`, `.pytest_cache`, `__pycache__` and `*.pyc` are excluded, and that is a permanent release rule.
 - No firmware behaviour, product surface or MAZ Core capability changed.
 
 ## v0.7 — FIELD (release candidate)

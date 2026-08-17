@@ -1,6 +1,6 @@
 # MAZ Pocket v0.7.1 — FIELD (installer hotfix)
 
-v0.7.1 is a release-engineering hotfix on top of v0.7 FIELD. Every Pocket and MAZ Core capability below is unchanged; only the Windows install path and its CI gate were repaired.
+v0.7.1 is a release-engineering hotfix on top of v0.7 FIELD, bundled with a speed pass and a packaging cleanup. Every Pocket and MAZ Core capability below is unchanged; only the Windows install path, its CI gate, response latency and the shipped ZIP contents changed.
 
 ## What was broken in v0.7
 
@@ -19,6 +19,20 @@ The braces were never unbalanced. CI missed it because it parsed repository sour
 - Those scripts ship with a UTF-8 BOM so Windows PowerShell 5.1 cannot guess the encoding.
 - `START-HERE.cmd` prefers `pwsh.exe` when installed and still falls back to Windows PowerShell 5.1.
 - CI builds the release package, extracts the generated `MAZ-Pocket-v0.7.1-Install.zip`, and parses plus dry-runs the scripts inside it with real `powershell.exe` on both the 5.1 fallback and the preferred shell. A syntax or encoding regression now fails the build.
+
+## Speed pass
+
+- Pocket boot animation cut from 900 ms to 250 ms; hardware and LVGL init unchanged.
+- The stale v0.5 MAZ system prompt is replaced with a compact v0.7 prompt that keeps grounding, the six-surface capability boundaries and safe routing rules.
+- Retained conversation history drops from 24 to 12 complete turns, so local models re-evaluate less stale context.
+- SMART keeps the Ollama model warm for 15 minutes and FAST for 60; SAVE still unloads immediately.
+- Handheld local generation is capped at 160 tokens, matching the compact-answer UX.
+
+LOCAL/AUTO/CLOUD semantics, Outbox, Beam and the six surfaces are unchanged.
+
+## Packaging cleanup
+
+`MAZ-Core-v0.7.1.zip` ships runtime files only. `tests/`, `.pytest_cache`, recursive `__pycache__` and `*.pyc` are excluded, and runtime-only client packaging is now a permanent release rule.
 
 Upgrading is Core-side and installer-side only. v0.7 firmware behaviour is unchanged; reinstall the v0.7.1 `.bin` through M5Launcher so device and Core report the same version.
 
