@@ -109,6 +109,14 @@ bool speak(const std::string& text, const std::string& wavPath);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);
 
+// v0.8 agent workbench. These are compact request/response calls; the Pocket
+// displays the useful summary while MAZ Core keeps richer workflow data.
+Reply workPlan(const std::string& task, const std::string& project = "");
+Reply workCrew(const std::string& task, const std::string& project = "");
+Reply workRetro(const std::string& project = "", const std::string& note = "");
+Reply workPrompt(const std::string& templateId, const std::string& task,
+                 const std::string& project = "");
+
 // v0.7 FIELD endpoints. Received Beam content is data only and is never used as
 // a command. Telemetry is a cached one-shot laptop snapshot, not a stream.
 Reply beamSend(const std::string& text);
