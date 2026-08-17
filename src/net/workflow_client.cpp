@@ -1,5 +1,8 @@
 #include "mazhost.h"
 
+#include <cstring>
+#include <utility>
+
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
@@ -62,7 +65,9 @@ bool openHttp(HTTPClient& http, WiFiClient& plain, WiFiClientSecure& secure,
     }
     if (!begun) return false;
     http.setConnectTimeout(remote ? 6500 : 1800);
-    http.setTimeout(120000);
+    // Arduino HTTPClient stores timeout as uint16_t. Keep this below 65.5s;
+    // longer work belongs in MAZ Core jobs rather than one handheld request.
+    http.setTimeout(60000);
     http.addHeader("Authorization", ("Bearer " + Cfg.hostToken).c_str());
     return true;
 }
@@ -79,9 +84,8 @@ RawResponse requestOne(const std::string& base, bool remote, const std::string& 
     WiFiClientSecure secure;
     RawResponse out;
     if (!openHttp(http, plain, secure, base, remote, path)) return out;
-    if (!strcmp(method, "GET")) {
-        out.status = http.GET();
-    } else {
+    if (!strcmp(method, "GET")) out.status = http.GET();
+    else {
         http.addHeader("Content-Type", "application/json");
         out.status = http.POST(body);
     }
@@ -147,8 +151,9 @@ TeachStatus decodeTeach(const RawResponse& raw) {
             : (error ? "invalid Teach response" : static_cast<const char*>(doc["detail"] | "Teach failed"));
         return out;
     }
-    JsonVariantConst session = doc["session"];
-    if (session.isNull()) session = doc.as<JsonVariantConst>();
+    JsonObjectConst root = doc.as<JsonObjectConst>();
+    JsonObjectConst session = root["session"].is<JsonObjectConst>()
+        ? root["session"].as<JsonObjectConst>() : root;
     out.ok = true;
     out.sessionId = session["session_id"] | "";
     out.state = session["state"] | "";
