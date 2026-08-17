@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Literal
-
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -9,6 +7,8 @@ from .authority import AuthorityBroker, AuthorityError, Scope
 from .debug_capsule import DebugCapsules
 from .executor import ElevatedExecutor, ExecutionError, Shell
 from .phone_control import build_phone_app
+from .workflow_routes import install_workflow_routes
+from .workflows import WorkflowService
 
 
 class AuthorityRequestBody(BaseModel):
@@ -54,6 +54,13 @@ def install_control_routes(
     # Mounted app has its own phone-session authentication and intentionally
     # does not inherit the model-facing bearer-token dependency.
     api.mount("/control", build_phone_app(settings, broker))
+
+    # Prompt Deck / PLAN / CREW / RETRO share current project + Nudge evidence
+    # and the already-configured model router. They do not get a second agent
+    # framework or scheduler.
+    install_workflow_routes(
+        api, WorkflowService(settings, model_router, core_service, nudge_client)
+    )
 
     @api.get("/authority/token-id")
     def authority_token_id():
