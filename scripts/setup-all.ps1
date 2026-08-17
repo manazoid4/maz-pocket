@@ -26,7 +26,7 @@ function Find-PackageFile([string]$Name) {
 }
 
 Write-Host ""
-Write-Host "MAZ POCKET v$Version — START HERE" -ForegroundColor Cyan
+Write-Host "MAZ POCKET v$Version - START HERE" -ForegroundColor Cyan
 Write-Host "This setup never formats a drive and never writes Cardputer flash directly." -ForegroundColor DarkGray
 Write-Host ""
 
@@ -80,7 +80,7 @@ if (-not $SkipSd) {
         }
     } elseif ($Removable.Count -eq 0) {
         Write-Host ""
-        Write-Host "No removable microSD detected — that is fine." -ForegroundColor Yellow
+        Write-Host "No removable microSD detected - that is fine." -ForegroundColor Yellow
         Write-Host "If your Cardputer already runs v0.5.2+, download the v$Version .bin on your phone and stage it at http://mazpocket.local."
     } elseif ($Removable.Count -gt 1) {
         Write-Host ""

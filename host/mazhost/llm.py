@@ -142,9 +142,10 @@ class Models:
                 "model": self.settings.cloud_model,
                 "messages": messages,
                 "temperature": 0.2,
-                # 9router/OpenAI-compatible gateways may default to SSE. Core
-                # currently parses one complete JSON response, so make that
-                # contract explicit instead of relying on provider defaults.
+                # OpenAI-compatible gateways do not agree on the default. A
+                # local 9router endpoint streams unless told otherwise, which
+                # returns concatenated SSE chunks and breaks the single-object
+                # parse below. Ask for one complete response explicitly.
                 "stream": False,
             },
         )
