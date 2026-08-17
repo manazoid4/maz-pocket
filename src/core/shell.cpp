@@ -9,6 +9,7 @@
 #include "../audio/sfx.h"
 #include "../audio/voice.h"
 #include "../input/keyboard.h"
+#include "../net/host_worker.h"
 #include "../net/net.h"
 #include "../storage/store.h"
 #include "../ui/ui.h"
@@ -79,7 +80,7 @@ void pollPower() {
 void applyScreenTimeout() {
     uint16_t timeout = Cfg.screenTimeout;
     if (Cfg.fieldMode && (timeout == 0 || timeout > 20)) timeout = 20;
-    if (timeout == 0 || Sys.recording) return;
+    if (timeout == 0 || Sys.recording || host_worker::busy()) return;
 
     const uint32_t idle = (millis() - gLastInput) / 1000;
     if (!gDimmed && idle >= timeout) {
@@ -455,7 +456,7 @@ void loop() {
         dispatchKey(e);
     }
 
-    if (KB.held(KEY_ESC) && KB.heldFor(KEY_ESC) > 600 && !gEscHandled) {
+    if (KB.held(KEY_ESC) && KB.heldFor(KEY_ESC) > 600 && !gEscHandled && !gEscClaimed) {
         gEscHandled = true;
         goHome();
         sfx::select();
@@ -478,7 +479,7 @@ void loop() {
     top->update();
 
     static uint32_t lastPaint = 0;
-    const bool due = millis() - lastPaint > 100;
+    const bool due = millis() - lastPaint > 250;
     if (!top->dirty() && !due) return;
     if (gScreenOff) return;
 

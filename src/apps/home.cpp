@@ -80,6 +80,8 @@ public:
         if (e.code == KEY_ENTER) { open(_sel); return true; }
         if (e.code == KEY_RIGHT) { move(+1); return true; }
         if (e.code == KEY_LEFT)  { move(-1); return true; }
+        if (e.code == KEY_DOWN)  { move(+TABLE_COLS); return true; }
+        if (e.code == KEY_UP)    { move(-TABLE_COLS); return true; }
 
         size_t n = 0;
         const Descriptor* t = apps::table(n);
