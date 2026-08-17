@@ -1,75 +1,121 @@
-MAZ POCKET v0.7.1 — FIELD QUICKSTART
-=================================
+MAZ POCKET v0.8.0 - CONTROL QUICKSTART
+======================================
 
 WHAT TO DOWNLOAD
 ----------------
-Laptop/client only:   MAZ-Core-v0.7.1.zip
-Cardputer only:       MAZ-Cardputer-v0.7.1.zip
-Everything together: MAZ-Pocket-v0.7.1-Install.zip
+Laptop/client only:   MAZ-Core-v0.8.0.zip
+Cardputer only:       MAZ-Cardputer-v0.8.0.zip
+Everything together: MAZ-Pocket-v0.8.0-Install.zip
 
-The Cardputer ZIP contains the app-only M5Launcher firmware. M5Launcher owns install and rollback. Do NOT flash the app .bin at address 0x0.
+The Cardputer ZIP contains an app-only M5Launcher firmware image. M5Launcher owns installation and rollback. Do NOT flash this app .bin at address 0x0.
 
 FIRST START / WINDOWS
 ---------------------
-1. Extract MAZ-Pocket-v0.7.1-Install.zip.
+1. Extract MAZ-Pocket-v0.8.0-Install.zip.
 2. Double-click START-HERE.cmd.
-3. MAZ Core installs/updates in the normal per-user location and preserves an existing .env.
-4. Install/launch Maz-Pocket-v0.7.1-M5Launcher.bin using M5Launcher.
+3. Choose whether to install/update MAZ Core when asked.
+4. If one removable microSD is connected, choose whether to copy the Cardputer .bin to it.
+5. Install Maz-Pocket-v0.8.0-M5Launcher.bin with M5Launcher.
+6. Once MAZ Pocket is on Wi-Fi, open http://mazpocket.local.
 
 HOME
 ----
-NOW shows one useful priority, not a dashboard.
-1 / 2 / 3 / 4 = your four quick actions.
-Fn + 1/2/3/4 = cycle that slot to another safe action.
-Default: 1 TALK / 2 NOTE / 3 LAP / 4 BEAM.
+CALL    = voice conversation with spoken MAZ reply.
+CAPTURE = Teach Demo, Brain Dump, Voice Recorder.
+AGENTS  = Agent Status, PLAN, CREW, RETRO, Projects.
+CONTROL = Pairing/Phone, Laptop, Wi-Fi, Core, Device, Settings.
+MEMORY  = Results Inbox, Prompt Deck, Notes, Snippets, Viewer.
+FOCUS   = Focus, Sprint, Tasks, Reminders, Shift.
+
+CALL MAZ
+--------
+Hold SPACE = talk.
+Release SPACE = send.
+P = replay last spoken answer.
+V = voice replies on/off.
+A = change CLOUD / LOCAL / AUTO.
+N = new conversation.
+C = simple PC quick controls.
+
+Fresh v0.8 installs prefer CLOUD. Existing devices keep their saved route.
+
+TEACH DEMO
+----------
+CAPTURE -> TEACH DEMO.
+1. Choose the PC screen.
+2. ENTER starts explicit PC screen recording.
+3. Work normally and explain the workflow.
+4. M marks an important moment.
+5. ENTER stops and processes the recording.
+6. Save the transcript/result to Inbox.
+
+Teach runs on the PC and needs ffmpeg. It auto-selects the first microphone when possible. ECO/BALANCED speech processing is CPU int8 so the baseline does not require a large GPU.
+
+AGENT WORKBENCH
+---------------
+AGENTS -> PLAN: think through a job before editing.
+AGENTS -> CREW: split work into Claude/Codex/Hermes packages.
+AGENTS -> RETRO: review outcome and propose useful learning.
+MEMORY -> PROMPT DECK: project-aware build/review/research templates.
+
+CREW planning is read-only. Actual agent subprocess execution requires a signed phone-approved PROJECT FULL or broader grant.
+
+PAIRING + PHONE CONTROL
+-----------------------
+CONTROL -> PAIRING + PHONE.
+Token ID = safe short fingerprint.
+P = reveal/hide the actual saved pairing token on the physical Cardputer.
+The same screen shows the MAZ Core phone-control URL.
+
+Phone control normally lives at:
+http://<your-PC>:8787/control/
+
+Use it to approve/deny PROJECT FULL, PC FULL or ADMIN requests and to REVOKE ALL active control.
+
+MAZPOCKET.LOCAL
+---------------
+Open http://mazpocket.local on the same LAN.
+The v0.8 page puts Pairing, Token ID, Phone Control, CALL, PLAN, CREW, RETRO, Prompt Deck, AI route, voice playback, status and firmware staging on one page.
+
+UPDATING FIRMWARE
+-----------------
+At mazpocket.local:
+1. Choose the new app .bin.
+2. VERIFY + STAGE it to SD.
+3. OPEN M5LAUNCHER.
+4. Install the staged .bin.
+5. Launch MAZ Pocket.
+
+IMPORTANT v0.8 FIX: returning to M5Launcher no longer deliberately erases/invalidates the currently installed MAZ Pocket image. You should not need to reinstall MAZ just because you opened Launcher.
+
+REMOTE DEBUG / FULL CONTROL
+---------------------------
+MAZ Core can collect a redacted Debug Capsule and can request broad PC authority. The AI cannot approve itself. Confirm on the authenticated phone control page, then the signed grant expires automatically and can be revoked at any time.
+
+LOCAL AI
+--------
+MAZ Core supports Ollama and llama.cpp/llama-server.
+LOCAL = never silently cloud.
+AUTO = local then configured cloud.
+CLOUD = configured cloud model.
 
 GLOBAL
 ------
-Fn + Space = Context Ask: hold, speak about the current screen/item, release.
+Fn + Space = ask about current Pocket screen/context.
 Fn + F     = FIELD mode on/off.
 Ctrl + K   = command palette.
-Ctrl + L   = return to M5Launcher.
+Ctrl + L   = return to M5Launcher without invalidating MAZ Pocket.
 Fn + M on Home = harmless retro Easter egg.
 
-BEAM
-----
-Pocket -> laptop:
-CONTROL -> BEAM -> N -> type -> ENTER. If Core is offline it stays in Outbox and sends later.
-
-Laptop -> Pocket:
-Copy text or a URL, then run BEAM-TO-POCKET.cmd from the MAZ Core folder. You can also POST through MAZ Core /beam/to-pocket.
-
-OUTBOX
-------
-Failed/offline COMM recordings, Context Ask turns and outgoing Beams are kept. MAZ Pocket retries the oldest queued work automatically after Wi-Fi/Core returns. Home NOW shows the queue count.
-
-LAPTOP STATUS
--------------
-CONTROL -> LAPTOP. It shows a small on-demand CPU/RAM/GPU/VRAM/battery/Ollama snapshot. R refreshes. FIELD mode reduces refresh frequency.
-
-SHIFT
------
-FLOW -> SHIFT CLOCK -> ENTER start/stop. Home NOW shows elapsed shift time. Completed elapsed time is saved locally.
-
-LOCAL AI PROFILE
+FIRST VALIDATION
 ----------------
-SMART = default balanced mode (ordinary turns 4K context, 5m warm model).
-SAVE  = unload local model after each response.
-FAST  = keep model warm longer.
-Set MAZ_AI_PROFILE=smart|save|fast in MAZ Core .env. Existing LOCAL/AUTO/CLOUD routing stays separate.
+- CALL: speak, see transcript/answer, hear reply, press P to replay.
+- A: change AI route and confirm it persists.
+- CONTROL -> PAIRING + PHONE: confirm Token ID and token reveal.
+- CAPTURE -> TEACH DEMO: choose display, record, MARK, stop.
+- AGENTS -> PLAN / CREW / RETRO: run one of each against a test project.
+- MEMORY -> PROMPT DECK: compile one template.
+- Open mazpocket.local from your phone.
+- Enter M5Launcher and confirm MAZ Pocket remains listed/launchable.
 
-PHONE FIRMWARE STAGING
-----------------------
-On the same LAN open http://mazpocket.local, unlock, choose a compatible M5Launcher app .bin, verify/stage to SD, then return to M5Launcher to install it. MAZ Pocket does not self-flash.
-
-BEFORE A WEEK IN THE FIELD
---------------------------
-- Confirm Wi-Fi + MAZ Core pairing.
-- Try one normal COMM turn and one Context Ask.
-- Turn Wi-Fi off, record a voice turn, restore Wi-Fi, confirm OUTBOX clears.
-- Beam text in both directions.
-- Open LAPTOP and check CPU/RAM/GPU/VRAM.
-- Start/stop SHIFT CLOCK.
-- Confirm Ctrl+L returns to M5Launcher and v0.6 rollback still exists.
-
-See RELEASE_NOTES.md and docs/V070-FIELD.md for the full validation gate.
+See RELEASE_NOTES.md for the v0.8.0 feature and validation notes.
