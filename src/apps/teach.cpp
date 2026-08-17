@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/notify.h"
+#include "../core/shell.h"
 #include "../net/host_worker.h"
 #include "../storage/store.h"
 #include "apps.h"
@@ -65,9 +66,7 @@ public:
 
     void update() override {
         if (host_worker::jobKind() == host_worker::JobKind::Teach &&
-            host_worker::state() == host_worker::State::Done) {
-            consume();
-        }
+            host_worker::state() == host_worker::State::Done) consume();
         if ((_view == TeachView::Loading || _view == TeachView::Starting ||
              _view == TeachView::Processing) && millis() - _lastPaint > 250) {
             _lastPaint = millis(); invalidate();
@@ -222,7 +221,7 @@ private:
         ui::panel(g, 58, BODY_Y + 18, 124, 58);
         g.setTextDatum(middle_center);
         g.setFont(&fonts::Font4);
-        g.setTextColor(REC, PANEL);
+        g.setTextColor(ACCENT2, PANEL);
         const std::string timer = ui::hhmmss(secs);
         g.drawString(timer.c_str(), SCREEN_W / 2, BODY_Y + 39);
         g.setFont(&fonts::Font0);
