@@ -50,6 +50,9 @@ jobs:
       - name: Validate version/install contract
         run: python scripts/check-version.py
 
+      - name: Guard non-destructive M5Launcher hand-back
+        run: python scripts/check-launcher-handoff.py
+
       - name: Validate PowerShell installers/helpers parse
         shell: pwsh
         run: |
@@ -75,11 +78,6 @@ jobs:
       - name: Keep executed installers ASCII-only for Windows PowerShell 5.1
         shell: pwsh
         run: |
-          # v0.7 shipped an em dash in setup-all.ps1. Windows PowerShell 5.1
-          # decodes a BOM-less file with the ANSI code page, turning it into
-          # three cp1252 characters ending in 0x94 - a smart closing quote that
-          # PowerShell accepts as a string delimiter. The quoting silently
-          # unbalanced and users got bogus '}' / 'elseif' parse errors.
           $files = @(
             '.\scripts\START-HERE.cmd',
             '.\scripts\setup-all.ps1',
@@ -135,10 +133,6 @@ jobs:
           if (-not (Test-Path (Join-Path $tmp 'QUICKSTART.txt'))) { throw 'Cardputer ZIP missing quickstart' }
           Write-Host 'Client + Cardputer + combined ZIP rule OK'
 
-      # The consumer path is START-HERE.cmd -> powershell.exe (Windows
-      # PowerShell 5.1), running the scripts INSIDE the downloaded ZIP. Parsing
-      # repository sources under pwsh proved neither. This step extracts the
-      # generated Install ZIP and validates exactly what a user double-clicks.
       - name: Validate shipped installer under Windows PowerShell 5.1
         shell: pwsh
         run: |
@@ -162,9 +156,6 @@ jobs:
             Write-Host "$script parses under Windows PowerShell 5.1"
           }
 
-          # Regression test for the real entry point. -SkipCore -SkipSd
-          # -NoBrowser makes this a dry run: no install, no SD write, no
-          # browser. stdin is redirected so the trailing `pause` cannot hang CI.
           Push-Location $tmp
           $env:MAZ_FORCE_WINDOWS_POWERSHELL = '1'
           cmd /c ".\START-HERE.cmd -SkipCore -SkipSd -NoBrowser < NUL"
