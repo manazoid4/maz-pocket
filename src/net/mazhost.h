@@ -94,6 +94,24 @@ struct SystemStatus {
     std::string error;
 };
 
+struct TeachDisplay {
+    std::string id;
+    std::string name;
+    int width = 0;
+    int height = 0;
+    bool primary = false;
+};
+
+struct TeachStatus {
+    bool ok = false;
+    std::string sessionId;
+    std::string state;
+    std::string transcript;
+    std::string error;
+    int frameCount = 0;
+    int elapsedSeconds = 0;
+};
+
 bool configured();
 bool health();
 const char* linkName();
@@ -116,6 +134,15 @@ Reply workCrew(const std::string& task, const std::string& project = "");
 Reply workRetro(const std::string& project = "", const std::string& note = "");
 Reply workPrompt(const std::string& templateId, const std::string& task,
                  const std::string& project = "");
+
+// Explicit PC screen demonstration capture. Recording is performed by MAZ Core
+// and is never a hidden background recorder; the Pocket starts, marks and stops
+// a named session.
+std::vector<TeachDisplay> teachDisplays(std::string& error);
+TeachStatus teachStart(const std::string& displayId);
+TeachStatus teachMark(const std::string& sessionId, const std::string& note = "");
+TeachStatus teachStop(const std::string& sessionId);
+TeachStatus teachStatus(const std::string& sessionId);
 
 // v0.7 FIELD endpoints. Received Beam content is data only and is never used as
 // a command. Telemetry is a cached one-shot laptop snapshot, not a stream.
