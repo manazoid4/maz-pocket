@@ -23,9 +23,6 @@ class Settings(BaseSettings):
 
     # Local-first brain. AUTO tries primary then backup locally before cloud.
     # LOCAL uses the same local chain but never spills to cloud.
-    #
-    # Two local engines are supported. OLLAMA manages models itself; LLAMACPP
-    # talks to an already-running llama-server over its OpenAI-compatible API.
     local_engine: Literal["ollama", "llamacpp"] = "ollama"
     llamacpp_url: str = "http://127.0.0.1:8080"
     llamacpp_model: str = "local"
@@ -35,9 +32,6 @@ class Settings(BaseSettings):
     ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
     ollama_backup_model: str = "qwen3.5:4b"
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
-
-    # One understandable performance knob instead of exposing a wall of model
-    # tuning. SMART is default; FAST favors warm latency; SAVE favors release.
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
@@ -86,6 +80,11 @@ class Settings(BaseSettings):
     control_command_timeout_seconds: int = Field(default=300, ge=5, le=3600)
     control_max_output_chars: int = Field(default=40_000, ge=2_000, le=500_000)
 
+    # Claude/Codex/Hermes jobs are subprocesses on the PC. Their own CLI
+    # permission bypasses are only used after the external MAZ phone broker has
+    # approved PROJECT FULL or broader authority.
+    agent_job_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
+
     # Debug Capsules are intentionally bounded snapshots rather than whole-PC
     # dumps. Raw secrets are filtered before anything is presented to a model.
     debug_dir: str = "~/.maz-pocket/debug"
@@ -100,6 +99,7 @@ class Settings(BaseSettings):
     teach_capture_mode: Literal["primary", "display", "window", "region"] = "primary"
     teach_display: str = "primary"
     teach_fps: int = Field(default=15, ge=2, le=30)
+    teach_audio_device: str = ""
     teach_voice_profile: Literal["eco", "balanced", "quality"] = "balanced"
     teach_voice_cleanup: Literal["off", "light", "smart"] = "light"
     teach_sound_ai: bool = False
