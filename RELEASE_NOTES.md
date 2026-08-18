@@ -1,99 +1,147 @@
-# MAZ Pocket v0.7.1 — FIELD (installer hotfix)
+# MAZ Pocket v0.8.0 — CONTROL
 
-v0.7.1 is a release-engineering hotfix on top of v0.7 FIELD, bundled with a speed pass and a packaging cleanup. Every Pocket and MAZ Core capability below is unchanged; only the Windows install path, its CI gate, response latency and the shipped ZIP contents changed.
+v0.8.0 turns MAZ Pocket from a capable FIELD remote into a clearer physical interface for **voice AI, PC workflows, coding agents and phone-approved PC control**.
 
-## What was broken in v0.7
+The release keeps the six-tile Home design and renames features around what they actually do:
 
-`START-HERE.cmd` launches `powershell.exe`, which on a normal Windows machine is Windows PowerShell 5.1. That edition decodes a script with no byte-order mark using the ANSI code page, so the two UTF-8 em dashes in `setup-all.ps1` were read as cp1252 characters ending in `0x94` — a smart closing quote that PowerShell accepts as a string delimiter. The quoting silently unbalanced and setup died with misleading errors:
+**CALL / CAPTURE / AGENTS / CONTROL / MEMORY / FOCUS**
 
-```
-setup-all.ps1:85 char:5   Unexpected token '}' in expression or statement.
-setup-all.ps1:89 char:7   Unexpected token 'elseif' in expression or statement.
-```
+## CALL MAZ
 
-The braces were never unbalanced. CI missed it because it parsed repository sources under `pwsh` (PowerShell 7), which reads UTF-8 correctly and never exercised the shipped ZIP or the 5.1 fallback.
+- The old internal `COMM` experience is now explicitly **CALL MAZ**.
+- Hold Space to speak; release to send.
+- Spoken MAZ reply playback is enabled on fresh installs.
+- **P** replays the last reply.
+- **V** toggles voice replies.
+- **A** changes CLOUD / LOCAL / AUTO directly on the Cardputer.
+- Fresh v0.8 installs prefer CLOUD; existing devices keep their persisted route.
+- Context Ask remains available and informational only.
 
-## What v0.7.1 changes
+## CAPTURE + Teach-by-Demonstration
 
-- Executed installer scripts (`START-HERE.cmd`, `setup-all.ps1`, `INSTALL-MAZ-POCKET.cmd`, `install-to-sd.ps1`) are plain ASCII, enforced by CI and again by `prepare-release.ps1` at packaging time.
-- Those scripts ship with a UTF-8 BOM so Windows PowerShell 5.1 cannot guess the encoding.
-- `START-HERE.cmd` prefers `pwsh.exe` when installed and still falls back to Windows PowerShell 5.1.
-- CI builds the release package, extracts the generated `MAZ-Pocket-v0.7.1-Install.zip`, and parses plus dry-runs the scripts inside it with real `powershell.exe` on both the 5.1 fallback and the preferred shell. A syntax or encoding regression now fails the build.
+CAPTURE now opens a clear choice:
 
-## Speed pass
+- **TEACH DEMO** — selected PC display recording + microphone narration + MARK events.
+- **BRAIN DUMP** — voice to structured notes.
+- **VOICE RECORDER** — save audio directly.
 
-- Pocket boot animation cut from 900 ms to 250 ms; hardware and LVGL init unchanged.
-- The stale v0.5 MAZ system prompt is replaced with a compact v0.7 prompt that keeps grounding, the six-surface capability boundaries and safe routing rules.
-- Retained conversation history drops from 24 to 12 complete turns, so local models re-evaluate less stale context.
-- SMART keeps the Ollama model warm for 15 minutes and FAST for 60; SAVE still unloads immediately.
-- Handheld local generation is capped at 160 tokens, matching the compact-answer UX.
+Teach Demo is host-side and explicit:
 
-LOCAL/AUTO/CLOUD semantics, Outbox, Beam and the six surfaces are unchanged.
+1. choose a Windows display from the Cardputer;
+2. start recording;
+3. press **M** for important moments;
+4. stop from the Cardputer;
+5. MAZ Core extracts sparse scene-change frames and transcribes narration;
+6. save the result to Results Inbox.
 
-## Packaging cleanup
+The default compatibility target is approximately **3 GB VRAM**. Recording is CPU-oriented and ECO/BALANCED faster-whisper profiles use CPU int8. ffmpeg is the capture dependency. MAZ Core auto-selects the first DirectShow microphone unless `MAZ_TEACH_AUDIO_DEVICE` is configured.
 
-`MAZ-Core-v0.7.1.zip` ships runtime files only. `tests/`, `.pytest_cache`, recursive `__pycache__` and `*.pyc` are excluded, and runtime-only client packaging is now a permanent release rule.
+## Agent workbench
 
-Upgrading is Core-side and installer-side only. v0.7 firmware behaviour is unchanged; reinstall the v0.7.1 `.bin` through M5Launcher so device and Core report the same version.
+**AGENTS** now contains:
 
----
+- **AGENT STATUS** — Agent Nudge evidence.
+- **PLAN** — current-project-aware implementation planning without execution.
+- **CREW** — decomposes work across supported installed Claude/Codex/Hermes CLIs.
+- **RETRO** — proposes Template / Skill / Knowledge / Guard improvements after work.
+- **PROJECTS** — Git/build/test/project evidence.
 
-v0.7 turns the v0.6 friction foundation into a useful everyday/field command surface without expanding the six-surface Home menu.
+CREW planning is read-only. Actual Claude/Codex/Hermes subprocess execution requires a signed phone-approved **PROJECT FULL or broader** grant. The first implementation executes packages serially on one checkout to avoid blind file collisions.
 
-## Pocket changes
+## Prompt Deck
 
-- **NOW on Home** chooses one useful priority: agent question, Outbox, shift, reminder, Beam, stale/waiting agents or Core-offline state.
-- **Four persistent quick keys** on 1–4; Fn+number cycles each slot through a fixed allow-list.
-- **Context Ask** on Fn+Space captures a bounded snapshot of the focused screen/item and pairs it with a spoken question.
-- **Automatic Offline Outbox** retries failed voice turns, Context Ask audio and outgoing Beams with bounded backoff.
-- **Beam** sends/receives short text and URLs. Received data is never executable.
-- **Laptop** view shows one cached CPU/RAM/GPU/VRAM/battery/Ollama snapshot instead of streaming graphs.
-- **FIELD mode** (Fn+F) reduces background refresh and shortens display dim timing while keeping Outbox/Beam active.
-- **Shift Clock** lives in FLOW and saves completed elapsed time.
-- Home no longer hard-codes the stale `MAZ 0.5` label.
-- Small `Fn+M` Home Easter egg adds retro flavour without another dependency or game engine.
+**MEMORY → PROMPT DECK** provides project-aware templates for:
 
-## MAZ Core / laptop changes
+- bugs and diagnosis;
+- UI and feature work;
+- open-source integration;
+- refactoring and testing;
+- security/repository audits;
+- research + build;
+- MAZ Pocket capabilities;
+- agent workflow improvement.
 
-- Durable Beam queue/history with Windows clipboard handoff for Pocket -> laptop.
-- `BEAM-TO-POCKET.cmd`/`beam.ps1` sends clipboard text or a supplied string to the handheld queue.
-- On-demand laptop telemetry uses psutil, `nvidia-smi` when available and Ollama `/api/ps`; no sampler thread.
-- `MAZ_AI_PROFILE=smart|save|fast` separates performance/resource policy from LOCAL/AUTO/CLOUD routing.
-- SMART defaults ordinary local requests to 4096 context and a 5-minute keep-alive, increasing context only for larger grounded prompts.
-- SAVE unloads immediately; FAST keeps the local model warm for 30 minutes.
-- Ollama response metadata records context, load time, prompt/output tokens and total time in `/models` status.
-- MAZ Core/FastAPI public status now derives version identity from the release `VERSION` file instead of stale literals.
+Templates keep a consistent task/context/procedure/verification/deliverable layout while the compiler injects current project + Agent Nudge evidence.
 
-## Packaging rule added
+## Phone-approved full PC authority
 
-Every releasable PR/build must produce all three ZIPs:
+MAZ Core now has an external authority broker.
 
-1. `MAZ-Core-v0.7.zip` — laptop/client.
-2. `MAZ-Cardputer-v0.7.zip` — Cardputer/M5Launcher package.
-3. `MAZ-Pocket-v0.7-Install.zip` — convenience bundle containing both.
+The model can request control but cannot approve itself. The authenticated phone page under `/control/` can approve or deny short-lived grants for:
 
-CI fails if the split packages are missing. `docs/RELEASE_RULES.md` makes this a permanent project rule.
+- READ ONLY;
+- PROJECT FULL;
+- PC FULL;
+- ADMIN.
 
-## Deliberately not added
+The phone UI also shows active grants, audit events and **REVOKE ALL CONTROL**.
 
-No new top-level app, weather/news/browser/email client, arbitrary remote shell, realtime monitoring daemon, second framebuffer, realtime microphone streaming refactor or direct self-OTA.
+Signed grants are checked before arbitrary PowerShell/cmd execution and before coding-agent subprocess launches. `PC FULL` removes project confinement. `ADMIN` is a separate authorization scope; actual Windows administrator capability still depends on the Windows process/helper privileges.
 
-## Physical validation gate
+## Pairing + Token ID
 
-CI passing is not hardware proof. Before calling v0.7 field-proven, test on the actual Cardputer ADV:
+**CONTROL → PAIRING + PHONE** now shows:
 
-- 30+ minute normal soak and 30+ minute FIELD soak with no reset/watchdog;
-- 20+ ordinary COMM turns plus 10+ Context Ask turns from different screens;
-- leave/re-enter COMM mid-request without losing the recording/result;
-- Wi-Fi/Core loss during voice, then automatic Outbox retry after reconnect;
-- multiple queued voice turns maintain oldest-first order;
-- outgoing Beam while offline then reconnect; laptop -> Pocket Beam; QR/save paths;
-- Laptop status refresh with Core up/down and NVIDIA tools present/absent;
-- Fn+1..4 persistence across reboot; Fn+F FIELD persistence;
-- shift start/stop and saved record;
-- SD absent/unreadable/near-full while queueing audio;
-- phone LCD polling and firmware staging remain responsive;
-- M5Launcher hand-back, reinstall and v0.6 rollback;
-- inspect `[health]` and `[host-worker]` heap/stack/loop evidence.
+- a safe 12-character Token ID fingerprint;
+- the saved pairing token hidden by default;
+- **P** to reveal/hide the real token on the physical Cardputer;
+- the phone-control URL.
 
-v0.6 remains the rollback release until this gate is satisfied.
+The unauthenticated `mazpocket.local` page exposes Token ID only, not the raw secret.
+
+## `mazpocket.local` rebuilt
+
+The local Cardputer page is now designed as a phone-first control centre rather than a diagnostic dump.
+
+It surfaces:
+
+- pairing + Token ID;
+- phone approvals;
+- CALL MAZ;
+- PLAN / CREW / RETRO / Prompt Deck;
+- cloud/local/AUTO route;
+- voice playback setting;
+- Core/agent/laptop status;
+- PC quick controls;
+- live LCD;
+- connection configuration;
+- firmware staging.
+
+## M5Launcher self-deletion bug fixed
+
+Previous MAZ builds returned to M5Launcher by intentionally overwriting the first four bytes of the running MAZ app. That made the MAZ slot unbootable and caused the observed **“open Launcher → MAZ disappears → reinstall from SD”** loop.
+
+v0.8 no longer invalidates the running firmware. It selects the valid Launcher/fallback app as the next boot partition with `esp_ota_set_boot_partition()` and restarts.
+
+CI contains a dedicated regression guard that fails if destructive running-app flash writes return to this path.
+
+## Debug Capsules
+
+MAZ Core can persist a bounded, redacted debugging snapshot containing project/Git state, Core/device/system/model status, recent jobs, Agent Nudge and authority state. Credential-shaped values are removed before persistence/model use.
+
+## Installer changes
+
+`START-HERE.cmd` is explicitly opt-in:
+
+- asks before MAZ Core install/update;
+- asks before copying Cardputer firmware to SD;
+- refuses to guess if multiple removable drives are attached;
+- asks before opening the browser;
+- does not format media or directly write Cardputer flash.
+
+## Validation gate
+
+CI can prove host tests, packaging and firmware compilation, but it cannot prove physical Cardputer/M5Launcher behavior. Before calling v0.8 field-proven, validate on the actual Cardputer ADV:
+
+- CALL: 10+ voice turns, spoken playback, P replay, V toggle, A route persistence;
+- CAPTURE → TEACH DEMO: display selection, screen recording, microphone, MARK, stop/process;
+- PLAN / CREW / RETRO / Prompt Deck against a disposable project;
+- phone authority request → approve → execute → revoke;
+- Debug Capsule redaction with test-secret fixtures;
+- `mazpocket.local` on phone and desktop;
+- stage a release .bin from the portal;
+- enter M5Launcher and confirm MAZ Pocket **remains installed/launchable** without re-copying it from SD;
+- v0.7.x rollback through M5Launcher;
+- 30+ minute normal soak with no reset/watchdog.
+
+The M5Launcher persistence change is intentionally covered by source/CI regression tests, but the final proof is the physical ADV.

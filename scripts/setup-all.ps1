@@ -25,40 +25,60 @@ function Find-PackageFile([string]$Name) {
     return $null
 }
 
+function Ask-Yes([string]$Prompt, [bool]$DefaultYes = $true) {
+    $Suffix = if ($DefaultYes) { "[Y/n]" } else { "[y/N]" }
+    $Choice = Read-Host "$Prompt $Suffix"
+    if ([string]::IsNullOrWhiteSpace($Choice)) { return $DefaultYes }
+    return $Choice -match '^[Yy]'
+}
+
 Write-Host ""
 Write-Host "MAZ POCKET v$Version - START HERE" -ForegroundColor Cyan
-Write-Host "This setup never formats a drive and never writes Cardputer flash directly." -ForegroundColor DarkGray
+Write-Host "You choose each part. Nothing formats a drive or writes Cardputer flash directly." -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "OPTION 1 - MAZ Core: PC companion for Call MAZ, agents, phone approvals and projects."
+Write-Host "OPTION 2 - Cardputer file: copy the firmware .bin to a microSD for M5Launcher."
+Write-Host "OPTION 3 - Portal: open mazpocket.local after setup."
 Write-Host ""
 
+$CoreInstalled = $false
+$SdCopied = $false
+
 if (-not $SkipCore) {
-    $CoreZip = Find-PackageFile $CoreName
-    if ($CoreZip) {
-        $CoreHome = Join-Path $env:LOCALAPPDATA "MAZ Core"
-        $Temp = Join-Path $env:TEMP ("maz-core-" + [guid]::NewGuid().ToString("N"))
-        New-Item -ItemType Directory -Force $Temp | Out-Null
-        try {
-            $SavedEnv = $null
-            $ExistingEnv = Join-Path $CoreHome ".env"
-            if (Test-Path $ExistingEnv) { $SavedEnv = Get-Content $ExistingEnv -Raw }
+    if (Ask-Yes "Install or update MAZ Core on this PC?" $true) {
+        $CoreZip = Find-PackageFile $CoreName
+        if ($CoreZip) {
+            $CoreHome = Join-Path $env:LOCALAPPDATA "MAZ Core"
+            $Temp = Join-Path $env:TEMP ("maz-core-" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Force $Temp | Out-Null
+            try {
+                $SavedEnv = $null
+                $ExistingEnv = Join-Path $CoreHome ".env"
+                if (Test-Path $ExistingEnv) { $SavedEnv = Get-Content $ExistingEnv -Raw }
 
-            Expand-Archive -Path $CoreZip -DestinationPath $Temp -Force
-            New-Item -ItemType Directory -Force $CoreHome | Out-Null
-            Copy-Item (Join-Path $Temp "*") $CoreHome -Recurse -Force
-            if ($null -ne $SavedEnv) { Set-Content -Path $ExistingEnv -Value $SavedEnv -NoNewline -Encoding utf8 }
+                Expand-Archive -Path $CoreZip -DestinationPath $Temp -Force
+                New-Item -ItemType Directory -Force $CoreHome | Out-Null
+                Copy-Item (Join-Path $Temp "*") $CoreHome -Recurse -Force
+                if ($null -ne $SavedEnv) { Set-Content -Path $ExistingEnv -Value $SavedEnv -NoNewline -Encoding utf8 }
 
-            Write-Host "Installing MAZ Core into $CoreHome" -ForegroundColor Cyan
-            & (Join-Path $CoreHome "install-core.ps1") -NoBrowser
-        } finally {
-            Remove-Item $Temp -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "Installing MAZ Core into $CoreHome" -ForegroundColor Cyan
+                & (Join-Path $CoreHome "install-core.ps1") -NoBrowser
+                $CoreInstalled = $true
+            } finally {
+                Remove-Item $Temp -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            $DevCore = Join-Path $Root "host\install-core.ps1"
+            if (Test-Path $DevCore) {
+                Write-Host "Using repository MAZ Core in place." -ForegroundColor Yellow
+                & $DevCore -NoBrowser
+                $CoreInstalled = $true
+            } else {
+                Write-Warning "$CoreName not found; skipping Core install."
+            }
         }
     } else {
-        $DevCore = Join-Path $Root "host\install-core.ps1"
-        if (Test-Path $DevCore) {
-            Write-Host "Using repository MAZ Core in place." -ForegroundColor Yellow
-            & $DevCore -NoBrowser
-        } else {
-            Write-Warning "$CoreName not found; skipping Core install."
-        }
+        Write-Host "MAZ Core skipped by choice." -ForegroundColor Yellow
     }
 }
 
@@ -72,16 +92,16 @@ if (-not $SkipSd) {
         $Disk = $Removable[0]
         Write-Host ""
         Write-Host "One removable drive detected: $($Disk.DeviceID) $($Disk.VolumeName)" -ForegroundColor Cyan
-        $Choice = Read-Host "Copy MAZ Pocket v$Version firmware there now? [Y/n]"
-        if ([string]::IsNullOrWhiteSpace($Choice) -or $Choice -match '^[Yy]') {
+        if (Ask-Yes "Copy MAZ Pocket v$Version firmware there now?" $true) {
             & $SdInstaller -Drive $Disk.DeviceID -FirmwarePath $Firmware -Yes
+            $SdCopied = $true
         } else {
-            Write-Host "SD copy skipped."
+            Write-Host "SD copy skipped by choice."
         }
     } elseif ($Removable.Count -eq 0) {
         Write-Host ""
         Write-Host "No removable microSD detected - that is fine." -ForegroundColor Yellow
-        Write-Host "If your Cardputer already runs v0.5.2+, download the v$Version .bin on your phone and stage it at http://mazpocket.local."
+        Write-Host "If MAZ Pocket is already running, stage the new .bin later at http://mazpocket.local."
     } elseif ($Removable.Count -gt 1) {
         Write-Host ""
         Write-Warning "Multiple removable drives detected, so setup will not guess which one is the Cardputer microSD."
@@ -93,11 +113,18 @@ if (-not $SkipSd) {
 
 Write-Host ""
 Write-Host "SETUP COMPLETE" -ForegroundColor Green
-Write-Host "Core lives at: $env:LOCALAPPDATA\MAZ Core"
+Write-Host "MAZ Core: $(if ($CoreInstalled) { 'installed/updated' } elseif ($SkipCore) { 'skipped by command' } else { 'not installed' })"
+Write-Host "Cardputer SD file: $(if ($SdCopied) { 'copied' } elseif ($SkipSd) { 'skipped by command' } else { 'not copied' })"
+Write-Host "Core location: $env:LOCALAPPDATA\MAZ Core"
 Write-Host "Cardputer portal: http://mazpocket.local"
-Write-Host "Normal future update: phone .bin -> mazpocket.local -> Verify/Stage -> M5Launcher -> Install/Launch."
-Write-Host "Fresh firmware install: copy the .bin to microSD -> M5Launcher -> Install/Launch."
+Write-Host "Update path: choose .bin at mazpocket.local -> Verify/Stage -> Open M5Launcher -> Install -> Launch MAZ Pocket."
+Write-Host "Returning to M5Launcher no longer intentionally invalidates the installed MAZ Pocket image."
 
 if (-not $NoBrowser) {
-    try { Start-Process "http://mazpocket.local" } catch { }
+    Write-Host ""
+    if (Ask-Yes "Open mazpocket.local now?" $true) {
+        try { Start-Process "http://mazpocket.local" } catch { }
+    } else {
+        Write-Host "Portal not opened. Use http://mazpocket.local whenever you want it."
+    }
 }

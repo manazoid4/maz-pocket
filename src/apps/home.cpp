@@ -73,10 +73,7 @@ public:
             return true;
         }
 
-        if (e.code == KEY_SPACE) {
-            _spaceArmed = true;
-            return true;
-        }
+        if (e.code == KEY_SPACE) { _spaceArmed = true; return true; }
         if (e.code == KEY_ENTER) { open(_sel); return true; }
         if (e.code == KEY_RIGHT) { move(+1); return true; }
         if (e.code == KEY_LEFT)  { move(-1); return true; }
@@ -115,18 +112,14 @@ public:
     }
 
     void render(M5Canvas& g) override {
-        if (_easter) {
-            renderEaster(g);
-            return;
-        }
+        if (_easter) { renderEaster(g); return; }
         std::array<lvui::Cell, TABLE_PAGE> cells{};
         for (size_t i = 0; i < _primary.size() && i < cells.size(); ++i) {
             cells[i].title = _primary[i]->cellTitle();
             cells[i].badge = iconFor(*_primary[i]);
         }
         const std::string now = field::nowText();
-        lvui::renderHome(g, cells.data(), _primary.size(), _sel,
-                         "NOW", now.c_str(), 0, 1);
+        lvui::renderHome(g, cells.data(), _primary.size(), _sel, "NOW", now.c_str(), 0, 1);
     }
 
 private:
@@ -134,14 +127,13 @@ private:
         _primary.clear();
         size_t n = 0;
         const Descriptor* t = apps::table(n);
-        for (size_t i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i)
             if (t[i].onHome && strcmp(t[i].id, "home")) _primary.push_back(&t[i]);
-        }
         if (_sel >= static_cast<int>(_primary.size())) _sel = 0;
     }
 
     void rebuildHints() {
-        _hints = "1 "; _hints += field::quickLabel(1);
+        _hints = "hold SPACE call | 1 "; _hints += field::quickLabel(1);
         _hints += " 2 "; _hints += field::quickLabel(2);
         _hints += " 3 "; _hints += field::quickLabel(3);
         _hints += " 4 "; _hints += field::quickLabel(4);
@@ -149,26 +141,23 @@ private:
 
     static char iconFor(const Descriptor& d) {
         if (!strcmp(d.id, "talk")) return 'C';
-        if (!strcmp(d.id, "braindump")) return '+';
-        if (!strcmp(d.id, "nudge")) return 'O';
+        if (!strcmp(d.id, "capturehub")) return '+';
+        if (!strcmp(d.id, "agents")) return 'A';
         if (!strcmp(d.id, "desk")) return '#';
-        if (!strcmp(d.id, "recall")) return 'R';
+        if (!strcmp(d.id, "recall")) return 'M';
         if (!strcmp(d.id, "flow")) return 'F';
         return '*';
     }
 
     void move(int delta) {
         if (_primary.empty()) return;
-        _sel = (_sel + delta + static_cast<int>(_primary.size())) %
-               static_cast<int>(_primary.size());
-        sfx::select();
-        invalidate();
+        _sel = (_sel + delta + static_cast<int>(_primary.size())) % static_cast<int>(_primary.size());
+        sfx::select(); invalidate();
     }
 
     void open(int slot) {
         if (slot < 0 || slot >= static_cast<int>(_primary.size())) return;
-        sfx::confirm();
-        shell::pushById(_primary[slot]->id);
+        sfx::confirm(); shell::pushById(_primary[slot]->id);
     }
 
     void renderEaster(M5Canvas& g) {
@@ -188,7 +177,7 @@ private:
     }
 
     std::vector<const Descriptor*> _primary;
-    int  _sel = 0;
+    int _sel = 0;
     bool _spaceArmed = false;
     bool _easter = false;
     uint32_t _lastRefresh = 0;

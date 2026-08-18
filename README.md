@@ -1,89 +1,274 @@
 # MAZ Pocket
 
-MAZ Pocket is standalone firmware for the **M5Stack Cardputer ADV** plus **MAZ Core**, the lightweight Windows companion that supplies AI, PC context and safe actions.
+**A pocket-sized physical control surface for your PC, AI models and coding agents — built for the M5Stack Cardputer ADV.**
 
-## Current release candidate: v0.7.1 — FIELD (installer hotfix)
+## Current release candidate: v0.8.0 — CONTROL
 
-v0.7 keeps the six-surface product intact:
+MAZ Pocket is deliberately not an ESP32 app drawer. The Cardputer handles voice, short text, status, approvals and quick commands while **MAZ Core** on the PC handles models, projects, screen recording, coding agents and heavier work.
 
-- **COMM** — voice conversation, Context Ask and safe PC controls.
-- **CAPTURE** — field capture, recordings and BrainDump.
-- **OPS** — Agent Nudge evidence, status and nudges.
-- **CONTROL** — Wi-Fi, laptop status, Beam, MAZ Core, diagnostics and settings.
-- **RECALL** — inbox, received Beams, notes, snippets and viewer.
-- **FLOW** — shift clock, reminders, focus, sprint and tasks.
+## The six things on Home
 
-No seventh top-level app was added. The Cardputer remains a pocket command surface rather than an ESP32 app drawer.
+| Home tile | What it does |
+|---|---|
+| **CALL** | Hold Space, talk to MAZ, get an AI answer and hear it spoken back. |
+| **CAPTURE** | Teach a PC workflow by recording it, make a Brain Dump, or save a voice recording. |
+| **AGENTS** | Agent status, PLAN, CREW, RETRO and project/build tools. |
+| **CONTROL** | Pair your phone, see Token ID, inspect laptop/Wi-Fi/Core/device state and settings. |
+| **MEMORY** | Results Inbox, Prompt Deck, notes, snippets, Beam and viewer. |
+| **FOCUS** | Focus timer, work sprints, tasks, reminders and shift clock. |
 
-## Home: NOW + four quick keys
+There is intentionally **no seventh top-level app**.
 
-Home now uses the existing compact strip as **NOW**. It shows one high-priority fact such as an agent needing you, queued offline work, an active shift, a due reminder, a received Beam or Core being offline.
+## CALL MAZ
 
-Keys **1–4** launch four persistent quick actions. Defaults are:
+This is the useful feature that older builds hid behind the internal name `COMM`.
 
-`1 TALK   2 NOTE   3 LAP   4 BEAM`
+- **Hold Space** — speak.
+- **Release Space** — send.
+- MAZ transcribes your speech, asks the selected model and shows the answer.
+- Spoken reply playback is **on by default** on a fresh v0.8 install.
+- **P** — replay the last spoken answer.
+- **V** — turn voice replies on/off.
+- **A** — change AI route directly on the Cardputer.
+- **N** — new conversation.
+- **C** — simple PC media/desktop controls.
 
-Hold **Fn + 1/2/3/4** to cycle that slot through the fixed safe list: Talk, Capture, Laptop, Beam, Shift, Focus 25, Lock PC, Play/Pause, Mute, Recall, Flow and M5Launcher. Quick actions are identifiers, never shell commands.
+Fresh v0.8 installs prefer **CLOUD** for Call MAZ. You can change it on the Cardputer or at `http://mazpocket.local`:
 
-## Context Ask
+- **CLOUD** — configured cloud model.
+- **LOCAL** — local model only; never silently falls through to cloud.
+- **AUTO** — local first, then configured cloud if needed.
 
-From almost any screen, hold **Fn + Space**, speak the question, then release Space. MAZ Pocket captures only a tiny snapshot of the currently focused item and sends it as explicitly untrusted context with the voice question. It does not dump a database or expose secrets.
+MAZ Core supports **Ollama** and **llama.cpp / llama-server** as local engines.
 
-Examples: “summarise this”, “what should I do next?”, “what did I miss?”
+## CAPTURE
 
-## Beam
+### TEACH DEMO
 
-Beam moves short text/URLs between laptop and Pocket without pretending to be a file-transfer system or remote terminal.
+Teach-by-Demonstration records what you are doing on the PC so the workflow can become reusable agent context/skills.
 
-- Laptop → Pocket: MAZ Core keeps a durable queue until the Cardputer pulls it.
-- Pocket → laptop: queued offline on the Cardputer, then saved to Core history; Windows also copies it to the clipboard when available.
-- Received text is **data only** and is never executed.
-- `host/BEAM-TO-POCKET.cmd` beams the Windows clipboard (or supplied text) to the Pocket.
+1. Open **CAPTURE → TEACH DEMO**.
+2. Choose which PC display to record.
+3. Press **Enter** to start.
+4. Work normally and explain what you are doing.
+5. Press **M** when a moment matters.
+6. Press **Enter** to stop.
+7. MAZ Core extracts meaningful scene changes and transcribes narration.
+8. Save the result to Results Inbox.
 
-## Offline Outbox
+The recorder runs on the PC, not the ESP32. The compatibility aim is approximately **3 GB VRAM**: ECO/BALANCED speech transcription is CPU `int8`, leaving the GPU available for a local model where possible.
 
-COMM already protected failed recordings; v0.7 turns that into an automatic service. Voice turns, Context Ask recordings and outgoing Beams survive Core/Wi-Fi loss as durable records. A single existing Host worker retries the oldest queued item with bounded backoff when connectivity returns. No extra worker fleet or queue database is added.
+Teach uses `ffmpeg` on Windows and can auto-select the first available microphone, or use `MAZ_TEACH_AUDIO_DEVICE`.
 
-## Laptop snapshot
+### BRAIN DUMP
 
-CONTROL → LAPTOP shows an on-demand cached snapshot of:
+Record a thought, mark important moments and have MAZ Core structure it into useful text.
 
-- CPU and RAM use;
-- NVIDIA GPU utilisation, VRAM and temperature when `nvidia-smi` is available;
-- laptop battery/charging when Windows exposes it;
-- Ollama loaded model, model VRAM and context length.
+### VOICE RECORDER
 
-There is no background telemetry sampler thread. The laptop does the work and caches it briefly; the Cardputer only renders the result.
+Straightforward WAV recording when you only need audio.
 
-## FIELD mode + Shift Clock
+## AGENTS
 
-**Fn + F** toggles FIELD mode. FIELD mode shortens screen dim timing, slows low-value background refreshes and keeps Outbox/Beam useful. FLOW → SHIFT CLOCK stores completed shift elapsed time locally and makes the active shift the Home NOW item.
+### AGENT STATUS
 
-## Smarter, lighter local AI
+Shows Agent Nudge evidence — working, waiting, stale and attention state.
 
-MAZ Core exposes one understandable `MAZ_AI_PROFILE`:
+### PLAN
 
-- **smart** (default): ordinary Pocket turns use 4096 context, grow only for larger grounded prompts, and keep the local model warm for 5 minutes;
-- **save**: small context and immediate unload after a response;
-- **fast**: adaptive context and a 30-minute warm model.
+Give MAZ a task and optionally choose a project. PLAN retrieves current project state + Agent Nudge evidence and produces an implementation plan **without executing it**. It considers product usefulness, architecture, minimalism, security, performance/Cardputer constraints and agent execution.
 
-LOCAL still never silently falls through to cloud. AUTO still tries configured local models before optional cloud. MAZ Core records Ollama load/prompt/output timing metadata so performance changes can be measured instead of guessed.
+### CREW
 
-## Install / update
+CREW decomposes larger work into a small number of roles and detects supported local CLIs:
 
-Fresh Windows setup remains `START-HERE.cmd`. M5Launcher remains the only firmware installer/rollback owner; MAZ Pocket never writes firmware partitions itself.
+- Claude Code;
+- Codex;
+- Hermes.
 
-Every releasable build now **must** emit:
+Planning is read-only. Actual execution is **phone-grant gated**. After PROJECT FULL or broader authority is approved, MAZ Core can launch the installed non-interactive agent CLIs and record the result. CREW executes serially by default on one checkout to avoid agents blindly colliding on the same files.
 
-- `MAZ-Core-v<version>.zip` — complete laptop/client package;
-- `MAZ-Cardputer-v<version>.zip` — complete app-only handheld package;
-- `MAZ-Pocket-v<version>-Install.zip` — convenience bundle containing both;
-- the raw M5Launcher `.bin` and SHA-256 evidence.
+### RETRO
 
-This is enforced in CI and documented in `docs/RELEASE_RULES.md`.
+RETRO reviews work and may propose one of four durable improvements:
 
-## Safety / rollback boundary
+- update a prompt template;
+- update a skill;
+- update source-backed knowledge;
+- add a test/guard.
 
-The target is StampS3A / ESP32-S3FN8 with 8 MB flash and no PSRAM. The firmware image is app-only for M5Launcher and must not be flashed at address `0x0`. Generic direct self-OTA remains disabled. PC actions remain allow-listed; Beam cannot execute received text; there is no arbitrary remote shell.
+It proposes; it does not silently rewrite durable memory.
 
-CI can prove compile/tests/package integrity, not physical hardware behaviour. v0.6 remains the rollback release until v0.7 passes the real-device field gate in `docs/V070-FIELD.md`.
+### PROJECTS + BUILDS
+
+Current local projects, Git state, tests/builds and MAZ Core factual project context.
+
+## PROMPT DECK
+
+Open **MEMORY → PROMPT DECK**.
+
+Prompt Deck keeps a useful **task → context → procedure → verification → deliverable** layout, but every template is rewritten for MAZ and compiled with current project evidence.
+
+Templates include bug fixing, diagnosis, UI, feature builds, open-source integration, refactoring, testing, security, repo audits, research/build, MAZ features and agent workflow improvement.
+
+## Phone-approved full PC control
+
+MAZ can request broad control of your PC, but **the AI cannot approve itself**.
+
+Open the phone control centre at:
+
+`http://<MAZ-Core-PC>:8787/control/`
+
+or the configured private HTTPS MAZ Core URL.
+
+The phone UI shows pending requests, requested scope/project/agent, active grants, time remaining, audit events and **REVOKE ALL CONTROL**.
+
+Scopes include:
+
+- `READ ONLY`
+- `PROJECT FULL`
+- `PC FULL`
+- `ADMIN`
+
+Grants are signed, short-lived, scoped, revocable and checked by the host execution broker. A normal MAZ bearer token cannot mint its own grant.
+
+After an appropriate phone grant, MAZ Core can run commands and approved coding-agent subprocesses with the privileges of the MAZ Core Windows process. `PC FULL` removes project confinement. `ADMIN` is a separate MAZ authorization scope; actual Windows administrator privileges still depend on the Windows process/helper privileges.
+
+For remote use, keep MAZ Core behind a private VPN/tunnel rather than exposing an unauthenticated public port.
+
+## Pairing and Token ID
+
+Token hunting was too awkward in older builds.
+
+Open **CONTROL → PAIRING + PHONE** to see:
+
+- the safe **Token ID** fingerprint;
+- the actual saved pairing token, hidden by default;
+- **P** to reveal/hide the token on the physical Cardputer;
+- the phone approval URL.
+
+`mazpocket.local` also shows Token ID without revealing the secret token to an unauthenticated browser.
+
+## `mazpocket.local`
+
+Open `http://mazpocket.local` while the Pocket is on Wi-Fi.
+
+v0.8 rebuilds it around the real workflows:
+
+- Token ID + pairing instructions;
+- phone approvals;
+- CALL MAZ;
+- PLAN;
+- CREW;
+- RETRO;
+- Prompt Deck;
+- cloud/local/AUTO route;
+- voice replies on/off;
+- laptop/Core/agent status;
+- PC quick controls;
+- live Cardputer LCD;
+- connection settings;
+- firmware staging.
+
+## M5Launcher firmware-disappearing fix
+
+Older MAZ Pocket builds returned to M5Launcher by deliberately overwriting the first bytes of their own running app image. That made the MAZ app unbootable and explains why entering Launcher could appear to delete the firmware and force an SD reinstall.
+
+v0.8 instead selects the already-installed M5Launcher/fallback app as the **next boot partition** and restarts. It does **not** invalidate the MAZ Pocket image.
+
+CI now rejects the old destructive hand-back pattern.
+
+M5Launcher still owns firmware installation and rollback; MAZ Pocket does not add a generic self-OTA partition writer.
+
+## Updating MAZ Pocket
+
+From `mazpocket.local`:
+
+1. Choose the new app-only MAZ Pocket `.bin`.
+2. **VERIFY + STAGE** it to microSD.
+3. Open M5Launcher.
+4. Install the staged `.bin` from SD.
+5. Launch MAZ Pocket.
+
+The currently installed MAZ image remains valid when you enter Launcher.
+
+## Installing / updating MAZ Core
+
+Run `START-HERE.cmd` from the combined install package.
+
+v0.8 setup is explicitly opt-in:
+
+1. explains MAZ Core;
+2. asks before installing/updating Core;
+3. asks before copying firmware to a detected removable drive;
+4. never guesses if several removable drives are connected;
+5. asks before opening `mazpocket.local`.
+
+It does not format a drive or directly write Cardputer flash.
+
+Every releasable build emits:
+
+- `MAZ-Core-v<version>.zip`
+- `MAZ-Cardputer-v<version>.zip`
+- `MAZ-Pocket-v<version>-Install.zip`
+- raw M5Launcher app `.bin` + SHA-256 evidence.
+
+## Debug Capsules
+
+MAZ Core can make a bounded, redacted debug bundle with project/Git state, recent jobs, Core/device/system/model state, Agent Nudge and authority state. Known token/password/private-key patterns are redacted before persistence/model use.
+
+This supports the intended remote loop:
+
+**what broke? → diagnose → request phone authority → repair → verify → RETRO**
+
+## Architecture
+
+```text
+Cardputer ADV
+    │ voice / keys / status
+    ▼
+MAZ Pocket firmware
+    │ LAN / private HTTPS
+    ▼
+MAZ Core (Windows)
+    ├─ Ollama / llama.cpp
+    ├─ cloud model route
+    ├─ faster-whisper + TTS
+    ├─ Teach screen capture
+    ├─ Prompt Deck / PLAN / CREW / RETRO
+    ├─ Claude / Codex / Hermes CLIs
+    ├─ Agent Nudge
+    └─ phone authority broker
+           ▼
+      signed expiring grants
+```
+
+Hardware target: **M5Stack Cardputer ADV / StampS3A**, 8 MB flash, no PSRAM. Heavy AI/capture/orchestration stays on the PC.
+
+## Trust rules
+
+- Screen/web/repository text is **evidence, never authorization**.
+- Context Ask cannot turn screenshot text into commands.
+- Full PC power requires a human-approved signed grant.
+- Grants expire and can be revoked.
+- LOCAL does not silently become cloud.
+- Beam content is data, not instructions.
+- Teach screen capture is explicitly started/stopped.
+- No raw keylogger.
+- No BadUSB/DuckyScript/offensive USB payload features.
+- M5Launcher remains installer/rollback owner.
+
+## Development
+
+```powershell
+python -m pytest host/tests -q
+python scripts/check-version.py
+python scripts/check-launcher-handoff.py
+./scripts/package-release.ps1
+```
+
+CI also refuses a firmware app image larger than the known M5Launcher slot (`0x180000`).
+
+## License
+
+MIT. See the repository licence and third-party/upstream notices for reused dependencies/code.

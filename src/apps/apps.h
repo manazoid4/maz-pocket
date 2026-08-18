@@ -29,12 +29,16 @@ App* makeCall();
 App* makeCallV3();
 App* makeComm();
 App* makeCapture();
+App* makeCaptureHub();
+App* makeTeach();
+App* makeAgentsHub();
 App* makeDesk();
 App* makeRecall();
 App* makeFlow();
 App* makeControlCenter();
 App* makeNetworkV5();
 App* makeCoreConsole();
+App* makePairing();
 App* makeNotes();
 App* makeFocus();
 App* makeTasks();
@@ -58,8 +62,11 @@ App* makeReminders();
 App* makeSnake();
 App* makeHyperdrive();
 
-// v0.7 FIELD hidden utilities. They live inside CONTROL/FLOW/quick keys and do
-// not expand the six-surface Home menu.
+App* makePlan();
+App* makePromptDeck();
+App* makeCrew();
+App* makeRetro();
+
 App* makeLaptop();
 App* makeBeam();
 App* makeShift();

@@ -13,13 +13,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from .authority import AuthorityBroker
 from .beam import BeamStore
 from .braindump import structure_braindump
 from .bridge import BridgeWorker
 from .commands import parse_command
 from .config import Settings
+from .control_routes import install_control_routes
 from .core import CoreError, MazCore
+from .debug_capsule import DebugCapsules
 from .device import DeviceMonitor
+from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
 from .nudge import NudgeClient
@@ -99,6 +103,9 @@ def create_app(
     beam_store = beam or BeamStore()
     system_telemetry = telemetry or SystemTelemetry(cfg)
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
+    authority = AuthorityBroker(cfg)
+    elevated_executor = ElevatedExecutor(cfg, authority)
+    debug_capsules = DebugCapsules(cfg)
 
     api = FastAPI(
         title="MAZ Core",
@@ -221,6 +228,13 @@ def create_app(
             "pc_control": pc_controller.available,
             "core": core_status,
             "bridge": bridge_worker.status(),
+            "authority": {
+                "enabled": cfg.control_enabled,
+                "token_id": authority.token_id,
+                "pending": len(authority.pending()),
+                "active_grants": len(authority.active_grants()),
+                "phone_url": "/control/",
+            },
         }
 
     @api.get("/models")
@@ -258,7 +272,7 @@ def create_app(
             raise HTTPException(400, str(error)) from error
 
     # Synchronous endpoint remains useful for machine callers/bridge. The
-    # handheld and Maz Works UI use /core/job so long builds never block them.
+    # handheld and web UI use /core/job so long builds never block them.
     @api.post("/core/action")
     def core_action(body: CoreActionRequest):
         try:
@@ -576,6 +590,21 @@ def create_app(
             return nudge_client.nudge(session_id)
         except (RuntimeError, httpx.HTTPError) as error:
             raise HTTPException(503, str(error)) from error
+
+    if cfg.control_enabled:
+        install_control_routes(
+            api,
+            settings=cfg,
+            broker=authority,
+            executor=elevated_executor,
+            capsules=debug_capsules,
+            core_service=core_service,
+            core_jobs=core_jobs,
+            system_telemetry=system_telemetry,
+            model_router=model_router,
+            nudge_client=nudge_client,
+            device_monitor=device_monitor,
+        )
 
     return api
 

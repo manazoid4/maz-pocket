@@ -23,16 +23,8 @@ class Settings(BaseSettings):
 
     # Local-first brain. AUTO tries primary then backup locally before cloud.
     # LOCAL uses the same local chain but never spills to cloud.
-    #
-    # Two local engines are supported. OLLAMA manages models itself; LLAMACPP
-    # talks to an already-running llama-server over its OpenAI-compatible API,
-    # which is what this laptop runs day to day. Routing, profiles and the
-    # primary/backup chain behave identically on both.
     local_engine: Literal["ollama", "llamacpp"] = "ollama"
     llamacpp_url: str = "http://127.0.0.1:8080"
-    # llama-server serves whatever model it was started with, so the name is a
-    # label the request carries rather than a selector. A second llama-server on
-    # another port can still act as backup.
     llamacpp_model: str = "local"
     llamacpp_backup_url: str = ""
     llamacpp_backup_model: str = ""
@@ -40,10 +32,6 @@ class Settings(BaseSettings):
     ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
     ollama_backup_model: str = "qwen3.5:4b"
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
-
-    # One understandable performance knob instead of exposing a wall of Ollama
-    # tuning. SMART is the default; FAST favors warm-model latency; SAVE favors
-    # VRAM release between turns.
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
@@ -54,8 +42,6 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=12, ge=1, le=64)
     max_audio_seconds: int = Field(default=900, ge=1, le=3600)
     session_ttl_minutes: int = Field(default=120, ge=1, le=1440)
-    # Pocket conversations are short by design. Keeping 12 complete turns gives
-    # useful continuity without repeatedly re-evaluating a large stale history.
     max_turns: int = Field(default=12, ge=1, le=100)
     tts_enabled: bool = False
     tts_rate: int = Field(default=180, ge=80, le=300)
@@ -68,20 +54,56 @@ class Settings(BaseSettings):
     device_vid: int = 0x303A
     device_pid: int = 0x1001
 
-    # MAZ Core: factual PC/project context and safe allow-listed actions.
+    # MAZ Core: factual PC/project context and safe default actions.
     core_enabled: bool = True
     project_roots: str = ""
     obsidian_root: str = ""
     cardputer_url: str = "http://mazpocket.local"
     web_origins: str = "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 
-    # Optional GitHub command bridge. When enabled, MAZ Core watches a private
-    # repo for issues titled `[MAZ CORE] ...`, executes only its allow-list and
-    # writes evidence back as a comment. It can reuse `gh auth token` locally.
+    # Optional GitHub command bridge. This remains narrow and should not be used
+    # as the authority channel for arbitrary PC execution.
     bridge_enabled: bool = False
     bridge_repo: str = "manazoid4/maz-pocket"
     github_token: str = ""
     bridge_poll_seconds: int = Field(default=15, ge=5, le=300)
+
+    # Phone-approved authority broker. The normal MAZ bearer token may REQUEST
+    # power, but approval is only available through the separately signed phone
+    # control session. Grants are short-lived and independently revocable.
+    control_enabled: bool = True
+    control_dir: str = "~/.maz-pocket/control"
+    control_phone_session_seconds: int = Field(default=43_200, ge=300, le=604_800)
+    control_request_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    control_default_grant_seconds: int = Field(default=600, ge=30, le=3600)
+    control_max_grant_seconds: int = Field(default=3600, ge=60, le=14_400)
+    control_command_timeout_seconds: int = Field(default=300, ge=5, le=3600)
+    control_max_output_chars: int = Field(default=40_000, ge=2_000, le=500_000)
+
+    # Claude/Codex/Hermes jobs are subprocesses on the PC. Their own CLI
+    # permission bypasses are only used after the external MAZ phone broker has
+    # approved PROJECT FULL or broader authority.
+    agent_job_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
+
+    # Debug Capsules are intentionally bounded snapshots rather than whole-PC
+    # dumps. Raw secrets are filtered before anything is presented to a model.
+    debug_dir: str = "~/.maz-pocket/debug"
+    debug_capsule_limit: int = Field(default=40, ge=5, le=500)
+    debug_log_lines: int = Field(default=120, ge=20, le=1000)
+
+    # Teach-by-Demonstration host-side resource defaults. Recording stays light;
+    # heavier model work happens after STOP. 3 GB VRAM is the compatibility aim.
+    resource_profile: Literal["auto", "eco", "balanced", "quality"] = "auto"
+    vram_budget_mb: int = Field(default=3000, ge=512, le=48_000)
+    teach_dir: str = "~/.maz-pocket/teach"
+    teach_capture_mode: Literal["primary", "display", "window", "region"] = "primary"
+    teach_display: str = "primary"
+    teach_fps: int = Field(default=15, ge=2, le=30)
+    teach_audio_device: str = ""
+    teach_voice_profile: Literal["eco", "balanced", "quality"] = "balanced"
+    teach_voice_cleanup: Literal["off", "light", "smart"] = "light"
+    teach_sound_ai: bool = False
+    teach_keep_video: bool = True
 
     @model_validator(mode="after")
     def migrate_legacy_shipped_defaults(self):

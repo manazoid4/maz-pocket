@@ -21,13 +21,16 @@ struct Settings {
     uint16_t    hostPort = 8787;
     std::string hostRemoteUrl;
     std::string hostToken;
-    uint8_t     talkRoute = 1;
+    // Fresh v0.8 installs prefer CLOUD for Call MAZ as requested. Existing
+    // devices keep their persisted choice. A on the Call screen cycles
+    // CLOUD -> LOCAL -> AUTO without needing the web settings page.
+    uint8_t     talkRoute = 2;
     bool        ttsEnabled = true;
     uint8_t     nudgePollMinutes = 5;
     bool        firstRunComplete = false;
 
-    // v0.7 FIELD: deliberately tiny preference surface. Four quick keys are
-    // stable action IDs from a fixed allow-list; they are never shell commands.
+    // Four quick keys are stable action IDs from a fixed list; they are never
+    // shell commands. CALL remains quick slot 1 by default.
     bool        fieldMode = false;
     std::string quick1 = "talk";
     std::string quick2 = "braindump";
