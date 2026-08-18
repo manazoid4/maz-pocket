@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.8.0 — CONTROL
+
+- CALL MAZ: renamed COMM experience, spoken reply playback on fresh installs, P replay, V voice toggle, A cloud/local/auto route.
+- CAPTURE + Teach-by-Demonstration: TEACH DEMO / BRAIN DUMP / VOICE RECORDER; host-side display recording with microphone narration and MARK events, extracted to Results Inbox.
+- Agent workbench (AGENTS): AGENT STATUS, PLAN, CREW, RETRO, PROJECTS; CREW planning is read-only, actual subprocess execution requires a signed phone-approved PROJECT FULL+ grant.
+- Prompt Deck (MEMORY): project-aware task templates compiled with current project + Agent Nudge evidence.
+- Phone-approved full PC authority: external authority broker with READ ONLY / PROJECT FULL / PC FULL / ADMIN grants, approved/denied from the authenticated phone `/control/` page; signed grants gate PowerShell/cmd execution and coding-agent subprocess launches.
+- Pairing + Token ID: safe 12-character fingerprint, hidden pairing token with on-device reveal, phone-control URL.
+- `mazpocket.local` rebuilt as a phone-first control centre.
+- Fixed the M5Launcher self-deletion bug — MAZ no longer invalidates its own running firmware when returning to Launcher; boot partition is switched via `esp_ota_set_boot_partition()` instead, with a CI regression guard against destructive running-app flash writes.
+- Debug Capsules: bounded, redacted project/Git/Core/device/system/model/job/authority snapshot for troubleshooting.
+- `START-HERE.cmd` installer changes are now explicitly opt-in at every destructive step (MAZ Core install/update, Cardputer SD copy, browser launch); never formats media or writes Cardputer flash directly.
+
 ## v0.7.1 — installer hotfix, speed pass and packaging cleanup
 
 - Fixed the Windows install path. `START-HERE.cmd` runs `powershell.exe`, and Windows PowerShell 5.1 decodes a BOM-less script with the ANSI code page. Two em dashes in `setup-all.ps1` therefore arrived as cp1252 text ending in `0x94`, a smart closing quote that PowerShell accepts as a string delimiter, which unbalanced the quoting and produced misleading `}` / `elseif` parse errors at lines 85-92.
