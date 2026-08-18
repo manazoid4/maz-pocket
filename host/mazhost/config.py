@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     teach_voice_cleanup: Literal["off", "light", "smart"] = "light"
     teach_sound_ai: bool = False
     teach_keep_video: bool = True
+    skill_vault_dir: str = "~/.maz-pocket/skills"
+    skill_draft_dir: str = "~/.maz-pocket/skills/drafts"
 
     @model_validator(mode="after")
     def migrate_legacy_shipped_defaults(self):
