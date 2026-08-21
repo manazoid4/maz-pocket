@@ -33,6 +33,9 @@ Its distinctive value is ambient visibility on dedicated pocket hardware.
 - Agent state from the existing Agent Nudge integration.
 - Git/test/task evidence for the Done count.
 - Seven-day local history and comparison.
+- MCP Ready status for Codex, Claude Code, OpenCode and Hermes.
+- One authenticated, transactional **Fix & Activate Selected** action for
+  existing MCP configurations, with backup, rollback and end-state verification.
 
 ## Not Doing (and Why)
 
@@ -42,6 +45,9 @@ Its distinctive value is ambient visibility on dedicated pocket hardware.
 - Full transcripts, replay and dense charts on the Cardputer — the display is a glance surface, not an analytics workstation.
 - OpenCode, Cursor and Gemini collectors in the first slice — validate the schema with the two locally active sources first.
 - Cloud accounts or hosted storage — local data proves the experience with less risk and setup.
+- Silent MCP installation or trust bypass — existing selected configurations
+  can be repaired automatically, while OAuth and workspace approval remain
+  explicit human actions.
 - Public release before the seven-day carry test — daily usefulness is the continuation gate.
 
 ## Open Questions
