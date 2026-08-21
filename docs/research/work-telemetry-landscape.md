@@ -367,16 +367,21 @@ A preliminary exact-phrase search found no meaningful software collision for **M
 - `Maz Meter`
 - `MazScope`
 
-This research does not choose the final name. It narrows the field: a distinctive personal brand is safer than another generic Agent/Token/Pulse name, and a provider-neutral name will age better than one containing Claude or Codex.
+The confirmed name is **MAZ Work**. **MAZ Pocket** remains the physical device
+and firmware; MAZ Work is its private, provider-neutral work-and-agent
+telemetry surface. The plain name is deliberate: it describes the owner's work
+rather than implying employee surveillance or tying the product to one model.
 
 ## Recommended planning decisions before firmware work
 
-1. Define "productive time" as user-owned focused time, not agent uptime.
-2. Select initial sources: Codex local logs, Claude Code local logs, Git status/history, task state and ActivityWatch/WakaTime-style heartbeats.
-3. Specify one normalized session/event schema before writing display code.
-4. Prototype the six home tiles with sample data on desktop at the Cardputer's pixel dimensions.
-5. Validate the meanings of `FOCUS`, `DONE` and `VALUE` for a week; those are the easiest metrics to misrepresent.
-6. Only then implement host-to-Cardputer transport and firmware pages.
+1. Use **MAZ Work** as the telemetry surface name while retaining **MAZ Pocket**
+   for the device and firmware.
+2. Define "productive time" as user-owned focused time, not agent uptime.
+3. Select initial sources: Codex local logs, Claude Code local logs, Git status/history, task state and ActivityWatch/WakaTime-style heartbeats.
+4. Specify one normalized session/event schema before writing display code.
+5. Prototype the six home tiles with sample data on desktop at the Cardputer's pixel dimensions.
+6. Validate the meanings of `FOCUS`, `DONE` and `VALUE` for a week; those are the easiest metrics to misrepresent.
+7. Only then implement host-to-Cardputer transport and firmware pages.
 
 ## Source-quality notes
 
