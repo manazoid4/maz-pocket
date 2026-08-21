@@ -21,6 +21,8 @@ it has moved beyond this prompt:
 - `README.md`, `RELEASE_NOTES.md`, `CHANGELOG.md`, `QUICKSTART.txt`, `VERSION`
 - `docs/RELEASE_RULES.md`, `docs/VERIFICATION.md`
 - `docs/ideas/maz-work.md`
+- `docs/V090-FEATURE-ARCHITECTURE.md` — controlling v0.9 scope and placement
+- `tasks/plan.md`, `tasks/todo.md` — ordered vertical implementation slices
 - `docs/research/work-telemetry-landscape.md`
 - `.github/workflows/firmware.yml`, `.github/workflows/release.yml`
 - `host/README.md`, `host/.env.example`, `host/requirements.txt`
@@ -38,6 +40,13 @@ matching `agents/` branch. Preserve unrelated and untracked user files. Never
 push directly to `main`.
 
 ## Product result
+
+Implement the critical path in `docs/V090-FEATURE-ARCHITECTURE.md`. That
+document controls if this prompt suggests a broader presentation refactor.
+In particular, v0.9 hides duplicated discovery paths but does not merge or
+delete whole app implementations. Start Work, Start Focus and Notes & Text
+wrappers, OpenCode/Hermes telemetry, detailed Git scoring and a full portal
+redesign are follow-ups, not release blockers.
 
 The six Home surfaces become:
 
