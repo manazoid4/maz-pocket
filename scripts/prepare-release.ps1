@@ -26,7 +26,7 @@ $CoreStage = Join-Path $Dist "core-package"
 Remove-Item $CoreStage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $CoreStage | Out-Null
 Get-ChildItem (Join-Path $Root "host") -Force | ForEach-Object {
-    if ($_.Name -ne ".env" -and $_.Name -ne ".venv" -and $_.Name -ne "__pycache__") {
+    if ($_.Name -ne ".env" -and $_.Name -ne ".venv" -and $_.Name -ne "__pycache__" -and $_.Extension -ne ".log") {
         Copy-Item $_.FullName $CoreStage -Recurse -Force
     }
 }
@@ -41,6 +41,8 @@ Get-ChildItem $CoreStage -Recurse -Directory -Force |
     Sort-Object FullName -Descending |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem $CoreStage -Recurse -File -Force -Filter "*.pyc" |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem $CoreStage -Recurse -File -Force -Filter "*.log" |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
 Remove-Item $CoreZip -Force -ErrorAction SilentlyContinue

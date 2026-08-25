@@ -2,7 +2,7 @@
 
 **A pocket-sized physical control surface for your PC, AI models and coding agents — built for the M5Stack Cardputer ADV.**
 
-## Current release candidate: v0.8.0 — CONTROL
+## Current release candidate: v1.0.0 — WORK CONSISTENCY
 
 MAZ Pocket is deliberately not an ESP32 app drawer. The Cardputer handles voice, short text, status, approvals and quick commands while **MAZ Core** on the PC handles models, projects, screen recording, coding agents and heavier work.
 
@@ -15,9 +15,21 @@ MAZ Pocket is deliberately not an ESP32 app drawer. The Cardputer handles voice,
 | **AGENTS** | Agent status, PLAN, CREW, RETRO and project/build tools. |
 | **CONTROL** | Pair your phone, see Token ID, inspect laptop/Wi-Fi/Core/device state and settings. |
 | **MEMORY** | Results Inbox, Prompt Deck, notes, snippets, Beam and viewer. |
-| **FOCUS** | Focus timer, work sprints, tasks, reminders and shift clock. |
+| **WORK** | JOB HUNT, MAZ WORKS and custom consistency tracks; Focus/Sprint/Tasks/Reminders/Shift/Retro remain under WORK TOOLS. |
 
 There is intentionally **no seventh top-level app**.
+
+## WORK consistency
+
+WORK is a fast, honest activity ledger shared by the phone and Cardputer:
+
+- **JOB HUNT** tracks Application, Reply, Interview and Offer; only Application is the headline count.
+- **MAZ WORKS** shows raw Outreach, Reply, Call, Proposal and Client Won counts—never a fabricated close rate or productivity score.
+- Custom count/time/check-in tracks can be created, renamed, targeted, reordered, pinned, paused or archived from the authenticated phone UI without firmware changes.
+- `WORK | AUTHORITY` opens on WORK, with one-tap Application logging, retry-safe event IDs, session-scoped Undo Last, current targets, raw breakdowns and seven-day history.
+- The Cardputer opens WORK directly to the glance dashboard. Existing Focus, Sprint, Tasks, Reminders, Shift and Retro live under **WORK TOOLS**.
+- The firmware reuses the existing Host worker cadence (10 seconds normally, 20 seconds in FIELD). After roughly three missed polls it keeps the last-known values visible and labels them **STALE**.
+- The Cardputer payload is bounded to four pinned tracks, exactly seven history entries and 4096 bytes; invalid/oversized responses are rejected without replacing known values with zeroes.
 
 ## CALL MAZ
 
@@ -26,14 +38,14 @@ This is the useful feature that older builds hid behind the internal name `COMM`
 - **Hold Space** — speak.
 - **Release Space** — send.
 - MAZ transcribes your speech, asks the selected model and shows the answer.
-- Spoken reply playback is **on by default** on a fresh v0.8 install.
+- Spoken reply playback is **on by default** on a fresh v1 install.
 - **P** — replay the last spoken answer.
 - **V** — turn voice replies on/off.
 - **A** — change AI route directly on the Cardputer.
 - **N** — new conversation.
 - **C** — simple PC media/desktop controls.
 
-Fresh v0.8 installs prefer **CLOUD** for Call MAZ. You can change it on the Cardputer or at `http://mazpocket.local`:
+Fresh v1 installs prefer **CLOUD** for Call MAZ. You can change it on the Cardputer or at `http://mazpocket.local`:
 
 - **CLOUD** — configured cloud model.
 - **LOCAL** — local model only; never silently falls through to cloud.
@@ -153,7 +165,7 @@ Open **CONTROL → PAIRING + PHONE** to see:
 
 Open `http://mazpocket.local` while the Pocket is on Wi-Fi.
 
-v0.8 rebuilds it around the real workflows:
+The phone-first page exposes the real workflows:
 
 - Token ID + pairing instructions;
 - phone approvals;
@@ -169,6 +181,7 @@ v0.8 rebuilds it around the real workflows:
 - live Cardputer LCD;
 - connection settings;
 - firmware staging.
+- **OPEN WORK** handoff to the authenticated WORK ledger.
 
 ## M5Launcher firmware-disappearing fix
 
@@ -196,7 +209,7 @@ The currently installed MAZ image remains valid when you enter Launcher.
 
 Run `START-HERE.cmd` from the combined install package.
 
-v0.8 setup is explicitly opt-in:
+v1 setup remains explicitly opt-in:
 
 1. explains MAZ Core;
 2. asks before installing/updating Core;

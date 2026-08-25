@@ -1,21 +1,21 @@
-MAZ POCKET v0.8.0 - CONTROL QUICKSTART
+MAZ POCKET v1.0.0 - WORK CONSISTENCY QUICKSTART
 ======================================
 
 WHAT TO DOWNLOAD
 ----------------
-Laptop/client only:   MAZ-Core-v0.8.0.zip
-Cardputer only:       MAZ-Cardputer-v0.8.0.zip
-Everything together: MAZ-Pocket-v0.8.0-Install.zip
+Laptop/client only:   MAZ-Core-v1.0.0.zip
+Cardputer only:       MAZ-Cardputer-v1.0.0.zip
+Everything together: MAZ-Pocket-v1.0.0-Install.zip
 
 The Cardputer ZIP contains an app-only M5Launcher firmware image. M5Launcher owns installation and rollback. Do NOT flash this app .bin at address 0x0.
 
 FIRST START / WINDOWS
 ---------------------
-1. Extract MAZ-Pocket-v0.8.0-Install.zip.
+1. Extract MAZ-Pocket-v1.0.0-Install.zip.
 2. Double-click START-HERE.cmd.
 3. Choose whether to install/update MAZ Core when asked.
 4. If one removable microSD is connected, choose whether to copy the Cardputer .bin to it.
-5. Install Maz-Pocket-v0.8.0-M5Launcher.bin with M5Launcher.
+5. Install Maz-Pocket-v1.0.0-M5Launcher.bin with M5Launcher.
 6. Once MAZ Pocket is on Wi-Fi, open http://mazpocket.local.
 
 HOME
@@ -25,7 +25,16 @@ CAPTURE = Teach Demo, Brain Dump, Voice Recorder.
 AGENTS  = Agent Status, PLAN, CREW, RETRO, Projects.
 CONTROL = Pairing/Phone, Laptop, Wi-Fi, Core, Device, Settings.
 MEMORY  = Results Inbox, Prompt Deck, Notes, Snippets, Viewer.
-FOCUS   = Focus, Sprint, Tasks, Reminders, Shift.
+WORK    = JOB HUNT, MAZ WORKS, custom tracks and seven-day glance.
+
+WORK
+----
+Phone: open /control/; WORK is the default tab and AUTHORITY remains beside it.
+APPLICATION = one tap. Retry IDs cannot double count. UNDO LAST only reverses this phone session's latest event.
+Manage Tracks = create/edit/reorder/pin/pause/archive custom count, time or check-in tracks.
+Cardputer: WORK opens straight to current/target values and the seven-day strip.
+WORK TOOLS = Focus, Sprint, Tasks, Reminders, Shift, Retro.
+STALE keeps last-known values visible after roughly three missed Host polls; it never substitutes fake zeroes.
 
 CALL MAZ
 --------
@@ -37,7 +46,7 @@ A = change CLOUD / LOCAL / AUTO.
 N = new conversation.
 C = simple PC quick controls.
 
-Fresh v0.8 installs prefer CLOUD. Existing devices keep their saved route.
+Fresh v1 installs prefer CLOUD. Existing devices keep their saved route.
 
 TEACH DEMO
 ----------
@@ -75,7 +84,7 @@ Use it to approve/deny PROJECT FULL, PC FULL or ADMIN requests and to REVOKE ALL
 MAZPOCKET.LOCAL
 ---------------
 Open http://mazpocket.local on the same LAN.
-The v0.8 page puts Pairing, Token ID, Phone Control, CALL, PLAN, CREW, RETRO, Prompt Deck, AI route, voice playback, status and firmware staging on one page.
+The page puts Pairing, Token ID, Phone Control, OPEN WORK, CALL, PLAN, CREW, RETRO, Prompt Deck, AI route, voice playback, status and firmware staging on one page.
 
 UPDATING FIRMWARE
 -----------------
@@ -86,7 +95,7 @@ At mazpocket.local:
 4. Install the staged .bin.
 5. Launch MAZ Pocket.
 
-IMPORTANT v0.8 FIX: returning to M5Launcher no longer deliberately erases/invalidates the currently installed MAZ Pocket image. You should not need to reinstall MAZ just because you opened Launcher.
+IMPORTANT: the v0.8 M5Launcher safety fix remains enforced. Returning to M5Launcher does not deliberately erase/invalidate the installed MAZ Pocket image.
 
 REMOTE DEBUG / FULL CONTROL
 ---------------------------
@@ -117,5 +126,8 @@ FIRST VALIDATION
 - MEMORY -> PROMPT DECK: compile one template.
 - Open mazpocket.local from your phone.
 - Enter M5Launcher and confirm MAZ Pocket remains listed/launchable.
+- Phone WORK: log APPLICATION + one MAZ WORKS event, then Undo Last.
+- Cardputer WORK: confirm next-poll update, disconnect Core, and confirm last-known values remain labelled STALE.
+- WORK TOOLS: confirm Focus/Sprint/Tasks/Reminders/Shift/Retro remain reachable.
 
-See RELEASE_NOTES.md for the v0.8.0 feature and validation notes.
+See RELEASE_NOTES.md for the v1.0.0 feature and validation notes.
