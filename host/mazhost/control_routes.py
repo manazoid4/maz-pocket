@@ -14,6 +14,8 @@ from .phone_control import build_phone_app
 from .stt import SpeechToText
 from .teach_capture import TeachCapture
 from .teach_routes import install_teach_routes
+from .work_service import WorkService
+from .work_store import WorkStore
 from .workflow_routes import install_workflow_routes
 from .workflows import WorkflowService
 
@@ -72,7 +74,17 @@ def install_control_routes(
     nudge_client,
     device_monitor,
 ) -> None:
-    api.mount("/control", build_phone_app(settings, broker))
+    work_store = WorkStore(settings.work_dir)
+    work_store.bootstrap()
+    work_service = WorkService(work_store)
+    api.mount("/control", build_phone_app(settings, broker, work_store=work_store))
+
+    # Bearer-token boundary (same as every other Cardputer-facing route on
+    # this app, e.g. /core/cardputer/status) — the firmware never holds a
+    # phone-session cookie, so this cannot live under /control.
+    @api.get("/work/cardputer")
+    def work_cardputer():
+        return work_service.cardputer_payload()
 
     workflows = WorkflowService(settings, model_router, core_service, nudge_client)
     install_workflow_routes(api, workflows)

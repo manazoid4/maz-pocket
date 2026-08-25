@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     control_command_timeout_seconds: int = Field(default=300, ge=5, le=3600)
     control_max_output_chars: int = Field(default=40_000, ge=2_000, le=500_000)
 
+    # WORK Consistency: JOB HUNT / MAZ WORKS / custom tracks. Same authenticated
+    # phone-control session boundary as the rest of /control; own SQLite store.
+    work_dir: str = "~/.maz-pocket/work"
+
     # Claude/Codex/Hermes jobs are subprocesses on the PC. Their own CLI
     # permission bypasses are only used after the external MAZ phone broker has
     # approved PROJECT FULL or broader authority.

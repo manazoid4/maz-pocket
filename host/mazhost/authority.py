@@ -139,13 +139,16 @@ class AuthorityBroker:
         }
         return self._sign(payload)
 
-    def verify_phone_session(self, token: str, user_agent: str) -> None:
+    def verify_phone_session(self, token: str, user_agent: str) -> str:
         payload = self._verify_signed(token)
         if payload.get("typ") != "phone":
             raise AuthorityError("wrong_token_type")
         ua = hashlib.sha256(user_agent.encode("utf-8")).hexdigest()[:16]
         if not hmac.compare_digest(str(payload.get("ua", "")), ua):
             raise AuthorityError("phone_session_mismatch")
+        # Stable per-issued-session id (the session token's own nonce). Used to
+        # scope WORK undo to "this session's last event", never a global undo.
+        return str(payload.get("nonce", ""))
 
     # -------------------------------------------------------------- requests
     def request(
