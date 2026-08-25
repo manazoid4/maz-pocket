@@ -1,58 +1,150 @@
-# MAZ Work
+# MAZ Work — v1 direction
 
-## Problem Statement
+## Problem statement
 
-How might MAZ show its owner what work they and their AI agents actually did,
-using a glanceable Cardputer interface without confusing activity, tokens or
-agent uptime with productivity?
+MAZ Pocket already has Tasks, Focus, Sprint, Shift, Agent Nudge and a phone control surface, but it does not answer the most important daily question:
 
-## Recommended Direction
+> Am I consistently moving the few ongoing things that matter?
 
-MAZ Work is the private work-and-agent telemetry surface inside MAZ Pocket.
-The laptop collects and normalizes local Codex, Claude Code and later OpenCode
-events; the Cardputer presents six large tiles and short drill-down screens.
+The v1 use case is concrete:
 
-The product keeps four ideas separate: human focus time, AI consumption,
-useful output and efficiency/health. This is more honest than producing a
-single productivity score and more useful than another dense token dashboard.
-Its distinctive value is ambient visibility on dedicated pocket hardware.
+- keep a truthful count of job applications;
+- keep a truthful count and breakdown of Maz Works client-acquisition activity;
+- allow any future ongoing goal to be added from the web UI without changing firmware;
+- make logging so fast that the tracker is actually used every day.
 
-## Key Assumptions to Validate
+## Recommended direction
 
-- [ ] The six-tile view is useful enough to check several times per workday — test with a seven-day carry trial.
-- [ ] Codex and Claude Code local logs can be normalized without silently treating missing fields as zero — test against real and fixture logs.
-- [ ] `FOCUS`, `DONE` and `VALUE` remain understandable without a desktop dashboard — test each label and detail page on the physical 240x135 display.
-- [ ] Completed tasks, tests and commits are better evidence of useful output than token volume — compare the daily summary with the owner's own assessment.
+MAZ Work becomes the private consistency and work surface inside MAZ Pocket.
 
-## MVP Scope
+The Cardputer remains a glance/control device. The authenticated phone UI is the main input and management interface because creating and editing ongoing tracks on a 240x135 screen would add unnecessary friction.
 
-- Host-side, local-only collectors for Codex and Claude Code logs.
-- One normalized session/event schema with explicit unknown values.
-- Six Cardputer home tiles: Focus, Agents, Model, Tokens, Value and Done.
-- Five compact detail views: Now, Today, Mix, Efficiency and History.
-- Agent state from the existing Agent Nudge integration.
-- Git/test/task evidence for the Done count.
-- Seven-day local history and comparison.
-- MCP Ready status for Codex, Claude Code, OpenCode and Hermes.
-- One authenticated, transactional **Fix & Activate Selected** action for
-  existing MCP configurations, with backup, rollback and end-state verification.
+The core primitive is not a Task. It is a **Track + Event**:
 
-## Not Doing (and Why)
+- a Track is an ongoing objective such as JOB HUNT, MAZ WORKS, TRAINING or STUDY;
+- an Event is one explicit unit of progress such as APPLICATION, OUTREACH, FOLLOW-UP, PROPOSAL or CHECK-IN.
 
-- Employer or team surveillance — MAZ Work is owner-facing and private.
-- A universal productivity score — it would falsely combine unlike signals.
-- Screenshots, keylogging or background transcript capture — invasive and unnecessary for the core question.
-- Full transcripts, replay and dense charts on the Cardputer — the display is a glance surface, not an analytics workstation.
-- OpenCode, Cursor and Gemini collectors in the first slice — validate the schema with the two locally active sources first.
-- Cloud accounts or hosted storage — local data proves the experience with less risk and setup.
-- Silent MCP installation or trust bypass — existing selected configurations
-  can be repaired automatically, while OAuth and workspace approval remain
-  explicit human actions.
-- Public release before the seven-day carry test — daily usefulness is the continuation gate.
+This avoids corrupting the existing one-off task model and gives v1 durable history, targets, streaks and custom categories.
 
-## Open Questions
+## v1 built-in tracks
 
-- Should focus time require an explicit start/stop action, or combine a timer with AFK heartbeats?
-- What exactly increments `DONE`: commits, passed checks, manually completed tasks, or a weighted subset?
-- Should API-equivalent value appear by default for subscription users?
-- Which missing-data conditions deserve a warning rather than an `unknown` label?
+### JOB HUNT
+
+Primary metric: applications submitted.
+
+Default event types:
+
+- APPLICATION;
+- FOLLOW-UP;
+- INTERVIEW;
+- REJECTION;
+- OFFER.
+
+Only APPLICATION increments the headline application count. Other event types appear in detail/history.
+
+### MAZ WORKS
+
+Primary metric: meaningful client-acquisition actions.
+
+Default event types:
+
+- OUTREACH;
+- FOLLOW-UP;
+- DEMO / AUDIT;
+- CONVERSATION;
+- CALL BOOKED;
+- PROPOSAL;
+- CLIENT WON.
+
+The card shows total activity plus a breakdown. It must never present seven outreaches as seven proposals or clients.
+
+## Custom tracks
+
+The phone UI can create a new ongoing track with:
+
+- name;
+- short label;
+- type: count, time or check-in;
+- unit;
+- daily/weekly/no cadence;
+- optional target;
+- custom quick-log event types;
+- primary event type;
+- pin/order state.
+
+Examples include workouts, Quran reading, portfolio work, applications for a specific role family, sales follow-ups, content posts, learning sessions or any other ongoing objective.
+
+## Friction budget
+
+The feature fails if logging feels like admin.
+
+Required interaction targets:
+
+- opening WORK on an authenticated phone immediately shows the pinned trackers;
+- common progress is one tap on a large `+ APPLICATION`, `+ OUTREACH`, `+ FOLLOW-UP`, etc. action;
+- a plain track increment takes at most two taps from the WORK tab;
+- the last accidental action can be undone immediately;
+- optional notes never block logging;
+- targets and track configuration are edited in a separate Manage flow, not during quick logging.
+
+## Cardputer role
+
+The sixth Home surface becomes WORK while preserving the stable internal `flow` ID.
+
+WORK opens directly on progress, not a menu. The first screen should prioritize:
+
+- JOB HUNT today / target;
+- MAZ WORKS today / target;
+- pinned custom track progress;
+- compact seven-day consistency;
+- stale/offline indication.
+
+Existing Focus, Sprint, Tasks, Reminders, Shift and Retro remain reachable through WORK tools.
+
+## Data principles
+
+- Persist events, derive totals.
+- Never silently turn missing data into zero.
+- Use reversal events/tombstones for undo rather than deleting history invisibly.
+- Aggregate according to the machine/user local timezone while storing event timestamps in UTC.
+- No browser monitoring, keylogging, screenshots, transcripts or prompt bodies are required.
+- No cloud account is required.
+- No universal productivity score.
+
+## v1 scope
+
+Required:
+
+- local SQLite Track + Event store in MAZ Core;
+- built-in JOB HUNT and MAZ WORKS templates;
+- custom track CRUD from authenticated phone UI;
+- one-tap quick logging;
+- undo last event;
+- daily and seven-day history;
+- compact authenticated Core API;
+- direct Cardputer WORK dashboard;
+- existing work tools preserved;
+- lightweight `mazpocket.local` handoff to WORK;
+- tests, migration safety, packaging and physical Cardputer verification;
+- final release named **v1.0.0**.
+
+Useful if it fits without destabilising v1:
+
+- explicit Task completion events with completion timestamps;
+- persisted Focus/Sprint/Shift completion records;
+- Agent Nudge status shown as secondary work context;
+- CSV/JSON export/import for the local work database.
+
+## Deferred after v1
+
+- MCP Fix & Activate;
+- deep Codex/Claude/OpenCode/Hermes telemetry;
+- token/API-value analytics as a headline feature;
+- automatic desktop productive-time capture;
+- cloud sync;
+- complex project management;
+- heatmaps and large analytics dashboards.
+
+## v1 continuation test
+
+Carry it for seven days. If logging is consistently used and the glance view changes actual behaviour, expand the telemetry layer. If not, simplify before adding more instrumentation.
