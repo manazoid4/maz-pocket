@@ -1,20 +1,42 @@
 # MAZ Pocket v0.9 feature architecture
 
 This document is the controlling scope and placement decision for v0.9.0.
-It reconciles the current application audit, the UX/clutter audit and the
-15-project telemetry research. If the older full build prompt suggests a
-broader presentation refactor, this document wins.
+The current repository is v0.8.0 CONTROL. v0.9 must solve a daily usefulness
+problem before it expands into deeper analytics or configuration management.
 
 ## Release promise
 
-Ship two complete daily loops:
+Ship one complete loop extremely well:
 
-1. Open **WORK** and understand today in one glance.
-2. Open **MCP READY**, check health, then repair selected existing
-   configurations from the authenticated phone UI.
+> Open the authenticated phone UI, log meaningful progress in a few seconds,
+> and glance at MAZ Pocket to know whether the important ongoing work is moving.
 
-Do not merge or delete whole apps in v0.9. Remove duplicated discovery paths,
-preserve stable IDs and keep niche tools in the global palette.
+The first two built-in tracks are:
+
+1. **JOB HUNT** — primary metric: job applications submitted.
+2. **MAZ WORKS** — primary metric: client-acquisition actions, with a useful
+   breakdown such as outreach, follow-up, demo/audit, conversation, booked
+   call, proposal and client won.
+
+The owner can create, edit, reorder, pin, pause and archive additional ongoing
+tracks from the web UI without changing firmware or code.
+
+## Product principles
+
+- **Web-first management.** The Cardputer is too small for track creation and
+  editing. All configuration must work comfortably from the authenticated
+  phone web UI.
+- **Fast logging.** A normal progress event should take one or two taps after
+  opening WORK. Do not require a form for a plain `+1`.
+- **Explicit beats inferred.** A submitted application is stronger evidence
+  than browser time. A sent proposal is stronger evidence than token volume.
+- **No universal productivity score.** Keep goal progress, agent activity,
+  focus time and AI usage as separate facts.
+- **Truthful history.** Store events, not mutable daily totals. Daily/weekly
+  numbers are derived from immutable event history and can be rebuilt.
+- **Local-first.** Work data lives in MAZ Core on the owner's machine. No cloud
+  account is required.
+- **Six Home surfaces remain.** Do not add a seventh tile or break stable IDs.
 
 ## Final information architecture
 
@@ -26,125 +48,204 @@ CONTROL   MEMORY       WORK
 ```
 
 The stable Home IDs remain `talk`, `capturehub`, `agents`, `desk`, `recall`
-and `flow`. The `flow` label changes from FOCUS to WORK; it is not renamed.
+and `flow`. The visible `flow` label becomes **WORK**; the internal ID remains
+unchanged for shortcut and compatibility safety.
 
-- **CALL** opens the conversation directly.
-- **CAPTURE** contains Brain Dump, Teach Demo, Voice Recorder and Decision Note.
-- **AGENTS** contains Agent Status, Plan, Crew and a contextual Prompt Deck
-  shortcut. Projects & Builds has one canonical home under CONTROL.
-- **CONTROL** opens a readiness overview for Core/laptop, Wi-Fi, MCP and device
-  health. Its secondary menu contains Pairing, Projects & Builds, Send to PC,
-  Wi-Fi, Diagnostics, Settings and guarded Update.
-- **MEMORY** contains Results Inbox, Prompt Deck, Notes, Snippets and Text
-  Viewer. Send to PC is reached from CONTROL.
-- **WORK** opens directly on Focus, Agents, Model, Tokens, API Value and Done.
-  Its tools menu contains Focus Timer, Work Sprint, Tasks, Reminders, Shift
-  Clock and Retro.
+WORK opens directly on a glance view, not a tools menu. At minimum it shows:
 
-All other registered apps remain available through the global palette or
-their existing shortcuts.
+- JOB HUNT: today count / target;
+- MAZ WORKS: today count / target;
+- the next one or two pinned custom tracks if space allows;
+- a compact 7-day consistency indicator or aggregate;
+- stale/offline state when MAZ Core cannot be reached.
 
-### Web surfaces
+Existing Focus Timer, Work Sprint, Tasks, Reminders and Shift Clock remain
+reachable through a secondary WORK tools action. Do not delete them.
 
-`mazpocket.local` remains a lightweight device companion: live readiness, six
-surface launchers, pairing/Core links and a collapsed setup/update section. It
-links to authenticated Work and MCP pages; it does not contain analytics or
-MCP mutation logic.
+### Authenticated phone web UI
 
-The authenticated MAZ Core phone shell has three tabs:
+The existing `/control/` phone application becomes the primary management
+surface. It should be reorganized into focused tabs rather than one long page:
 
 ```text
-WORK | MCP | AUTHORITY
+WORK | AUTHORITY
 ```
 
-- WORK shows the six today cards, active agents, seven-day history and source
-  freshness.
-- MCP performs Check MCP, selection and one batch Fix & Activate action, then
-  shows any remaining OAuth or approval step.
-- AUTHORITY retains approvals, grants, sessions and the action feed.
-- Revoke All Control remains visible from every tab and pending approvals are
-  badged.
+WORK is the default tab. AUTHORITY preserves the existing phone approval,
+grants, manual session and audit behavior. `REVOKE ALL CONTROL` remains easy
+to reach from AUTHORITY and is not weakened by this feature.
 
-## Complete feature placement
+The WORK tab contains:
 
-| Feature | v0.9 decision | Visible placement |
-|---|---|---|
-| Home/NOW/quick keys | Keep | Home |
-| Call MAZ | Keep primary | CALL |
-| Brain Dump | Keep first | CAPTURE |
-| Teach Demo | Keep | CAPTURE |
-| Voice Recorder | Keep | CAPTURE |
-| Decision | Move discovery | CAPTURE as Decision Note |
-| Agent Status/Nudge | Keep first | AGENTS |
-| Plan and Crew | Keep separate in v0.9 | AGENTS; merge presentation later |
-| Retro | Move discovery | WORK tools/history |
-| Projects & Builds | Remove duplicates | CONTROL only |
-| Pairing & Phone | Keep | CONTROL |
-| Laptop/Core/overview | Merge presentation | CONTROL readiness landing |
-| Wi-Fi | Keep one link | CONTROL |
-| Send to PC/Beam | Keep one link | CONTROL |
-| Device Tests/Diagnostics/Storage | Merge presentation | CONTROL Diagnostics |
-| Settings | Keep one link | CONTROL |
-| Update/M5Launcher | Keep guarded | CONTROL Device/Update |
-| Live Screen | Move | Phone/portal only |
-| PC Commands | Remove duplicate | CALL control mode/phone |
-| Results Inbox | Keep first | MEMORY |
-| Prompt Deck | Keep | MEMORY; contextual link from AGENTS |
-| Notes/Snippets/Text Viewer | Keep separate in v0.9 | MEMORY; merge presentation later |
-| Focus Timer/Work Sprint | Keep separate in v0.9 | WORK tools; merge presentation later |
-| Tasks/Reminders/Shift Clock | Keep | WORK tools |
-| WORK metrics and details | Add | WORK direct landing/progressive detail |
-| MCP aggregate | Add read-only | CONTROL landing and row |
-| MCP check/fix/auth | Add mutation | Authenticated phone MCP tab |
-| Calculator/Stopwatch/QR/Generator | Keep hidden | Palette/shortcuts |
-| Help | Keep hidden | `H`/palette |
-| Snake/Hyperdrive | Keep hidden | Palette/easter egg |
-| Legacy Connections | Hide | Compatibility ID only |
-| Internal Home descriptor | Hide | Internal only |
+1. **Today** — pinned track cards with large progress values and large quick
+   action buttons.
+2. **Quick log** — common event-type buttons. One tap logs one event.
+3. **Undo last** — reversible accidental logging without deleting arbitrary
+   history.
+4. **7-day view** — small, phone-readable history; no desktop analytics suite.
+5. **Manage tracks** — create/edit/reorder/pin/pause/archive.
+6. **Track detail** — event breakdown and recent history.
 
-## Release priority
+`mazpocket.local` remains a lightweight firmware portal. It should expose a
+clear **OPEN WORK** handoff to the authenticated Core phone UI, not duplicate
+the tracker implementation in firmware HTML.
 
-### Now: v0.9
+## Track model
 
-1. Direct WORK dashboard with truthful unknown/stale states.
-2. Codex and Claude telemetry, Agent Nudge and explicit MAZ work records.
-3. Read-only MCP scan for Codex, Claude, OpenCode and Hermes.
-4. Transactional repair of selected existing MCP entries.
-5. Phone WORK/MCP/AUTHORITY tabs.
-6. Cardputer readiness overview and MCP aggregate.
-7. Presentation-only removal of duplicate navigation paths.
-8. Stable-ID, shortcut, palette and deep-link compatibility.
+A Track is an ongoing objective, not a one-off task. It supports three simple
+modes so the feature is genuinely reusable without becoming a project manager:
 
-### Next: v0.9.x
+- `count` — e.g. applications, outreaches, workouts;
+- `time` — e.g. 60 minutes of portfolio work;
+- `checkin` — e.g. did the important thing today?
 
-- Start Work wrapper for Plan/Crew.
-- Start Focus wrapper for Focus/Sprint.
-- Notes & Text wrapper.
-- OpenCode telemetry.
-- Richer project/model detail and optional MCP diff preview.
-- Portal refinement after real usage proves the hierarchy.
+Each track contains:
 
-### Later
+- stable ID;
+- name and short label;
+- mode;
+- unit label;
+- cadence: daily, weekly or none;
+- optional target value;
+- ordered event types;
+- one primary event type for the headline count when applicable;
+- pinned/order state;
+- active/paused/archived state;
+- created/updated timestamps.
 
-- Hermes telemetry and automatic desktop time capture.
-- Heatmaps, forecasts, tool latency, cache efficiency and subagent overhead.
-- Detailed Git/check/file evidence and context/quota warnings.
-- Transcript replay, cross-device sync or remote telemetry only after separate
-  privacy/product decisions.
+Each Work Event contains:
 
-## Explicit v0.9 cuts
+- stable event ID;
+- track ID;
+- event type ID;
+- quantity/value;
+- occurred-at timestamp;
+- source (`phone_manual`, `cardputer_manual`, `import`, etc.);
+- optional short note;
+- created-at timestamp;
+- optional reversal reference instead of destructive deletion.
 
-- No OpenCode or Hermes telemetry; their MCP adapters remain required.
-- No automatic productive-hour surveillance or universal productivity score.
-- No arbitrary MCP discovery, marketplace installation or tool invocation as
-  a health check.
-- No Cardputer secret entry, MCP mutation or cross-client secret copying.
-- No full app mergers, stable-ID renames or implementation deletion.
-- No complete portal redesign, desktop analytics suite or unrelated polish.
+Store timestamps in UTC and aggregate by the configured/system local timezone.
+DST day boundaries must be correct. Add a timezone setting only if the existing
+host settings do not already provide a reliable local timezone.
 
-## Success test
+## Built-in templates
 
-The release earns continuation when the owner can understand today from WORK
-without opening the laptop, and can turn an intended existing MCP setup into a
-verified ready state with one phone-side batch action plus only unavoidable
-OAuth/approval steps.
+### JOB HUNT
+
+Mode: `count`.
+
+Suggested event types:
+
+- **APPLICATION** — contributes to the primary headline count;
+- FOLLOW-UP;
+- INTERVIEW;
+- REJECTION;
+- OFFER.
+
+The headline is applications submitted, not the sum of every event.
+
+### MAZ WORKS
+
+Mode: `count`.
+
+Suggested event types:
+
+- OUTREACH;
+- FOLLOW-UP;
+- DEMO / AUDIT;
+- CONVERSATION;
+- CALL BOOKED;
+- PROPOSAL;
+- CLIENT WON.
+
+The headline is meaningful acquisition actions. The detail view must still
+show the breakdown so seven low-value actions cannot masquerade as seven
+clients or proposals.
+
+Targets are editable. Do not hard-code a moral judgement such as "you failed"
+when a target is missed. Show progress and history plainly.
+
+## Host architecture
+
+Heavy persistence and aggregation live in MAZ Core. Do not extend the ESP32
+storage TSV format into a second analytics database.
+
+Prefer cohesive modules such as:
+
+- `host/mazhost/work_store.py` — SQLite schema, migrations and event writes;
+- `host/mazhost/work_service.py` — templates, aggregation, target logic and
+  compact summaries;
+- `host/mazhost/work_routes.py` — authenticated Core API;
+- phone UI integration in `phone_control.py` or a small adjacent module if the
+  file is becoming unwieldy.
+
+Use Python stdlib `sqlite3` unless repository evidence justifies another
+dependency. Store the database beneath `~/.maz-pocket/work/`. Use WAL, foreign
+keys, bounded queries and schema versioning.
+
+Do not store prompts, completions, screenshots, browser history or credentials
+for this feature.
+
+## Core API contract
+
+Exact naming may adapt to existing conventions, but v0.9 needs these behaviors:
+
+- `GET /work/summary?window=today` — compact pinned-track progress, freshness
+  and seven-day aggregate;
+- `GET /work/tracks` — active/manageable track definitions;
+- `POST /work/tracks` — create a custom track;
+- `PATCH /work/tracks/{id}` or equivalent structured update;
+- `POST /work/events` — append one progress event;
+- `POST /work/events/{id}/undo` — append a reversal/tombstone safely;
+- `GET /work/history?days=7&track_id=...` — bounded history.
+
+Cardputer reads must use compact payloads. Web mutations must be authenticated.
+A missing/corrupt individual track must not crash the entire WORK summary.
+
+## Existing feature integration
+
+v0.9 may surface existing data, but must not let integration work block the
+core consistency loop.
+
+- Existing Tasks currently store `done`, `created`, `bucket` and text. Do not
+  pretend that this is sufficient historical completion telemetry. If Tasks
+  feed WORK, add an explicit completion timestamp/event path first.
+- Existing Focus runs in-memory on the Cardputer. Do not claim seven-day focus
+  history until completed/cancelled sessions are explicitly persisted/synced.
+- Agent Nudge state can appear as a secondary card or detail, but it does not
+  increment JOB HUNT or MAZ WORKS.
+- Codex/Claude token telemetry and API Value from the earlier v0.9 proposal are
+  useful follow-ups, not blockers for this release.
+
+## What v0.9 explicitly defers
+
+- MCP Fix & Activate and multi-client MCP mutation work;
+- deep Codex/Claude/OpenCode/Hermes telemetry ingestion;
+- universal productivity scoring;
+- automatic desktop activity surveillance;
+- cloud sync/accounts;
+- full project-management boards, subtasks and dependencies;
+- complex charts/heatmaps;
+- editing tracks on the Cardputer;
+- a complete rewrite of the firmware portal.
+
+Those ideas may return in v0.9.x after the owner has used the consistency loop
+for a week and the data model has proved useful.
+
+## Success tests
+
+v0.9 earns continuation when all of these are true:
+
+1. From a phone, an application can be logged in <=2 taps from the WORK tab.
+2. From a phone, a Maz Works outreach/follow-up/proposal can be logged in <=2
+   taps from the relevant track card.
+3. A custom ongoing track can be created without touching code or firmware.
+4. Reloading/restarting MAZ Core does not lose or double-count progress.
+5. Undoing an accidental log is safe and auditable.
+6. The Cardputer WORK screen shows useful current progress without requiring
+   track-management interaction on the 240x135 display.
+7. Existing CALL/CAPTURE/AGENTS/CONTROL/MEMORY functions and stable IDs remain
+   intact.
+8. Full host tests, firmware build, version/release guards and the physical
+   Cardputer verification gate pass before a release is published.
