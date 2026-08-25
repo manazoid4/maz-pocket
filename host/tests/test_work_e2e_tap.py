@@ -110,6 +110,42 @@ def test_one_tap_quick_log_application_from_open_work_tab(tmp_path):
                 page.wait_for_selector("#workCards .card")
                 cards_text = page.text_content("#workCards")
                 assert "1" in cards_text
+
+                # Browser refresh must reconstruct from server truth, not an
+                # optimistic client-only counter.
+                page.reload()
+                page.wait_for_selector('[data-testid="quick-log-application"]', state="visible")
+                summary = page.evaluate(
+                    "() => fetch('work/summary?window=today', {headers:{'X-MAZ-Control':'1'}, cache:'no-store'}).then(r => r.json())"
+                )
+                job_hunt = next(t for t in summary["tracks"] if t["track_id"] == "job_hunt")
+                assert job_hunt["today_total"] == 1
+
+                # A rapid physical double-tap produces only one additional
+                # request because the button disables synchronously for 600ms.
+                page.eval_on_selector(
+                    '[data-testid="quick-log-application"]',
+                    "button => { button.click(); button.click(); }",
+                )
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=quick-log-application]').disabled",
+                    timeout=8000,
+                )
+                summary = page.evaluate(
+                    "() => fetch('work/summary?window=today', {headers:{'X-MAZ-Control':'1'}, cache:'no-store'}).then(r => r.json())"
+                )
+                job_hunt = next(t for t in summary["tracks"] if t["track_id"] == "job_hunt")
+                assert job_hunt["today_total"] == 2
+
+                for width in (360, 390, 430):
+                    page.set_viewport_size({"width": width, "height": 800})
+                    assert page.evaluate(
+                        "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+                    )
+                assert page.eval_on_selector(
+                    '[data-testid="quick-log-application"]',
+                    "button => button.getBoundingClientRect().height",
+                ) >= 44
             finally:
                 browser.close()
     finally:

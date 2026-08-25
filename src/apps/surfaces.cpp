@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/field.h"
+#include "../core/settings.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
@@ -131,13 +132,13 @@ constexpr HubItem FLOW_ITEMS[] = {
     {"TASKS", "next actions", "tasks"},
     {"REMINDERS", "don't forget", "reminders"},
     {"SHIFT CLOCK", "field work", "shift"},
+    {"RETRO", "learn from work", "retro"},
 };
 
-// Poll cadence while the WORK glance is the visible app. Stale threshold is
-// ~3x this (spec Section 6: "if the last successful WORK poll exceeds
-// roughly 3x that interval, the Cardputer shows STALE").
-constexpr uint32_t WORK_POLL_INTERVAL_MS = 4000;
-constexpr uint32_t WORK_STALE_MS = WORK_POLL_INTERVAL_MS * 3;
+// Reuse LaptopApp's established Host-worker cadence: 10s normally, 20s in
+// FIELD mode. WORK does not introduce a tighter network loop. Stale is 3x the
+// actual interval while last-known values remain on screen.
+uint32_t workPollIntervalMs() { return Cfg.fieldMode ? 20000u : 10000u; }
 
 class WorkGlanceApp : public App {
 public:
@@ -148,8 +149,10 @@ public:
     void onEnter() override { poll(); }
 
     void update() override {
-        if (millis() - _lastPollMs >= WORK_POLL_INTERVAL_MS) poll();
-        const bool nowStale = Sys.workLoaded && (millis() - Sys.workReceivedAt > WORK_STALE_MS);
+        const uint32_t pollInterval = workPollIntervalMs();
+        if (millis() - _lastPollMs >= pollInterval) poll();
+        const bool nowStale = Sys.workLoaded &&
+                              (millis() - Sys.workReceivedAt > pollInterval * 3u);
         if (nowStale != _lastStale) { _lastStale = nowStale; invalidate(); }
     }
 

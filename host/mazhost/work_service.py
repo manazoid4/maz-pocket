@@ -20,8 +20,17 @@ class WorkService:
 
     # ---------------------------------------------------------------- utils
     def _headline_count(self, track: dict[str, Any], events: list[dict[str, Any]]) -> float:
-        primary_id = track["primary_event_type_id"]
-        return sum(e["value"] for e in events if e["track_id"] == track["id"] and e["event_type_id"] == primary_id)
+        contributing_ids = {
+            event_type["id"]
+            for event_type in track["event_types"]
+            if event_type["active"] and event_type["contributes_to_headline"]
+        }
+        return sum(
+            event["value"]
+            for event in events
+            if event["track_id"] == track["id"]
+            and event["event_type_id"] in contributing_ids
+        )
 
     def _breakdown(self, track: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         totals: dict[str, float] = {}
@@ -43,8 +52,12 @@ class WorkService:
     def summary(self, *, window: str = "today") -> dict[str, Any]:
         start, end = local_day_bounds()
         events = self.store.events_for_range(start=start, end=end)
-        tracks = [t for t in self.store.list_tracks(include_archived=False) if t["state"] == "active"]
-        tracks.sort(key=lambda t: (0 if t["pinned"] else 1, t["sort_order"]))
+        tracks = [
+            track
+            for track in self.store.list_tracks(include_archived=False)
+            if track["state"] == "active" and track["pinned"]
+        ]
+        tracks.sort(key=lambda track: (track["sort_order"], track["created_at"], track["id"]))
 
         cards = []
         for track in tracks:
@@ -73,13 +86,16 @@ class WorkService:
     # -------------------------------------------------------------- history
     def history(self, *, days: int = 7) -> dict[str, Any]:
         days = max(1, min(days, 31))
-        active_tracks = [t for t in self.store.list_tracks(include_archived=False) if t["state"] != "archived"]
+        # Archived tracks disappear from today's quick-log surface but their
+        # immutable historical attribution remains queryable.
+        historical_tracks = self.store.list_tracks(include_archived=True)
         daily: list[dict[str, Any]] = []
         for offset in range(days - 1, -1, -1):
             start, end = local_day_bounds(days_ago=offset)
             events = self.store.events_for_range(start=start, end=end)
             per_track = {
-                t["id"]: self._headline_count(t, events) for t in active_tracks
+                track["id"]: self._headline_count(track, events)
+                for track in historical_tracks
             }
             daily.append({"day_start": start, "totals": per_track})
         return {"ok": True, "days": days, "history": daily}
@@ -88,7 +104,7 @@ class WorkService:
     def cardputer_payload(self) -> dict[str, Any]:
         """Hard-capped: 4 pinned tracks max, fixed 7-length day array."""
         summary = self.summary(window="today")
-        pinned = [t for t in summary["tracks"] if t["pinned"]][:CARDPUTER_MAX_PINNED_TRACKS]
+        pinned = summary["tracks"][:CARDPUTER_MAX_PINNED_TRACKS]
         history = self.history(days=CARDPUTER_HISTORY_DAYS)
 
         track_ids = [t["track_id"] for t in pinned]

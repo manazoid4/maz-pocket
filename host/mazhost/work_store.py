@@ -10,13 +10,18 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time as datetime_time, timedelta, tzinfo
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+from .work_schema import (
+    BUILTIN_TEMPLATES,
+    MAX_NOTE_LENGTH,
+    MIGRATIONS,
+    SCHEMA_VERSION,
+)
 
 
 class WorkStoreError(RuntimeError):
@@ -27,131 +32,6 @@ class CorruptDatabaseError(WorkStoreError):
     """Raised instead of silently returning zero/empty data for a bad file."""
 
 
-@dataclass(frozen=True)
-class SeedEventType:
-    id: str
-    label: str
-    sort_order: int
-    contributes_to_headline: bool = False
-
-
-@dataclass(frozen=True)
-class SeedTrack:
-    id: str
-    name: str
-    short_label: str
-    mode: str
-    unit: str
-    primary_event_type_id: str
-    pinned: bool
-    sort_order: int
-    event_types: tuple[SeedEventType, ...]
-
-
-JOB_HUNT = SeedTrack(
-    id="job_hunt",
-    name="JOB HUNT",
-    short_label="JOB HUNT",
-    mode="count",
-    unit="applications",
-    primary_event_type_id="job_hunt.application",
-    pinned=True,
-    sort_order=0,
-    event_types=(
-        SeedEventType("job_hunt.application", "APPLICATION", 0, True),
-        SeedEventType("job_hunt.follow_up", "FOLLOW_UP", 1, False),
-        SeedEventType("job_hunt.interview", "INTERVIEW", 2, False),
-        SeedEventType("job_hunt.rejection", "REJECTION", 3, False),
-        SeedEventType("job_hunt.offer", "OFFER", 4, False),
-    ),
-)
-
-MAZ_WORKS = SeedTrack(
-    id="maz_works",
-    name="MAZ WORKS",
-    short_label="MAZ WORKS",
-    mode="count",
-    unit="events",
-    primary_event_type_id="maz_works.outreach",
-    pinned=True,
-    sort_order=1,
-    event_types=(
-        SeedEventType("maz_works.outreach", "OUTREACH", 0, True),
-        SeedEventType("maz_works.follow_up", "FOLLOW_UP", 1, False),
-        SeedEventType("maz_works.demo_audit", "DEMO_AUDIT", 2, False),
-        SeedEventType("maz_works.conversation", "CONVERSATION", 3, False),
-        SeedEventType("maz_works.call_booked", "CALL_BOOKED", 4, False),
-        SeedEventType("maz_works.proposal", "PROPOSAL", 5, False),
-        SeedEventType("maz_works.client_won", "CLIENT_WON", 6, False),
-    ),
-)
-
-BUILTIN_TEMPLATES = (JOB_HUNT, MAZ_WORKS)
-
-MAX_NOTE_LENGTH = 500
-
-_SCHEMA_STATEMENTS = """
-CREATE TABLE tracks (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    short_label TEXT NOT NULL,
-    mode TEXT NOT NULL CHECK (mode IN ('count', 'time', 'checkin')),
-    unit TEXT NOT NULL,
-    cadence TEXT NOT NULL DEFAULT 'daily' CHECK (cadence IN ('daily', 'weekly', 'none')),
-    target REAL,
-    primary_event_type_id TEXT,
-    pinned INTEGER NOT NULL DEFAULT 0,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'paused', 'archived')),
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
-);
-
-CREATE TABLE event_types (
-    id TEXT PRIMARY KEY,
-    track_id TEXT NOT NULL REFERENCES tracks(id),
-    label TEXT NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    contributes_to_headline INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1
-);
-CREATE INDEX idx_event_types_track ON event_types(track_id);
-
-CREATE TABLE work_events (
-    event_id TEXT PRIMARY KEY,
-    track_id TEXT NOT NULL REFERENCES tracks(id),
-    event_type_id TEXT NOT NULL REFERENCES event_types(id),
-    value REAL NOT NULL DEFAULT 1,
-    occurred_at REAL NOT NULL,
-    source TEXT NOT NULL CHECK (source IN ('phone_manual', 'cardputer_manual', 'import')),
-    note TEXT,
-    session_id TEXT,
-    created_at REAL NOT NULL,
-    reversal_of TEXT REFERENCES work_events(event_id),
-    reversed INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX idx_events_track_time ON work_events(track_id, occurred_at);
-CREATE INDEX idx_events_session_time ON work_events(session_id, created_at);
-"""
-
-
-def _split_statements(script: str) -> list[str]:
-    return [s.strip() for s in script.split(";") if s.strip()]
-
-
-def _migration_v1(conn: sqlite3.Connection) -> None:
-    # Individual execute() calls (not executescript(), which implicitly
-    # commits) so the whole migration stays inside the caller's transaction
-    # and a mid-step crash leaves nothing half-applied outside it.
-    for statement in _split_statements(_SCHEMA_STATEMENTS):
-        conn.execute(statement)
-
-
-MIGRATIONS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
-    (1, _migration_v1),
-)
-
-
 class WorkStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser()
@@ -160,15 +40,27 @@ class WorkStore:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
+        conn: sqlite3.Connection | None = None
         try:
             conn = sqlite3.connect(self.db_path, timeout=10, isolation_level=None)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("PRAGMA integrity_check")
+            integrity = [row[0] for row in conn.execute("PRAGMA integrity_check").fetchall()]
+            if integrity != ["ok"]:
+                raise CorruptDatabaseError(
+                    "work database integrity check failed: " + "; ".join(map(str, integrity))
+                )
+        except CorruptDatabaseError:
+            if conn is not None:
+                conn.close()
+            raise
         except sqlite3.DatabaseError as error:
+            if conn is not None:
+                conn.close()
             raise CorruptDatabaseError(f"work database unreadable: {error}") from error
         try:
+            assert conn is not None
             yield conn
         finally:
             conn.close()
@@ -290,31 +182,64 @@ class WorkStore:
                 raise
         return self.get_track(track_id)  # type: ignore[return-value]
 
-    def update_track(self, track_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-        allowed = {"name", "short_label", "target", "cadence", "pinned", "sort_order", "state"}
+    def update_track(
+        self,
+        track_id: str,
+        fields: dict[str, Any],
+        *,
+        event_type_updates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        allowed = {
+            "name", "short_label", "target", "cadence", "pinned",
+            "sort_order", "state", "primary_event_type_id",
+        }
         sets = {k: v for k, v in fields.items() if k in allowed}
-        if not sets:
+        if not sets and not event_type_updates:
             existing = self.get_track(track_id)
             if not existing:
                 raise WorkStoreError("track_not_found")
             return existing
-        sets["updated_at"] = time.time()
-        assignments = ", ".join(f"{k} = ?" for k in sets)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                cursor = conn.execute(
-                    f"UPDATE tracks SET {assignments} WHERE id = ?",
-                    (*sets.values(), track_id),
-                )
-                if cursor.rowcount == 0:
-                    conn.execute("ROLLBACK")
+                if not conn.execute(
+                    "SELECT 1 FROM tracks WHERE id = ?", (track_id,)
+                ).fetchone():
                     raise WorkStoreError("track_not_found")
+                if sets:
+                    sets["updated_at"] = time.time()
+                    assignments = ", ".join(f"{key} = ?" for key in sets)
+                    conn.execute(
+                        f"UPDATE tracks SET {assignments} WHERE id = ?",
+                        (*sets.values(), track_id),
+                    )
+                for update in event_type_updates or []:
+                    cursor = conn.execute(
+                        "UPDATE event_types SET label=?, sort_order=?, active=?, "
+                        "contributes_to_headline=? WHERE id=? AND track_id=?",
+                        (
+                            update["label"], update["sort_order"],
+                            1 if update["active"] else 0,
+                            1 if update["contributes_to_headline"] else 0,
+                            update["id"], track_id,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise WorkStoreError("event_type_not_found")
+                primary = sets.get("primary_event_type_id")
+                if primary and not conn.execute(
+                    "SELECT 1 FROM event_types WHERE id=? AND track_id=?",
+                    (primary, track_id),
+                ).fetchone():
+                    raise WorkStoreError("primary_event_type_not_found")
                 conn.execute("COMMIT")
             except WorkStoreError:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
             except Exception:
-                conn.execute("ROLLBACK")
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
         return self.get_track(track_id)  # type: ignore[return-value]
 
@@ -332,29 +257,33 @@ class WorkStore:
         session_id: str,
     ) -> tuple[dict[str, Any], bool]:
         """Returns (event, created). Idempotent on event_id."""
-        note = (note or "")[:MAX_NOTE_LENGTH] or None
+        note = " ".join((note or "").replace("\x00", "").splitlines()).strip()
+        note = note[:MAX_NOTE_LENGTH] or None
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT * FROM work_events WHERE event_id = ?", (event_id,)
-            ).fetchone()
-            if existing:
-                return dict(existing), False
-
-            track = conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
-            if not track:
-                raise WorkStoreError("track_not_found")
-            if track["state"] == "archived":
-                raise WorkStoreError("track_archived")
-            event_type = conn.execute(
-                "SELECT * FROM event_types WHERE id = ? AND track_id = ?",
-                (event_type_id, track_id),
-            ).fetchone()
-            if not event_type:
-                raise WorkStoreError("event_type_not_found")
-
-            now = time.time()
             conn.execute("BEGIN IMMEDIATE")
             try:
+                existing = conn.execute(
+                    "SELECT * FROM work_events WHERE event_id = ?", (event_id,)
+                ).fetchone()
+                if existing:
+                    conn.execute("COMMIT")
+                    return dict(existing), False
+
+                track = conn.execute(
+                    "SELECT * FROM tracks WHERE id = ?", (track_id,)
+                ).fetchone()
+                if not track:
+                    raise WorkStoreError("track_not_found")
+                if track["state"] == "archived":
+                    raise WorkStoreError("track_archived")
+                event_type = conn.execute(
+                    "SELECT * FROM event_types WHERE id = ? AND track_id = ? AND active = 1",
+                    (event_type_id, track_id),
+                ).fetchone()
+                if not event_type:
+                    raise WorkStoreError("event_type_not_found")
+
+                now = time.time()
                 conn.execute(
                     "INSERT INTO work_events (event_id, track_id, event_type_id, value, "
                     "occurred_at, source, note, session_id, created_at, reversal_of, reversed) "
@@ -363,8 +292,13 @@ class WorkStore:
                      session_id, now),
                 )
                 conn.execute("COMMIT")
+            except WorkStoreError:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
             except Exception:
-                conn.execute("ROLLBACK")
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
             row = conn.execute(
                 "SELECT * FROM work_events WHERE event_id = ?", (event_id,)
@@ -379,22 +313,22 @@ class WorkStore:
         against a stale phone UI undoing a different event than the user saw.
         """
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM work_events WHERE session_id = ? AND reversed = 0 "
-                "AND reversal_of IS NULL ORDER BY created_at DESC LIMIT 1",
-                (session_id,),
-            ).fetchone()
-            if not row:
-                raise WorkStoreError("no_event_to_undo")
-            target = dict(row)
-            if expected_event_id and target["event_id"] != expected_event_id:
-                raise WorkStoreError("stale_undo_target")
-            now = time.time()
-            reversal_id = f"undo_{target['event_id']}_{int(now * 1000)}"
             conn.execute("BEGIN IMMEDIATE")
             try:
+                row = conn.execute(
+                    "SELECT * FROM work_events WHERE session_id = ? AND reversed = 0 "
+                    "AND reversal_of IS NULL ORDER BY created_at DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                if not row:
+                    raise WorkStoreError("no_event_to_undo")
+                target = dict(row)
+                if expected_event_id and target["event_id"] != expected_event_id:
+                    raise WorkStoreError("stale_undo_target")
+                now = time.time()
+                reversal_id = "undo_" + uuid.uuid4().hex
                 conn.execute(
-                    "UPDATE work_events SET reversed = 1 WHERE event_id = ?",
+                    "UPDATE work_events SET reversed = 1 WHERE event_id = ? AND reversed = 0",
                     (target["event_id"],),
                 )
                 conn.execute(
@@ -405,8 +339,13 @@ class WorkStore:
                      now, target["source"], "undo", session_id, now, target["event_id"]),
                 )
                 conn.execute("COMMIT")
+            except WorkStoreError:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
             except Exception:
-                conn.execute("ROLLBACK")
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
             return dict(conn.execute(
                 "SELECT * FROM work_events WHERE event_id = ?", (reversal_id,)
@@ -426,10 +365,25 @@ class WorkStore:
             return [dict(r) for r in rows]
 
 
-def local_day_bounds(when: float | None = None, days_ago: int = 0) -> tuple[float, float]:
+def local_day_bounds(
+    when: float | None = None,
+    days_ago: int = 0,
+    *,
+    timezone: tzinfo | None = None,
+) -> tuple[float, float]:
     """UTC epoch [start, end) for the local calendar day, `days_ago` days back."""
-    local = datetime.fromtimestamp(when if when is not None else time.time()).astimezone()
-    day = (local - timedelta(days=days_ago)).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = day.timestamp()
-    end = (day + timedelta(days=1)).timestamp()
+    instant = when if when is not None else time.time()
+    if timezone is not None:
+        local_date = datetime.fromtimestamp(instant, timezone).date() - timedelta(days=days_ago)
+        start = datetime.combine(local_date, datetime_time.min, timezone).timestamp()
+        end = datetime.combine(local_date + timedelta(days=1), datetime_time.min, timezone).timestamp()
+        return start, end
+
+    # ``datetime.astimezone().tzinfo`` can be a fixed-offset snapshot on
+    # Windows. Build each local midnight through mktime so the operating
+    # system applies the correct DST rule independently to both boundaries.
+    local_date = date.fromtimestamp(instant) - timedelta(days=days_ago)
+    next_date = local_date + timedelta(days=1)
+    start = time.mktime((local_date.year, local_date.month, local_date.day, 0, 0, 0, -1, -1, -1))
+    end = time.mktime((next_date.year, next_date.month, next_date.day, 0, 0, 0, -1, -1, -1))
     return start, end

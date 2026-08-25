@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import concurrent.futures
 import sqlite3
+import subprocess
+import sys
 import time
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -41,88 +47,79 @@ def test_repeated_bootstrap_is_noop(tmp_path):
 
 def test_migration_crash_mid_step_resumes_cleanly(tmp_path, monkeypatch):
     store = make_store(tmp_path)
+    child = r"""
+import os
+import sys
+import mazhost.work_store as module
 
-    calls = {"n": 0}
-    real_v1 = MIGRATIONS[0][1]
+def crash_mid_migration(conn):
+    conn.execute("CREATE TABLE crash_marker (id TEXT PRIMARY KEY)")
+    os._exit(23)
 
-    def flaky_v1(conn):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            conn.execute(
-                "CREATE TABLE tracks (id TEXT PRIMARY KEY, name TEXT NOT NULL, "
-                "short_label TEXT NOT NULL, mode TEXT NOT NULL, unit TEXT NOT NULL, "
-                "cadence TEXT NOT NULL DEFAULT 'daily', target REAL, "
-                "primary_event_type_id TEXT, pinned INTEGER NOT NULL DEFAULT 0, "
-                "sort_order INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'active', "
-                "created_at REAL NOT NULL, updated_at REAL NOT NULL)"
-            )
-            raise RuntimeError("simulated crash mid-migration")
-        real_v1(conn)
-
-    monkeypatch.setattr("mazhost.work_store.MIGRATIONS", ((1, flaky_v1),))
-    with pytest.raises(RuntimeError):
-        store.bootstrap()
+module.MIGRATIONS = ((1, crash_mid_migration),)
+module.WorkStore(sys.argv[1]).bootstrap()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", child, str(store.root)],
+        cwd=Path(__file__).parents[1],
+        check=False,
+    )
+    assert result.returncode == 23
 
     with sqlite3.connect(store.db_path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert version == 0  # rolled back, never partially applied
 
-    monkeypatch.setattr("mazhost.work_store.MIGRATIONS", MIGRATIONS)
     store.bootstrap()  # resumes and completes cleanly
     store.bootstrap()  # idempotent — no double-apply
     with sqlite3.connect(store.db_path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
+        crash_table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='crash_marker'"
+        ).fetchone()
     assert version == 1
+    assert crash_table is None
     assert {t["id"] for t in store.list_tracks()} == {"job_hunt", "maz_works"}
 
 
-class _FlakyConnWrapper:
-    """Wraps a real sqlite3.Connection; sqlite3.Connection is an immutable C
-    type so its bound methods cannot be monkeypatched directly."""
-
-    def __init__(self, real, calls):
-        self._real = real
-        self._calls = calls
-
-    def execute(self, sql, *args, **kwargs):
-        if "INSERT INTO work_events" in sql:
-            self._calls["n"] += 1
-            if self._calls["n"] == 1:
-                raise sqlite3.OperationalError("simulated crash mid-transaction")
-        return self._real.execute(sql, *args, **kwargs)
-
-    def __getattr__(self, name):
-        return getattr(self._real, name)
-
-    def __setattr__(self, name, value):
-        if name in ("_real", "_calls"):
-            object.__setattr__(self, name, value)
-        else:
-            setattr(self._real, name, value)
-
-
 def test_write_crash_mid_transaction_leaves_no_partial_row(tmp_path, monkeypatch):
-    import mazhost.work_store as work_store_module
-
     store = make_store(tmp_path)
     store.bootstrap()
+    child = r"""
+import os
+import sqlite3
+import sys
+import time
 
-    calls = {"n": 0}
-    real_connect = work_store_module.sqlite3.connect
-
-    def flaky_connect(*args, **kwargs):
-        return _FlakyConnWrapper(real_connect(*args, **kwargs), calls)
-
-    monkeypatch.setattr(work_store_module.sqlite3, "connect", flaky_connect)
-    with pytest.raises(sqlite3.OperationalError):
-        store.create_event(
-            event_id="evt_crash", track_id="job_hunt", event_type_id="job_hunt.application",
-            value=1, occurred_at=time.time(), source="phone_manual", note=None, session_id="s1",
-        )
-    monkeypatch.setattr(work_store_module.sqlite3, "connect", real_connect)
+conn = sqlite3.connect(sys.argv[1], isolation_level=None)
+conn.execute("PRAGMA foreign_keys=ON")
+conn.execute("BEGIN IMMEDIATE")
+conn.execute(
+    "INSERT INTO work_events (event_id, track_id, event_type_id, value, occurred_at, "
+    "source, note, session_id, created_at, reversal_of, reversed) "
+    "VALUES (?,?,?,?,?,?,?,?,?,NULL,0)",
+    ("evt_crash", "job_hunt", "job_hunt.application", 1, time.time(),
+     "phone_manual", None, "s1", time.time()),
+)
+os._exit(24)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", child, str(store.db_path)],
+        cwd=Path(__file__).parents[1],
+        check=False,
+    )
+    assert result.returncode == 24
     with sqlite3.connect(store.db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM work_events WHERE event_id = ?", ("evt_crash",)).fetchone()[0]
     assert count == 0
+
+
+def test_wal_and_foreign_keys_are_enabled_on_every_store_connection(tmp_path):
+    store = make_store(tmp_path)
+    store.bootstrap()
+    with store._connect() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
 
 def test_corrupt_db_file_fails_loudly_not_silently_zero(tmp_path):
@@ -153,6 +150,29 @@ def test_duplicate_event_id_post_is_noop_not_duplicate(tmp_path):
     assert count == 1
 
 
+def test_concurrent_duplicate_event_id_is_one_create_and_all_other_calls_are_noops(tmp_path):
+    store = make_store(tmp_path)
+    store.bootstrap()
+
+    def create_once(_index):
+        return store.create_event(
+            event_id="evt_concurrent", track_id="job_hunt",
+            event_type_id="job_hunt.application", value=1,
+            occurred_at=time.time(), source="phone_manual", note=None,
+            session_id="same_phone_session",
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(create_once, range(32)))
+
+    assert sum(1 for _event, created in results if created) == 1
+    assert {event["event_id"] for event, _created in results} == {"evt_concurrent"}
+    with sqlite3.connect(store.db_path) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM work_events WHERE event_id='evt_concurrent'"
+        ).fetchone()[0] == 1
+
+
 def test_undo_reverses_only_current_session_last_event(tmp_path):
     store = make_store(tmp_path)
     store.bootstrap()
@@ -172,6 +192,35 @@ def test_undo_reverses_only_current_session_last_event(tmp_path):
         evt_b = dict(conn.execute("SELECT * FROM work_events WHERE event_id='evt_b'").fetchone())
     assert evt_a["reversed"] == 1
     assert evt_b["reversed"] == 0  # other device's session untouched
+
+
+def test_concurrent_undo_creates_exactly_one_reversal(tmp_path):
+    store = make_store(tmp_path)
+    store.bootstrap()
+    store.create_event(
+        event_id="evt_racy_undo", track_id="job_hunt",
+        event_type_id="job_hunt.application", value=1,
+        occurred_at=time.time(), source="phone_manual", note=None,
+        session_id="same_session",
+    )
+
+    def undo_once(_index):
+        try:
+            return store.undo_last(
+                session_id="same_session", expected_event_id="evt_racy_undo"
+            )["reversal_of"]
+        except WorkStoreError as exc:
+            return str(exc)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(undo_once, range(8)))
+
+    assert results.count("evt_racy_undo") == 1
+    assert results.count("no_event_to_undo") == 7
+    with sqlite3.connect(store.db_path) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM work_events WHERE reversal_of='evt_racy_undo'"
+        ).fetchone()[0] == 1
 
 
 def test_archived_track_rejects_new_events_but_keeps_history(tmp_path):
@@ -212,20 +261,22 @@ def test_headline_count_only_includes_primary_event_type(tmp_path):
 
 
 def test_dst_fallback_transition_counts_event_once_correct_local_day(tmp_path):
-    # 2025-11-02 02:30 US/Eastern (fallback repeats the 01:00-02:00 hour) —
-    # the event still lands in exactly one local calendar day, never both.
+    # The repeated 01:30 after US/Eastern falls back still belongs to one
+    # 25-hour local day, never the adjacent day.
     store = make_store(tmp_path)
     store.bootstrap()
-    ambiguous_utc = 1762061400.0  # 2025-11-02 06:30 UTC
+    eastern = ZoneInfo("America/New_York")
+    ambiguous_utc = datetime(2025, 11, 2, 1, 30, tzinfo=eastern, fold=1).timestamp()
     store.create_event(
         event_id="evt_dst", track_id="job_hunt", event_type_id="job_hunt.application",
         value=1, occurred_at=ambiguous_utc, source="phone_manual", note=None, session_id="s1",
     )
-    start, end = local_day_bounds(when=ambiguous_utc)
+    start, end = local_day_bounds(when=ambiguous_utc, timezone=eastern)
+    assert end - start == 25 * 60 * 60
     matches = store.events_for_range(start=start, end=end)
     assert sum(1 for e in matches if e["event_id"] == "evt_dst") == 1
-    prev_start, _ = local_day_bounds(when=ambiguous_utc, days_ago=1)
-    next_start, next_end = local_day_bounds(when=ambiguous_utc, days_ago=-1)
+    prev_start, _ = local_day_bounds(when=ambiguous_utc, days_ago=1, timezone=eastern)
+    next_start, next_end = local_day_bounds(when=ambiguous_utc, days_ago=-1, timezone=eastern)
     outside = store.events_for_range(start=prev_start, end=start) + store.events_for_range(start=next_start, end=next_end)
     assert not any(e["event_id"] == "evt_dst" for e in outside)
 
@@ -239,11 +290,35 @@ def test_renamed_event_type_label_does_not_affect_historical_attribution(tmp_pat
         event_id="evt_app2", track_id="job_hunt", event_type_id="job_hunt.application",
         value=1, occurred_at=time.time(), source="phone_manual", note=None, session_id="s1",
     )
-    with sqlite3.connect(store.db_path) as conn:
-        conn.execute(
-            "UPDATE event_types SET label = 'SUBMITTED' WHERE id = 'job_hunt.application'"
-        )
-        conn.commit()
+    store.update_track(
+        "job_hunt",
+        {},
+        event_type_updates=[
+            {
+                "id": "job_hunt.application",
+                "label": "SUBMITTED",
+                "sort_order": 0,
+                "active": True,
+                "contributes_to_headline": True,
+            }
+        ],
+    )
     summary = WorkService(store).summary(window="today")
     job_hunt = next(t for t in summary["tracks"] if t["track_id"] == "job_hunt")
     assert job_hunt["today_total"] == 1  # attribution keyed by id, survives the rename
+    application = next(
+        e for e in job_hunt["breakdown"] if e["event_type_id"] == "job_hunt.application"
+    )
+    assert application["label"] == "SUBMITTED"
+
+
+def test_notes_are_bounded_and_sanitized_like_other_capture_text(tmp_path):
+    store = make_store(tmp_path)
+    store.bootstrap()
+    event, _created = store.create_event(
+        event_id="evt_note", track_id="job_hunt",
+        event_type_id="job_hunt.application", value=1,
+        occurred_at=time.time(), source="phone_manual",
+        note="  first line\x00\nsecond line  ", session_id="s1",
+    )
+    assert event["note"] == "first line second line"

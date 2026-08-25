@@ -7,6 +7,9 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -79,6 +82,46 @@ std::string jsonError(JsonDocument& doc, const char* fallback) {
     if (doc["detail"].is<const char*>()) return doc["detail"].as<const char*>();
     if (doc["error"].is<const char*>()) return doc["error"].as<const char*>();
     return fallback;
+}
+
+enum class BodyReadResult : uint8_t { Ok, TooLarge, Incomplete };
+
+BodyReadResult readBoundedBody(HTTPClient& http, String& body, size_t maxBytes) {
+    const int expected = http.getSize();
+    if (expected > 0 && static_cast<size_t>(expected) > maxBytes)
+        return BodyReadResult::TooLarge;
+
+    body = "";
+    body.reserve(expected > 0 ? static_cast<size_t>(expected) : 512u);
+    WiFiClient* stream = http.getStreamPtr();
+    if (!stream) return BodyReadResult::Incomplete;
+
+    uint8_t chunk[256];
+    uint32_t lastProgress = millis();
+    while (http.connected() &&
+           (expected < 0 || body.length() < static_cast<size_t>(expected))) {
+        const size_t available = static_cast<size_t>(stream->available());
+        if (!available) {
+            if (millis() - lastProgress > 12000u) break;
+            delay(1);
+            continue;
+        }
+        size_t wanted = std::min(available, sizeof(chunk));
+        if (expected >= 0) {
+            const size_t remaining = static_cast<size_t>(expected) - body.length();
+            wanted = std::min(wanted, remaining);
+        }
+        if (body.length() + wanted > maxBytes) return BodyReadResult::TooLarge;
+        const int count = stream->readBytes(chunk, wanted);
+        if (count <= 0) break;
+        body.concat(reinterpret_cast<const char*>(chunk), static_cast<unsigned int>(count));
+        lastProgress = millis();
+    }
+
+    if (body.length() > maxBytes) return BodyReadResult::TooLarge;
+    if (expected >= 0 && body.length() != static_cast<size_t>(expected))
+        return BodyReadResult::Incomplete;
+    return BodyReadResult::Ok;
 }
 
 void fieldOnline() { Sys.hostOnline = true; }
@@ -228,43 +271,91 @@ SystemStatus systemStatus() {
 }
 
 WorkSummary workSummary() {
+    constexpr size_t MAX_WORK_PAYLOAD_BYTES = 4096;
     WorkSummary out;
     for (const auto& base : fieldBases()) {
         HTTPClient http;
         if (!beginField(http, base.first, "/work/cardputer", base.second)) continue;
         const int status = http.GET();
-        const String body = status > 0 ? http.getString() : String();
+        String body;
+        const BodyReadResult read = status > 0
+                                        ? readBoundedBody(http, body, MAX_WORK_PAYLOAD_BYTES)
+                                        : BodyReadResult::Incomplete;
         http.end();
         if (status <= 0) continue;
-        // Bounded parse: reject/ignore an oversized payload rather than
-        // growing an unbounded buffer for it (spec Section 6 payload contract).
-        if (body.length() > 4096) { out.error = "work payload too large"; return out; }
+        if (read == BodyReadResult::TooLarge) {
+            out.error = "work payload too large";
+            return out;
+        }
+        if (read != BodyReadResult::Ok) {
+            out.error = "incomplete work response";
+            return out;
+        }
         JsonDocument doc;
         if (deserializeJson(doc, body)) { out.error = "invalid work response"; return out; }
         if (status < 200 || status >= 300) { out.error = jsonError(doc, "work unavailable"); return out; }
-        fieldOnline();
-        out.ok = doc["ok"] | true;
+
+        // Fail the whole snapshot if any required field is absent or malformed.
+        // finishWork() then retains the previous successful data instead of
+        // replacing unknown values with default zeroes.
+        if (!doc["ok"].is<bool>() || !doc["ok"].as<bool>() ||
+            !doc["tracks"].is<JsonArray>() || !doc["seven_day"].is<JsonArray>()) {
+            out.error = "malformed work response";
+            return out;
+        }
         JsonArray tracks = doc["tracks"].as<JsonArray>();
+        if (tracks.size() > WORK_MAX_TRACKS) {
+            out.error = "too many work tracks";
+            return out;
+        }
         int i = 0;
         for (JsonObject t : tracks) {
-            if (i >= WORK_MAX_TRACKS) break;
-            out.tracks[i].id = t["track_id"] | "";
-            out.tracks[i].shortLabel = t["short_label"] | "";
-            out.tracks[i].todayTotal = t["today_total"] | 0.0f;
+            const char* id = t["track_id"] | nullptr;
+            const char* label = t["short_label"] | nullptr;
+            if (!id || !label || !id[0] || !label[0] || strlen(id) > 80 ||
+                strlen(label) > 16 || !t["today_total"].is<float>()) {
+                out.error = "malformed work track";
+                return out;
+            }
+            const float today = t["today_total"].as<float>();
+            if (!std::isfinite(today)) { out.error = "invalid work total"; return out; }
+            out.tracks[i].id = id;
+            out.tracks[i].shortLabel = label;
+            out.tracks[i].todayTotal = today;
             out.tracks[i].hasTarget = !t["target"].isNull();
-            out.tracks[i].target = t["target"] | 0.0f;
+            if (out.tracks[i].hasTarget) {
+                if (!t["target"].is<float>()) { out.error = "invalid work target"; return out; }
+                out.tracks[i].target = t["target"].as<float>();
+                if (!std::isfinite(out.tracks[i].target)) {
+                    out.error = "invalid work target";
+                    return out;
+                }
+            }
             ++i;
         }
         out.trackCount = i;
         JsonArray seven = doc["seven_day"].as<JsonArray>();
+        if (seven.size() != WORK_HISTORY_DAYS) {
+            out.error = "invalid work history length";
+            return out;
+        }
         int d = 0;
-        for (JsonObject day : seven) {
-            if (d >= WORK_HISTORY_DAYS) break;
+        for (JsonVariant dayValue : seven) {
+            if (!dayValue.is<JsonObject>()) { out.error = "invalid work history"; return out; }
+            JsonObject day = dayValue.as<JsonObject>();
+            if (day.size() > WORK_MAX_TRACKS) { out.error = "work history too wide"; return out; }
             float total = 0;
-            for (JsonPair kv : day) total += kv.value().as<float>();
+            for (JsonPair kv : day) {
+                if (!kv.value().is<float>()) { out.error = "invalid work history total"; return out; }
+                const float value = kv.value().as<float>();
+                if (!std::isfinite(value)) { out.error = "invalid work history total"; return out; }
+                total += value;
+            }
             out.sevenDay[d] = total;
             ++d;
         }
+        out.ok = true;
+        fieldOnline();
         return out;
     }
     Sys.hostOnline = false;
