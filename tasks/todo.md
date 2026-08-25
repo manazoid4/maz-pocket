@@ -1,34 +1,93 @@
-# MAZ Pocket v0.9 WORK task list
+# MAZ Pocket v1.0.0 — execution checklist
 
-## Contracts and foundations
+## Reconcile
 
-- [ ] 1. Lock six-tile navigation and Work/MCP response contracts.
-- [ ] 2. Persist incremental Codex/Claude Work telemetry.
-- [ ] 3. Scan Codex/Claude/OpenCode/Hermes MCP state read-only.
-- [ ] Checkpoint: schemas reviewed, focused tests green, firmware builds.
+- [ ] Start from latest `main`; inspect open PRs/branches/releases/workflows.
+- [ ] Preserve current v0.8 CONTROL behavior and stable IDs.
+- [ ] Lock compact Track/Event/summary/history contracts.
 
-## WORK loop
+## Durable Work core
 
-- [ ] 4. Aggregate and serve authenticated WORK summaries.
-- [ ] 5. Render direct six-metric WORK dashboard on Cardputer.
-- [ ] Checkpoint: truthful metrics and physical offline/refresh flow pass.
+- [ ] Add versioned SQLite Track + Event store under `~/.maz-pocket/work/`.
+- [ ] Add idempotent JOB HUNT template.
+- [ ] Add idempotent MAZ WORKS template.
+- [ ] Add custom count/time/check-in tracks.
+- [ ] Add append-only progress events.
+- [ ] Add safe undo/reversal semantics.
+- [ ] Add correct UTC/local-time aggregation and DST tests.
+- [ ] Add bounded seven-day summary/history.
 
-## MCP loop
+## API
 
-- [ ] 6. Implement transactional Fix & Activate Selected.
-- [ ] 7. Add phone WORK/MCP/AUTHORITY tabs.
-- [ ] 8. Add read-only MCP readiness to Cardputer CONTROL.
-- [ ] Checkpoint: disposable repair/rollback matrix and phone flow pass.
+- [ ] Add authenticated Work summary route.
+- [ ] Add track list/create/update/reorder/pin/pause/archive routes.
+- [ ] Add event append + undo routes.
+- [ ] Add bounded history route.
+- [ ] Add compact Cardputer payload tests.
 
-## Release
+## Phone WORK UI
 
-- [ ] 9. Add minimal portal handoff links and wording.
-- [ ] 10. Pass automated, packaged, disposable-config and physical gates.
-- [ ] Publish v0.9.0 only through the existing release workflow.
+- [ ] Refactor phone shell to `WORK | AUTHORITY`.
+- [ ] Make WORK default.
+- [ ] JOB HUNT large card + one-tap APPLICATION.
+- [ ] MAZ WORKS card + one-tap common acquisition actions.
+- [ ] Pinned custom track cards.
+- [ ] Undo Last.
+- [ ] Seven-day history.
+- [ ] Manage Tracks create/edit/reorder/pin/pause/archive.
+- [ ] Keep authority approvals/grants/manual session/audit/revoke intact.
+- [ ] Validate mobile width/touch/tap-count acceptance.
 
-## Explicitly deferred
+## Cardputer WORK
 
-- [ ] v0.9.x: Start Work, Start Focus and Notes & Text presentation wrappers.
-- [ ] v0.9.x: OpenCode telemetry and richer Work/MCP detail.
-- [ ] Later: automatic time capture, heatmaps, forecasts and deep analytics.
-- [ ] Later: any transcript replay, remote sync or new privacy boundary.
+- [ ] Keep exactly six Home surfaces.
+- [ ] Keep internal `flow` ID; visible label becomes WORK.
+- [ ] WORK opens directly on progress dashboard.
+- [ ] Prioritize JOB HUNT + MAZ WORKS.
+- [ ] Show pinned custom progress when space allows.
+- [ ] Show compact seven-day state.
+- [ ] Show stale/offline last-good state honestly.
+- [ ] Preserve Focus/Sprint/Tasks/Reminders/Shift/Retro through secondary tools.
+- [ ] Use existing bounded Host worker; no blocking UI network work.
+
+## Optional safe integration
+
+- [ ] Add explicit Task completion timestamp/event if Tasks feed WORK.
+- [ ] Add Focus/Sprint/Shift summary persistence if safe.
+- [ ] Add Agent Nudge secondary context if safe.
+- [ ] Add local JSON/CSV export/import if safe.
+
+## Portal + installation
+
+- [ ] `mazpocket.local` uses WORK wording and OPEN WORK handoff.
+- [ ] Keep pairing/live screen/settings/staging intact.
+- [ ] Combined install package remains the default frictionless path.
+- [ ] Preserve existing `.env`/pairing config on Core upgrade.
+- [ ] Preserve M5Launcher installer/rollback ownership.
+- [ ] Preserve Windows PowerShell 5.1 shipped-installer validation.
+
+## v1 release gates
+
+- [ ] Multi-perspective product/UX/data/security/firmware/release/regression audit.
+- [ ] Fix all critical/high findings.
+- [ ] Full host tests green.
+- [ ] Version guard green.
+- [ ] Launcher handoff guard green.
+- [ ] Cardputer ADV build green and under slot ceiling.
+- [ ] Release packaging green.
+- [ ] Physical ADV WORK + regression gate passes.
+- [ ] Set `VERSION` and all canonical docs/package identities to `1.0.0`.
+- [ ] Merge complete v1 implementation to `main`.
+- [ ] Ensure no unfinished v1 PR remains open.
+- [ ] Trigger `.release/v1.0.0` only after the merge/gates.
+- [ ] Verify GitHub Release v1.0.0 contains Core, Cardputer, combined install ZIP, raw bin and SHA-256 evidence.
+- [ ] Default handoff to the user is the single combined v1.0.0 install package.
+
+## Deferred after v1
+
+- [ ] MCP Fix & Activate.
+- [ ] Deep Codex/Claude/OpenCode/Hermes telemetry.
+- [ ] Token/API Value headline analytics.
+- [ ] Automatic desktop productivity surveillance.
+- [ ] Cloud sync/accounts.
+- [ ] Complex project management and heatmaps.
