@@ -26,6 +26,7 @@ void toggleShift();
 std::string shiftElapsedText();
 
 void requestSystemStatus();
+void requestWorkSummary();
 void queueBeam(const std::string& text);
 
 }  // namespace field

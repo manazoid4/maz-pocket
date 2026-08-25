@@ -94,6 +94,28 @@ struct SystemStatus {
     std::string error;
 };
 
+// WORK Consistency glance payload. Server-side hard cap (spec): at most 4
+// pinned tracks, a fixed 7-length day array — mirrored here as fixed-size,
+// bounded fields so a malformed/oversized response cannot overflow anything.
+constexpr int WORK_MAX_TRACKS = 4;
+constexpr int WORK_HISTORY_DAYS = 7;
+
+struct WorkTrack {
+    std::string id;
+    std::string shortLabel;
+    float todayTotal = 0;
+    bool hasTarget = false;
+    float target = 0;
+};
+
+struct WorkSummary {
+    bool ok = false;
+    int trackCount = 0;
+    WorkTrack tracks[WORK_MAX_TRACKS];
+    float sevenDay[WORK_HISTORY_DAYS] = {};
+    std::string error;
+};
+
 struct TeachDisplay {
     std::string id;
     std::string name;
@@ -149,6 +171,7 @@ TeachStatus teachStatus(const std::string& sessionId);
 Reply beamSend(const std::string& text);
 BeamMessage beamPull();
 SystemStatus systemStatus();
+WorkSummary workSummary();
 
 CoreStatus coreStatus();
 std::vector<CoreProject> coreProjects(std::string& error);

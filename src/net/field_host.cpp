@@ -227,5 +227,50 @@ SystemStatus systemStatus() {
     return out;
 }
 
+WorkSummary workSummary() {
+    WorkSummary out;
+    for (const auto& base : fieldBases()) {
+        HTTPClient http;
+        if (!beginField(http, base.first, "/work/cardputer", base.second)) continue;
+        const int status = http.GET();
+        const String body = status > 0 ? http.getString() : String();
+        http.end();
+        if (status <= 0) continue;
+        // Bounded parse: reject/ignore an oversized payload rather than
+        // growing an unbounded buffer for it (spec Section 6 payload contract).
+        if (body.length() > 4096) { out.error = "work payload too large"; return out; }
+        JsonDocument doc;
+        if (deserializeJson(doc, body)) { out.error = "invalid work response"; return out; }
+        if (status < 200 || status >= 300) { out.error = jsonError(doc, "work unavailable"); return out; }
+        fieldOnline();
+        out.ok = doc["ok"] | true;
+        JsonArray tracks = doc["tracks"].as<JsonArray>();
+        int i = 0;
+        for (JsonObject t : tracks) {
+            if (i >= WORK_MAX_TRACKS) break;
+            out.tracks[i].id = t["track_id"] | "";
+            out.tracks[i].shortLabel = t["short_label"] | "";
+            out.tracks[i].todayTotal = t["today_total"] | 0.0f;
+            out.tracks[i].hasTarget = !t["target"].isNull();
+            out.tracks[i].target = t["target"] | 0.0f;
+            ++i;
+        }
+        out.trackCount = i;
+        JsonArray seven = doc["seven_day"].as<JsonArray>();
+        int d = 0;
+        for (JsonObject day : seven) {
+            if (d >= WORK_HISTORY_DAYS) break;
+            float total = 0;
+            for (JsonPair kv : day) total += kv.value().as<float>();
+            out.sevenDay[d] = total;
+            ++d;
+        }
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
+}
+
 }  // namespace host
 }  // namespace maz

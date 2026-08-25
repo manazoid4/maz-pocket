@@ -37,6 +37,7 @@ uint32_t gNextOutboxTry = 0;
 uint32_t gOutboxBackoffMs = 15000;
 uint32_t gNextBeamPoll = 0;
 bool gSystemRequested = false;
+bool gWorkRequested = false;
 bool gReminderDue = false;
 
 std::string& quickSetting(int slot) {
@@ -185,6 +186,22 @@ void finishSystem(const host::SystemStatus& s) {
     shell::invalidate();
 }
 
+void finishWork(const host::WorkSummary& s) {
+    gWorkRequested = false;
+    if (!s.ok) return;  // keep last-known values on a failed poll — never blank/zero
+    Sys.workLoaded = true;
+    Sys.workReceivedAt = millis();
+    Sys.workTrackCount = static_cast<uint8_t>(std::min(s.trackCount, SysState::WORK_MAX_TRACKS));
+    for (int i = 0; i < Sys.workTrackCount; ++i) {
+        Sys.workTrackLabel[i] = s.tracks[i].shortLabel;
+        Sys.workTrackToday[i] = s.tracks[i].todayTotal;
+        Sys.workTrackHasTarget[i] = s.tracks[i].hasTarget;
+        Sys.workTrackTarget[i] = s.tracks[i].target;
+    }
+    for (int d = 0; d < SysState::WORK_HISTORY_DAYS; ++d) Sys.workSeven[d] = s.sevenDay[d];
+    shell::invalidate();
+}
+
 bool submitNextOutbox() {
     if (!store::ready()) return false;
     const auto rows = store::loadRecords("outbox", 64);
@@ -254,6 +271,11 @@ void update() {
                 if (host_worker::takeSystemStatusResult(r)) finishSystem(r);
                 break;
             }
+            case host_worker::JobKind::WorkSummary: {
+                host::WorkSummary r;
+                if (host_worker::takeWorkSummaryResult(r)) finishWork(r);
+                break;
+            }
             default: break;  // COMM/PC results belong to their caller.
         }
     }
@@ -270,6 +292,10 @@ void update() {
 
     if (gSystemRequested) {
         if (host_worker::submitSystemStatus()) return;
+    }
+
+    if (gWorkRequested) {
+        if (host_worker::submitWorkSummary()) return;
     }
 
     if (Sys.outboxQueued && static_cast<int32_t>(millis() - gNextOutboxTry) >= 0) {
@@ -391,6 +417,8 @@ void requestSystemStatus() {
         Sys.laptopStatusAt = millis();
     }
 }
+
+void requestWorkSummary() { gWorkRequested = true; }
 
 void queueBeam(const std::string& text) {
     if (text.empty()) return;
