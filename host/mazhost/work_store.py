@@ -9,6 +9,7 @@ mazhost, so this store is the first and only one)."""
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -22,6 +23,9 @@ from .work_schema import (
     MIGRATIONS,
     SCHEMA_VERSION,
 )
+
+
+_BOOTSTRAP_LOCK = threading.RLock()
 
 
 class WorkStoreError(RuntimeError):
@@ -44,6 +48,7 @@ class WorkStore:
         try:
             conn = sqlite3.connect(self.db_path, timeout=10, isolation_level=None)
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=10000")
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
             integrity = [row[0] for row in conn.execute("PRAGMA integrity_check").fetchall()]
@@ -68,32 +73,37 @@ class WorkStore:
     # ------------------------------------------------------------ bootstrap
     def bootstrap(self) -> None:
         """Idempotent: safe on every Core boot, safe to call repeatedly."""
-        with self._connect() as conn:
-            current = conn.execute("PRAGMA user_version").fetchone()[0]
-            for target_version, migrate in MIGRATIONS:
-                if current >= target_version:
-                    continue
-                conn.execute("BEGIN IMMEDIATE")
-                try:
-                    migrate(conn)
-                    conn.execute(f"PRAGMA user_version = {target_version}")
-                    conn.execute("COMMIT")
-                    current = target_version
-                except Exception:
-                    conn.execute("ROLLBACK")
-                    raise
-            self._seed_templates(conn)
+        # The host can construct the phone and API apps concurrently during a
+        # fresh start. Serialize same-process bootstrap while SQLite's own
+        # BEGIN IMMEDIATE + busy timeout protects independent processes.
+        with _BOOTSTRAP_LOCK:
+            with self._connect() as conn:
+                current = conn.execute("PRAGMA user_version").fetchone()[0]
+                for target_version, migrate in MIGRATIONS:
+                    if current >= target_version:
+                        continue
+                    conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        migrate(conn)
+                        conn.execute(f"PRAGMA user_version = {target_version}")
+                        conn.execute("COMMIT")
+                        current = target_version
+                    except Exception:
+                        conn.execute("ROLLBACK")
+                        raise
+                self._seed_templates(conn)
 
     def _seed_templates(self, conn: sqlite3.Connection) -> None:
         for template in BUILTIN_TEMPLATES:
-            existing = conn.execute(
-                "SELECT id FROM tracks WHERE id = ?", (template.id,)
-            ).fetchone()
-            if existing:
-                continue  # never overwrite a user-edited seeded track
             now = time.time()
             conn.execute("BEGIN IMMEDIATE")
             try:
+                existing = conn.execute(
+                    "SELECT id FROM tracks WHERE id = ?", (template.id,)
+                ).fetchone()
+                if existing:
+                    conn.execute("COMMIT")
+                    continue  # never overwrite a user-edited seeded track
                 conn.execute(
                     "INSERT INTO tracks (id, name, short_label, mode, unit, cadence, "
                     "target, primary_event_type_id, pinned, sort_order, state, "

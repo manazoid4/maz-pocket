@@ -104,6 +104,18 @@ def test_oversized_event_note_returns_422(tmp_path):
     assert resp.status_code == 422
 
 
+def test_non_finite_target_returns_422_not_a_serialization_error(tmp_path):
+    client = make_client(tmp_path)
+    resp = client.post(
+        "work/tracks",
+        content=(
+            '{"name":"TEST","short_label":"TEST","mode":"count",'
+            '"unit":"x","target":Infinity,"event_types":["DONE"]}'
+        ),
+    )
+    assert resp.status_code == 422
+
+
 def test_blank_custom_event_type_returns_422_not_500(tmp_path):
     client = make_client(tmp_path)
     resp = client.post(
@@ -182,6 +194,40 @@ def test_maz_works_breakdown_never_implies_close_rate(tmp_path):
     assert outreach["total"] == 1
     assert won["total"] == 1
     assert maz_works["today_total"] == 2  # raw total activity, not only OUTREACH
+
+
+def test_weekly_track_uses_current_local_week_for_target_progress(tmp_path, monkeypatch):
+    from datetime import datetime
+    from mazhost.work_service import WorkService
+    from mazhost.work_store import WorkStore
+
+    # A Wednesday gives an unambiguous Tuesday event in this week but not today.
+    now = datetime(2026, 8, 26, 12, 0).timestamp()
+    monkeypatch.setattr("mazhost.work_service.time.time", lambda: now)
+    store = WorkStore(tmp_path / "weekly-work")
+    store.bootstrap()
+    track = store.create_track(
+        track_id="custom_weekly", name="WEEKLY", short_label="WEEK",
+        mode="count", unit="items", cadence="weekly", target=5,
+        event_types=[("custom_weekly.done", "DONE", True)],
+        primary_event_type_id="custom_weekly.done", pinned=True, sort_order=20,
+    )
+    for event_id, occurred_at in (("evt_tuesday", now - 86400), ("evt_old", now - 7 * 86400)):
+        store.create_event(
+            event_id=event_id, track_id=track["id"],
+            event_type_id="custom_weekly.done", value=1,
+            occurred_at=occurred_at, source="phone_manual", note=None,
+            session_id="weekly-session",
+        )
+
+    weekly = next(
+        item for item in WorkService(store).summary()["tracks"]
+        if item["track_id"] == "custom_weekly"
+    )
+    assert weekly["today_total"] == 0
+    assert weekly["current_total"] == 1
+    assert weekly["current_window"] == "week"
+    assert weekly["breakdown"][0]["total"] == 1
 
 
 def test_create_custom_track_from_web_ui(tmp_path):

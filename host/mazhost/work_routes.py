@@ -25,7 +25,7 @@ class CreateTrackBody(BaseModel):
     mode: Literal["count", "time", "checkin"]
     unit: str = Field(min_length=1, max_length=30)
     cadence: Literal["daily", "weekly", "none"] = "daily"
-    target: float | None = Field(default=None, ge=0)
+    target: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     event_types: list[Annotated[str, Field(min_length=1, max_length=60)]] = Field(
         min_length=1, max_length=12
     )
@@ -82,7 +82,7 @@ class EventTypeUpdateBody(BaseModel):
 class UpdateTrackBody(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     short_label: str | None = Field(default=None, min_length=1, max_length=20)
-    target: float | None = Field(default=None, ge=0)
+    target: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     cadence: Literal["daily", "weekly", "none"] | None = None
     pinned: bool | None = None
     sort_order: int | None = Field(default=None, ge=0, le=10_000)

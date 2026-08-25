@@ -137,6 +137,44 @@ def test_one_tap_quick_log_application_from_open_work_tab(tmp_path):
                 job_hunt = next(t for t in summary["tracks"] if t["track_id"] == "job_hunt")
                 assert job_hunt["today_total"] == 2
 
+                # The response replaces the original button DOM node. A second
+                # post-response tap during the same 600ms debounce window must
+                # still be refused by the global guard, not receive a new UUID.
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and "/work/tracks/job_hunt/events" in response.url
+                ):
+                    page.click('[data-testid="quick-log-application"]')
+                page.wait_for_function(
+                    "() => document.querySelector('[data-testid=quick-log-application]').disabled",
+                    timeout=8000,
+                )
+                page.evaluate(
+                    "() => quickLog(document.querySelector('[data-testid=quick-log-application]'))"
+                )
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=quick-log-application]').disabled",
+                    timeout=8000,
+                )
+                summary = page.evaluate(
+                    "() => fetch('work/summary?window=today', {headers:{'X-MAZ-Control':'1'}, cache:'no-store'}).then(r => r.json())"
+                )
+                job_hunt = next(t for t in summary["tracks"] if t["track_id"] == "job_hunt")
+                assert job_hunt["today_total"] == 3
+
+                # Raw event counts are visible (no close-rate/productivity
+                # composite), and normal polling must not erase an unsaved edit.
+                page.click('[data-track="maz_works"][data-et="maz_works.outreach"]')
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=quick-log-application]').disabled",
+                    timeout=8000,
+                )
+                assert "OUTREACH 1" in page.text_content("#workCards")
+                name_editor = '[data-track-card="job_hunt"] [data-field="name"]'
+                page.fill(name_editor, "UNSAVED NAME")
+                page.wait_for_timeout(4500)
+                assert page.input_value(name_editor) == "UNSAVED NAME"
+
                 for width in (360, 390, 430):
                     page.set_viewport_size({"width": width, "height": 800})
                     assert page.evaluate(

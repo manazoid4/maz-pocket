@@ -50,8 +50,12 @@ class WorkService:
 
     # -------------------------------------------------------------- summary
     def summary(self, *, window: str = "today") -> dict[str, Any]:
-        start, end = local_day_bounds()
-        events = self.store.events_for_range(start=start, end=end)
+        now = time.time()
+        start, end = local_day_bounds(when=now)
+        today_events = self.store.events_for_range(start=start, end=end)
+        local_weekday = time.localtime(now).tm_wday
+        week_start, _ = local_day_bounds(when=now, days_ago=local_weekday)
+        week_events = self.store.events_for_range(start=week_start, end=end)
         tracks = [
             track
             for track in self.store.list_tracks(include_archived=False)
@@ -61,7 +65,10 @@ class WorkService:
 
         cards = []
         for track in tracks:
-            headline = self._headline_count(track, events)
+            today_total = self._headline_count(track, today_events)
+            current_window = "week" if track["cadence"] == "weekly" else "today"
+            current_events = week_events if current_window == "week" else today_events
+            current_total = self._headline_count(track, current_events)
             cards.append({
                 "track_id": track["id"],
                 "name": track["name"],
@@ -69,15 +76,18 @@ class WorkService:
                 "mode": track["mode"],
                 "unit": track["unit"],
                 "pinned": bool(track["pinned"]),
+                "cadence": track["cadence"],
                 "target": track["target"],
-                "today_total": headline,
-                "breakdown": self._breakdown(track, events),
+                "today_total": today_total,
+                "current_total": current_total,
+                "current_window": current_window,
+                "breakdown": self._breakdown(track, current_events),
             })
 
         return {
             "ok": True,
             "window": window,
-            "generated_at": time.time(),
+            "generated_at": now,
             "day_start": start,
             "day_end": end,
             "tracks": cards,
@@ -119,7 +129,9 @@ class WorkService:
                 {
                     "track_id": t["track_id"],
                     "short_label": t["short_label"][:16],
-                    "today_total": t["today_total"],
+                    # Firmware labels this compact field as the track's current
+                    # value; for weekly cadence it is the current local week.
+                    "today_total": t["current_total"],
                     "target": t["target"],
                 }
                 for t in pinned

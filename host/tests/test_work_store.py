@@ -45,6 +45,21 @@ def test_repeated_bootstrap_is_noop(tmp_path):
     assert job_hunt_rows[0]["name"] == "MY RENAMED JOB HUNT"  # never overwritten
 
 
+def test_concurrent_fresh_bootstrap_is_idempotent(tmp_path):
+    root = tmp_path / "shared-work"
+
+    def bootstrap_once(_index):
+        WorkStore(root).bootstrap()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(bootstrap_once, range(16)))
+
+    store = WorkStore(root)
+    assert {track["id"] for track in store.list_tracks()} == {"job_hunt", "maz_works"}
+    with sqlite3.connect(store.db_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
 def test_migration_crash_mid_step_resumes_cleanly(tmp_path, monkeypatch):
     store = make_store(tmp_path)
     child = r"""
