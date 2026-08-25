@@ -1,263 +1,410 @@
-# Implementation Plan: MAZ Pocket v0.9 WORK
+# Implementation Plan: MAZ Pocket v1.0.0 — WORK Consistency
 
-## Overview
+## Objective
 
-Deliver the two v0.9 daily loops defined in
-`docs/V090-FEATURE-ARCHITECTURE.md`: glanceable, truthful WORK telemetry and a
-safe MCP check/fix flow. Preserve the six Home IDs and all existing app IDs.
-Use vertical slices so WORK and MCP foundations can progress independently
-after the navigation and API contracts are locked.
+Turn the current v0.8.0 CONTROL baseline into one coherent **v1.0.0** daily-driver release centered on frictionless consistency tracking while preserving the existing six-surface architecture, phone authority, agent workbench, local/cloud AI routing, firmware safety and installer/release rules.
 
-## Architecture decisions
-
-- MAZ Core owns parsing, aggregation, SQLite history, subprocesses and config
-  mutation; the Cardputer renders compact cached summaries.
-- `flow` becomes the visible WORK surface without changing its stable ID.
-- Cardputer MCP is read-only. Authenticated phone UI owns repair and approval.
-- v0.9 hides duplicate links; it does not merge/delete their implementations.
-- Unknown data remains unknown. Tokens, uptime and Git volume are not a
-  productivity score; API-priced totals are labelled API Value.
-
-## Dependency graph
+The v1 loop is:
 
 ```text
-Navigation/API contracts
-    +-- Work store/collectors -> Work service/routes -> Cardputer WORK
-    +-- MCP scan -> safe mutation -> phone MCP -> Cardputer CONTROL
-                                              +-> minimal portal handoff
+PHONE WORK -> one-tap progress event -> MAZ Core durable event store
+          -> compact summary -> Cardputer WORK glance
+          -> seven-day feedback -> repeat
 ```
 
-## Phase 1: Contracts and foundations
+The first built-in tracks are JOB HUNT and MAZ WORKS. Custom ongoing tracks are created and managed from the web UI.
+
+## Non-negotiable architecture decisions
+
+- Exactly six Home surfaces remain: CALL / CAPTURE / AGENTS / CONTROL / MEMORY / WORK.
+- Keep stable `flow` ID; change only the visible label/landing behavior.
+- Track management is web-first. Cardputer is read/glance + optional quick increment only.
+- MAZ Core owns SQLite persistence and aggregation.
+- Store append-only events; undo uses reversal semantics.
+- Existing Tasks are not silently reinterpreted as historical telemetry.
+- Existing phone authority security must not regress.
+- Existing M5Launcher ownership and firmware-size safeguards remain.
+- v1 version bump and release marker happen only after implementation and verification are complete.
+- Final state must be merged to `main` with no unfinished v1 PR left open.
+
+## Phase 0 — Repository reconciliation
+
+### Task 0.1: Start from repository truth
+
+- Pull/fetch latest `main`.
+- Inspect open PRs, branches, recent merged work, workflows and latest GitHub release.
+- Confirm v0.8.0 is the implementation baseline unless repository truth has moved.
+- Preserve unrelated user changes.
+- Do not resurrect stale closed branches whose useful work has already been superseded.
+
+### Task 0.2: Lock v1 contracts before coding
+
+Define compact fixtures for:
+
+- track definitions;
+- event definitions;
+- today summary;
+- seven-day history;
+- stale/offline state;
+- reversal/undo;
+- custom count/time/check-in tracks.
 
-### Task 1: Lock navigation and response contracts
+Acceptance:
 
-**Description:** Preserve the six stable Home IDs, display WORK in place of
-FOCUS, define compact Work/MCP payload fixtures and remove only duplicated
-menu discovery paths.
+- stable IDs and current shortcuts remain valid;
+- no seventh Home tile;
+- JSON contracts are small enough for Cardputer parsing;
+- phone mutations require authenticated control session or existing bearer auth according to the chosen route boundary.
+
+## Phase 1 — Durable Work model
+
+### Task 1: Implement SQLite Track + Event store
+
+Likely module: `host/mazhost/work_store.py`.
+
+Schema must cover:
+
+- schema version/migrations;
+- tracks;
+- track event types;
+- work events;
+- reversal link/state;
+- ordering/pinning/archive state;
+- timestamps;
+- optional metadata/note within strict bounds.
+
+Requirements:
+
+- stdlib sqlite3 preferred;
+- database under `~/.maz-pocket/work/`;
+- WAL + foreign keys;
+- idempotent migrations;
+- transaction boundaries around mutations;
+- UTC storage with correct local-day aggregation;
+- bounded reads;
+- no prompt/completion/browser/credential storage.
 
-**Acceptance criteria:**
+Tests:
+
+- clean bootstrap;
+- repeated bootstrap/migration;
+- insert/list/update track;
+- append event;
+- undo/reversal idempotency;
+- duplicate event ID rejection/idempotency;
+- archived/paused behavior;
+- DST/local-midnight aggregation;
+- corrupt/invalid input failures are explicit.
+
+### Task 2: Seed built-in templates safely
+
+Built-ins:
+
+**JOB HUNT**
+- APPLICATION primary;
+- FOLLOW-UP;
+- INTERVIEW;
+- REJECTION;
+- OFFER.
+
+**MAZ WORKS**
+- OUTREACH;
+- FOLLOW-UP;
+- DEMO / AUDIT;
+- CONVERSATION;
+- CALL BOOKED;
+- PROPOSAL;
+- CLIENT WON.
 
-- [ ] Exactly six Home descriptors remain and `flow` resolves as WORK.
-- [ ] Existing IDs, shortcuts, palette targets and deep links still resolve.
-- [ ] Work and MCP payload fixtures cover ready, unknown, stale and partial failure.
+Requirements:
 
-**Verification:** registry/navigation tests, version check, firmware build and
-manual palette/deep-link check.
+- template seeding is idempotent;
+- user edits survive restarts/upgrades;
+- templates are normal tracks after creation, not special hard-coded UI-only objects;
+- event-type IDs are stable.
 
-**Dependencies:** None
+## Phase 2 — Work service and API
 
-**Files likely touched:** `src/apps/registry.cpp`, `src/apps/surfaces.cpp`,
-`src/apps/apps.h`, focused firmware test/fixture.
+### Task 3: Implement aggregation/service layer
 
-**Estimated scope:** Medium
+Likely module: `host/mazhost/work_service.py`.
 
-### Task 2: Persist incremental Work telemetry
+Provide:
 
-**Description:** Normalize Codex and Claude local metadata into a versioned,
-incremental SQLite store without retaining prompt/completion bodies.
+- pinned today summary;
+- target progress;
+- primary metric count vs all-event breakdown;
+- seven-day daily totals;
+- current streak/consistency where truthful;
+- freshness timestamps;
+- time/check-in track semantics;
+- safe local timezone handling;
+- compact Cardputer response.
 
-**Acceptance criteria:**
+No composite productivity score.
 
-- [ ] Fixtures normalize and deduplicate incrementally.
-- [ ] Missing fields remain nullable and corrupt input degrades one source only.
-- [ ] Repeated refreshes prove cursor and idempotency behavior.
+### Task 4: Add authenticated Work routes
 
-**Verification:** focused pytest and inspection of synthetic SQLite rows.
+Likely module: `host/mazhost/work_routes.py`, installed through current app composition rather than further bloating `app.py`.
 
-**Dependencies:** None
+Required behavior:
 
-**Files likely touched:** `host/mazhost/work_store.py`,
-`host/mazhost/work_collectors.py`, two focused test files.
+- `GET /work/summary?window=today`;
+- `GET /work/tracks`;
+- create custom track;
+- structured update/reorder/pin/pause/archive;
+- append event;
+- undo event;
+- seven-day bounded history;
+- optional JSON/CSV export if low risk.
 
-**Estimated scope:** Medium
+Tests:
 
-### Task 3: Scan MCP clients read-only
+- auth required;
+- validation bounds;
+- unknown IDs;
+- paused/archived writes;
+- count/time/check-in semantics;
+- headline primary count vs event breakdown;
+- history caps;
+- undo;
+- compact payload shape.
 
-**Description:** Normalize Codex, Claude, OpenCode and Hermes MCP state with
-bounded concurrency, hard client timeouts and complete secret redaction.
+## Phase 3 — Phone-first WORK UI
 
-**Acceptance criteria:**
+### Task 5: Refactor `/control/` into WORK | AUTHORITY
 
-- [ ] Each installed/missing client reports independently using normalized states.
-- [ ] Hanging probes are killed and never block the full result indefinitely.
-- [ ] No tools are invoked and no credentials appear in responses/logs.
+Preserve login/session behavior and all existing authority functions.
 
-**Verification:** disposable healthy, absent, disabled, malformed,
-missing-environment and hanging fixtures plus redaction assertions.
+WORK is the default tab.
 
-**Dependencies:** Task 1 contract
+Today view:
 
-**Files likely touched:** `host/mazhost/mcp_adapters.py`,
-`host/mazhost/mcp_manager.py`, `host/mazhost/mcp_routes.py`, app wiring, tests.
+- large JOB HUNT card;
+- large MAZ WORKS card;
+- pinned custom tracks;
+- progress value + optional target;
+- large quick-log buttons;
+- immediate optimistic-looking feedback only after server success;
+- Undo Last;
+- compact 7-day history.
 
-**Estimated scope:** Medium
+Manage Tracks:
 
-## Checkpoint: foundations
+- create;
+- edit name/short label;
+- choose count/time/check-in;
+- unit/cadence/target;
+- configure event types + primary type;
+- reorder/pin;
+- pause/archive;
+- restore archived where practical.
 
-- [ ] Focused host tests pass.
-- [ ] Firmware builds with six Home tiles.
-- [ ] Schemas are reviewed before consumer UI work begins.
+Friction acceptance:
 
-## Phase 2: Complete WORK loop
+- application logging <=2 taps from WORK tab;
+- Maz Works common event logging <=2 taps;
+- no required modal/note for +1;
+- phone width around 360-430 CSS px is comfortable;
+- no horizontal scrolling;
+- touch targets are large;
+- error state retains context and never silently increments locally.
 
-### Task 4: Aggregate and serve WORK
+Authority acceptance:
 
-**Description:** Add authenticated bounded summary, now, history and refresh
-routes using explicit Focus, Done and API Value semantics.
+- pending approvals, grants, manual session, audit and revoke continue to work;
+- no pairing token display regression;
+- Revoke All remains prominent within AUTHORITY.
 
-**Acceptance criteria:**
+## Phase 4 — Cardputer WORK
 
-- [ ] Required endpoints return six metrics, freshness and source health.
-- [ ] Midnight, unknown model and seven-day comparison cases are deterministic.
-- [ ] Partial source failure does not fail the complete dashboard.
+### Task 6: Change visible FOCUS surface to WORK
 
-**Verification:** focused API tests followed by all host tests.
+Keep internal `flow` compatibility ID.
 
-**Dependencies:** Tasks 1 and 2
+WORK landing:
 
-**Files likely touched:** `work_service.py`, `work_routes.py`, app wiring,
-pricing data/module and one route test.
+- direct progress dashboard;
+- no intermediate menu;
+- JOB HUNT and MAZ WORKS prioritized;
+- additional pinned track when layout allows;
+- seven-day compact indicator;
+- stale/offline display using last good cached summary where safe.
 
-**Estimated scope:** Medium
+Secondary WORK tools retain:
 
-### Task 5: Render WORK on Cardputer
+- Focus Timer;
+- Work Sprint;
+- Tasks;
+- Reminders;
+- Shift Clock;
+- Retro.
 
-**Description:** Make WORK open directly on six readable metrics with compact
-detail and a secondary path to the existing work tools.
+Do not build track editor on Cardputer.
 
-**Acceptance criteria:**
+### Task 7: Add bounded Work transport
 
-- [ ] Six cells are readable at 240x135 and no menu precedes them.
-- [ ] Unknown, stale, offline-cache and error states are distinct.
-- [ ] Focus, Sprint, Tasks, Reminders, Shift and Retro remain reachable.
+Use the existing single Host worker architecture.
 
-**Verification:** firmware build, parser fixtures and physical key/clipping/
-offline/refresh tests.
+Requirements:
 
-**Dependencies:** Tasks 1 and 4
+- no blocking HTTP/filesystem work in UI loop;
+- compact parser with fixed/bounded strings;
+- last-good summary cache;
+- busy/offline/error states;
+- refresh throttling;
+- no new unbounded FreeRTOS worker fleet.
 
-**Files likely touched:** Core client pair, `src/apps/work.cpp`, apps header and
-registry.
+Tests/build checks:
 
-**Estimated scope:** Medium
+- malformed/missing fields;
+- unknown track counts;
+- offline cache;
+- queue busy;
+- screen clipping at 240x135;
+- exactly six Home descriptors.
 
-## Phase 3: Complete MCP loop
+## Phase 5 — Integrate existing work facts where safe
 
-### Task 6: Implement transactional Fix & Activate
+### Task 8: Task completion timestamps/events
 
-**Description:** Repair selected, existing deterministic MCP configuration
-problems using prepare/back up/atomic commit/re-read/rescan with full rollback.
+Current Task storage lacks an explicit completion timestamp. If Tasks feed WORK:
 
-**Acceptance criteria:**
+- add completion timestamp or emit a Work Event when toggled done;
+- reopening must reverse/record correctly;
+- migration from old task TSV must preserve existing tasks;
+- do not guess historical completion dates for old done tasks.
 
-- [ ] One structured request repairs only selected deterministic cases.
-- [ ] Injected mid-commit failure fully restores every target.
-- [ ] A second successful run is a semantic no-op with a redacted audit proof.
+This task is useful but may be cut from v1 if it risks the core loop.
 
-**Verification:** disposable acceptance matrix, backup/restore inspection,
-rollback, idempotency, audit and redaction tests.
+### Task 9: Focus/Sprint/Shift persistence
 
-**Dependencies:** Task 3
+If included:
 
-**Files likely touched:** `mcp_mutation.py`, `mcp_manager.py`, existing audit
-owner and two focused test files.
+- explicit start/end/cancel outcomes;
+- persist only summary metadata needed for history;
+- do not claim historical focus before this path exists;
+- preserve current timing UX.
 
-**Estimated scope:** Medium
+Also useful but not allowed to block the core Track + Event loop.
 
-### Task 7: Add authenticated phone tabs
+## Phase 6 — Portal and install/update friction
 
-**Description:** Present WORK, MCP and AUTHORITY as focused tabs while keeping
-Revoke All visible and preserving the existing authority behavior.
+### Task 10: Minimal `mazpocket.local` handoff
 
-**Acceptance criteria:**
+- change sixth surface wording to WORK;
+- add clear OPEN WORK link/button to authenticated Core phone UI;
+- keep pairing, live screen, config and firmware staging behavior intact;
+- do not duplicate full tracker HTML/data into firmware.
 
-- [ ] All three tabs work at phone width without one long flat page.
-- [ ] Fix & Activate sends one batch and reports unresolved OAuth/approval honestly.
-- [ ] Revoke All is always visible and pending approvals are badged.
+### Task 11: Make v1 installation a single coherent path
 
-**Verification:** auth route tests, phone-width browser check and repair/
-partial/pending flows.
+The build/release must retain the existing split artifacts and combined convenience installer:
 
-**Dependencies:** Tasks 4 and 6
+- `MAZ-Core-v1.0.0.zip`;
+- `MAZ-Cardputer-v1.0.0.zip`;
+- `MAZ-Pocket-v1.0.0-Install.zip`;
+- raw M5Launcher app `.bin`;
+- SHA-256 evidence.
 
-**Files likely touched:** `phone_control.py`, Work/MCP routes and focused tests.
+Combined install package must:
 
-**Estimated scope:** Medium
+- have one obvious Windows entry point;
+- install/update MAZ Core without destroying existing `.env`/pairing config;
+- explain what it will do before mutating;
+- detect ambiguity rather than guessing removable drive;
+- make firmware staging easy;
+- keep M5Launcher as firmware installer/rollback owner;
+- preserve the already-fixed Windows PowerShell 5.1/encoding gates;
+- never require the user to manually copy random individual repo files.
 
-### Task 8: Put MCP readiness on Cardputer CONTROL
+## Phase 7 — Full audit and regression
 
-**Description:** Open CONTROL on a compact readiness view and expose redacted
-MCP aggregate/rescan without allowing device-side mutation.
+### Task 12: Multi-perspective audit
 
-**Acceptance criteria:**
+Run independent reviews from these perspectives:
 
-- [ ] Core, laptop, Wi-Fi and MCP readiness are visible immediately.
-- [ ] MCP problems are redacted and a rescan reflects phone repairs.
-- [ ] No configuration mutation or secret entry exists on the device.
+1. **Product/usefulness** — does it reduce inconsistency or add admin?
+2. **UX/friction** — tap count, discoverability, mobile layout, 240x135 clarity.
+3. **Data integrity** — migrations, reversal, timezone, idempotency, corruption.
+4. **Security/privacy** — auth boundaries, no secret leakage, local-first data.
+5. **Firmware/performance** — image size, heap, worker behavior, no blocking UI.
+6. **Release engineering** — version contract, installer, package contents, rollback.
+7. **Regression** — CALL/CAPTURE/AGENTS/CONTROL/MEMORY and existing v0.8 behavior.
 
-**Verification:** payload fixtures, firmware build and physical scrolling/
-key/rescan tests.
+Any critical/high finding must be fixed before release.
 
-**Dependencies:** Tasks 1 and 3
+## Phase 8 — Version, merge and release
 
-**Files likely touched:** Core client pair, control app, surfaces and focused test.
+### Task 13: Promote to v1.0.0 only when release candidate is complete
 
-**Estimated scope:** Medium
+Update all canonical version surfaces consistently:
 
-## Phase 4: Handoff and release
+- `VERSION` -> `1.0.0`;
+- firmware version identity;
+- README current release;
+- QUICKSTART;
+- CHANGELOG;
+- RELEASE_NOTES;
+- package naming;
+- any tests/version guards.
 
-### Task 9: Add minimal portal handoff
+Do not create the `.release/v1.0.0` marker early.
 
-**Description:** Update wording and links only; keep the firmware portal a
-small device companion and preserve pairing/update.
+### Task 14: Automated gates
 
-**Acceptance criteria:**
+At minimum:
 
-- [ ] Portal links to authenticated Work and MCP.
-- [ ] It embeds no analytics database or MCP mutation logic.
-- [ ] Existing pairing/update flows and firmware size remain acceptable.
+- `python -m pytest host/tests -q`;
+- `python scripts/check-version.py`;
+- `python scripts/check-launcher-handoff.py`;
+- PlatformIO Cardputer ADV build;
+- firmware slot/image ceiling check;
+- release packaging;
+- shipped Windows PowerShell installer parse/dry-run gates;
+- any new Work-specific tests;
+- no secrets in generated fixtures/artifacts.
 
-**Verification:** content assertions, size comparison and physical link check.
+### Task 15: Physical Cardputer gate
 
-**Dependencies:** Tasks 5 and 7
+Verify on real ADV:
 
-**Files likely touched:** `src/net/portal_v3.cpp` and one focused test.
+- boot/update;
+- Home still has six surfaces;
+- WORK renders/readable;
+- refresh + stale/offline behavior;
+- existing CALL/CAPTURE/AGENTS/CONTROL/MEMORY flows;
+- phone WORK logging;
+- Core restart persistence;
+- firmware staging;
+- M5Launcher handoff and installed MAZ image persistence.
 
-**Estimated scope:** Small
+If real hardware is unavailable, do not claim physical verification and do not publish v1 as fully verified. Leave a clear RC with the exact remaining gate.
 
-### Task 10: Pass release gates
+### Task 16: Merge everything and publish
 
-**Description:** Run the complete automated, disposable-config and physical
-Cardputer gates; publish only through the existing release workflow.
+Once exact-head CI and required physical gates pass:
 
-**Acceptance criteria:**
-
-- [ ] All host, firmware, version, launcher and package checks pass.
-- [ ] Disposable MCP matrix proves backup, rollback, timeout and redaction.
-- [ ] Physical WORK/CONTROL/phone/portal flows pass before release marker.
-
-**Verification:** commands and physical checklist in the v0.9 build prompt.
-
-**Dependencies:** Tasks 1-9
-
-**Files likely touched:** version/release files only as required.
-
-**Estimated scope:** Small
-
-## Risks and mitigations
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Client commands hang | High | Per-client timeout, bounded concurrency, process-tree kill, partial result |
-| Config repair corrupts files | High | Parse in memory, timestamped backups, atomic commit, journal, rollback, re-read |
-| Telemetry implies productivity | High | Separate metric domains, explicit unknowns, no composite score |
-| UI becomes another menu maze | Medium | Direct WORK/CONTROL landings, six Home tiles, remove duplicate links only |
-| Scope expands into app rewrite | High | Defer wrappers/mergers and full portal redesign to v0.9.x |
+- ensure implementation branch is up to date with `main`;
+- resolve all review findings;
+- merge the complete v1 implementation PR to `main`;
+- verify no separate v1 feature PR remains open/unmerged;
+- add the canonical `.release/v1.0.0` trigger on a release PR/commit as repository rules require;
+- wait for release workflow to build/publish from `main`;
+- verify GitHub Release v1.0.0 contains every required artifact and checksum;
+- verify README/release identity now points to v1.0.0;
+- provide the user the single combined install package as the default install choice.
 
 ## Definition of done
 
-- [ ] Every task's acceptance and verification items pass.
-- [ ] Stable navigation compatibility is proven.
-- [ ] No secrets or transcript bodies are stored or returned.
-- [ ] User completes both daily loops with minimal interaction.
-- [ ] Physical gate passes before publishing v0.9.0.
+v1 is not done because a tracker endpoint exists. It is done when:
+
+- the daily consistency loop works end-to-end;
+- phone logging is genuinely low-friction;
+- custom tracks need no code changes;
+- data survives upgrades/restarts;
+- Cardputer glance view is useful;
+- v0.8 security/control features still work;
+- exact-head automated + physical gates pass;
+- all v1 code is merged;
+- one v1.0.0 GitHub Release is published with a frictionless combined installer.
