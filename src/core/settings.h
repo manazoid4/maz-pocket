@@ -6,6 +6,30 @@
 
 namespace maz {
 
+constexpr uint8_t TALK_ROUTE_COUNT = 4;
+
+inline uint8_t normalizedTalkRoute(uint8_t route) {
+    return route < TALK_ROUTE_COUNT ? route : 2;
+}
+
+inline const char* talkRouteApiName(uint8_t route) {
+    switch (normalizedTalkRoute(route)) {
+        case 0: return "local";
+        case 1: return "auto";
+        case 3: return "mazlatest";
+        default: return "cloud";
+    }
+}
+
+inline const char* talkRouteLabel(uint8_t route) {
+    switch (normalizedTalkRoute(route)) {
+        case 0: return "LOCAL";
+        case 1: return "AUTO";
+        case 3: return "MAZLATEST";
+        default: return "CLOUD";
+    }
+}
+
 struct Settings {
     uint8_t  brightness    = 110;
     uint8_t  volume        = 160;
@@ -23,7 +47,7 @@ struct Settings {
     std::string hostToken;
     // Fresh v0.8 installs prefer CLOUD for Call MAZ as requested. Existing
     // devices keep their persisted choice. A on the Call screen cycles
-    // CLOUD -> LOCAL -> AUTO without needing the web settings page.
+    // CLOUD -> MAZLATEST -> LOCAL -> AUTO without needing the web settings page.
     uint8_t     talkRoute = 2;
     bool        ttsEnabled = true;
     uint8_t     nudgePollMinutes = 5;

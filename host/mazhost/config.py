@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,7 +39,11 @@ class Settings(BaseSettings):
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"
-    default_route: Literal["local", "auto", "cloud"] = "local"
+    # Explicit 9router route. Keeping this loopback-only ensures the Cardputer
+    # never receives gateway credentials or contacts the model router itself.
+    mazlatest_url: str = Field(default="http://localhost:20128/v1", max_length=200)
+    mazlatest_model: str = Field(default="MazLatest", min_length=1, max_length=120)
+    default_route: Literal["local", "auto", "cloud", "mazlatest"] = "local"
 
     max_upload_mb: int = Field(default=12, ge=1, le=64)
     max_audio_seconds: int = Field(default=900, ge=1, le=3600)
@@ -115,6 +121,23 @@ class Settings(BaseSettings):
     def migrate_legacy_shipped_defaults(self):
         if self.ollama_model == "gemma3:1b":
             self.ollama_model = "lfm2.5-8b-a1b-gpu:latest"
+        parsed = None
+        try:
+            parsed = urlsplit(self.mazlatest_url)
+            host = parsed.hostname or ""
+            loopback = host.lower() == "localhost" or ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = False
+        if (
+            parsed is None
+            or parsed.scheme != "http"
+            or not loopback
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("mazlatest_url must be an unauthenticated loopback HTTP URL")
         return self
 
     @property

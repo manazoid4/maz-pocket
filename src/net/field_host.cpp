@@ -134,7 +134,7 @@ Reply talkTextContext(const std::string& session, const std::string& text,
     if (session.empty() || text.empty()) { out.error = "context ask missing input"; return out; }
     JsonDocument req;
     req["session_id"] = session;
-    req["route"] = Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
+    req["route"] = talkRouteApiName(Cfg.talkRoute);
     req["text"] = text;
     req["context"] = context.size() > 700 ? context.substr(0, 700) : context;
     String payload;

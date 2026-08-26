@@ -70,7 +70,7 @@ std::vector<std::pair<std::string, bool>> bases() {
 }
 
 const char* route() {
-    return Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
+    return talkRouteApiName(Cfg.talkRoute);
 }
 
 bool beginRequest(HTTPClient& http, const std::string& base, const char* path,

@@ -141,7 +141,7 @@ public:
             return true;
         }
         if (e.code == KEY_A && !_sending) {
-            Cfg.talkRoute = (Cfg.talkRoute + 1) % 3;
+            Cfg.talkRoute = (Cfg.talkRoute + 1) % TALK_ROUTE_COUNT;
             Cfg.save();
             notify::post(Note::Info, "Route", routeName());
             invalidate();
@@ -216,7 +216,7 @@ private:
     }
 
     const char* routeName() const {
-        return Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO");
+        return talkRouteLabel(Cfg.talkRoute);
     }
 
     void retroPhone(M5Canvas& g, const char* status, uint16_t colour) {

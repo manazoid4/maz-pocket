@@ -11,6 +11,7 @@
 - Added custom track creation/edit/reorder/pin/pause/archive, stable event-type renames, bounded input validation, mobile 360–430 px coverage and server-source-of-truth refresh.
 - Added v0.8-to-v1 upgrade verification proving `.env`, authority/pairing state and WORK data survive the shipped installer/update path.
 - Release packaging excludes machine-local runtime logs in addition to tests, caches, bytecode and `.env` state.
+- Added an explicit fourth MAZLATEST route from Cardputer to MAZ Core, using loopback-only 9router model `MazLatest` with no silent fallback or device-side credentials.
 - Preserved CALL, CAPTURE, AGENTS, CONTROL/AUTHORITY, MEMORY, pairing, Beam, screen mirror, firmware staging, M5Launcher hand-back, AI routing and installer behavior.
 
 ## v0.8.0 — CONTROL

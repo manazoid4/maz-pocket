@@ -34,7 +34,8 @@ Home remains exactly six surfaces, with the stable internal `flow` identifier pr
 - Spoken MAZ reply playback is enabled on fresh installs.
 - **P** replays the last reply.
 - **V** toggles voice replies.
-- **A** changes CLOUD / LOCAL / AUTO directly on the Cardputer.
+- **A** changes LOCAL / AUTO / CLOUD / MAZLATEST directly on the Cardputer.
+- **MAZLATEST** routes through authenticated MAZ Core to PC-local 9router model `MazLatest`; it fails explicitly rather than misreporting fallback provenance.
 - Fresh v1 installs prefer CLOUD; existing devices keep their persisted route.
 - Context Ask remains available and informational only.
 

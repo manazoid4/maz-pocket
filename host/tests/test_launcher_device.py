@@ -1,33 +1,24 @@
-from __future__ import annotations
-
-import importlib.util
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "launcher-device.py"
-SPEC = importlib.util.spec_from_file_location("launcher_device", SCRIPT)
-assert SPEC and SPEC.loader
-launcher_device = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(launcher_device)
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = (ROOT / "scripts" / "launcher-device.py").read_text(encoding="utf-8")
+INSTALLER = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
 
 
-def test_handoff_accepts_explicit_ack_or_launcher_banner():
-    assert launcher_device.handoff_complete(["MAZLAUNCHER OK"])
-    assert launcher_device.handoff_complete(
-        ["Press the button to enter the Launcher!"]
-    )
+def test_handoff_requires_launcher_banner_and_serial_navigation():
+    assert "M5Launcher banner/navigation was not observed after hand-back" in SCRIPT
+    assert 'device.write(b"nav SelPress\\n")' in SCRIPT
+    assert 'line.startswith("OK nav")' in SCRIPT
+    assert "handoff_complete" not in SCRIPT
 
 
-def test_handoff_accepts_launcher_fastboot_back_to_healthy_maz():
-    assert launcher_device.handoff_complete(
-        [
-            "ESP-ROM:esp32s3-20210327",
-            "MAZ Pocket 1.0.0 READY board=24 keyboard=ok storage=internal",
-        ]
-    )
+def test_prepare_can_preserve_the_verified_launcher_session():
+    assert "already_in_launcher: bool = False" in SCRIPT
+    assert "if not already_in_launcher:" in SCRIPT
+    assert "--already-in-launcher" in SCRIPT
+    assert "prepare(args.port, args.require_free, args.already_in_launcher)" in SCRIPT
 
 
-def test_handoff_does_not_accept_ready_without_a_reset():
-    assert not launcher_device.handoff_complete(
-        ["MAZ Pocket 1.0.0 READY board=24 keyboard=ok storage=internal"]
-    )
+def test_installer_does_not_reset_after_successful_handoff():
+    assert "prepare --port $Port --require-free $ImageBytes --already-in-launcher" in INSTALLER

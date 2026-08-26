@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from mazhost.config import Settings
 from mazhost.llm import Models
@@ -200,3 +201,51 @@ def test_cloud_request_explicitly_disables_streaming_for_9router_compatibility()
 
     assert models.chat([{"role": "user", "content": "hi"}], "cloud") == ("cloud ready", "cloud")
     assert seen["stream"] is False
+
+
+def test_mazlatest_uses_explicit_loopback_route_and_exact_model_without_credentials():
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://localhost:20128/v1/chat/completions"
+        assert "authorization" not in request.headers
+        seen.update(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "MazLatest ready"}}]},
+        )
+
+    models = Models(
+        settings(),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert models.chat([{"role": "user", "content": "hi"}], "mazlatest") == (
+        "MazLatest ready",
+        "mazlatest:MazLatest",
+    )
+    assert seen["model"] == "MazLatest"
+    assert seen["stream"] is False
+    assert seen["max_tokens"] == 160
+
+
+def test_explicit_mazlatest_failure_is_loud_and_never_falls_back(monkeypatch):
+    models = Models(settings())
+    monkeypatch.setattr(
+        models,
+        "_mazlatest",
+        lambda _messages: (_ for _ in ()).throw(httpx.ConnectError("offline")),
+    )
+    monkeypatch.setattr(
+        models,
+        "_cloud",
+        lambda _messages: (_ for _ in ()).throw(AssertionError("cloud fallback used")),
+    )
+    monkeypatch.setattr(
+        models,
+        "_local",
+        lambda _messages: (_ for _ in ()).throw(AssertionError("local fallback used")),
+    )
+
+    with pytest.raises(RuntimeError, match="^mazlatest_unavailable$"):
+        models.chat([{"role": "user", "content": "hi"}], "mazlatest")

@@ -50,7 +50,7 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 )EOF";
 
 const char* routeName() {
-    return Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
+    return talkRouteApiName(Cfg.talkRoute);
 }
 
 bool openHttp(HTTPClient& http, WiFiClient& plain, WiFiClientSecure& secure,

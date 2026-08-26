@@ -140,7 +140,7 @@ public:
             return true;
         }
         if (e.code == KEY_A && !host_worker::busy()) {
-            Cfg.talkRoute = (Cfg.talkRoute + 1) % 3;
+            Cfg.talkRoute = (Cfg.talkRoute + 1) % TALK_ROUTE_COUNT;
             Cfg.save();
             notify::post(Note::Info, "AI route", routeName());
             invalidate();
@@ -216,7 +216,7 @@ private:
         const uint32_t s = seconds % 60;
         return s < 10 ? "0" + std::to_string(s) : std::to_string(s);
     }
-    const char* routeName() const { return Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO"); }
+    const char* routeName() const { return talkRouteLabel(Cfg.talkRoute); }
 
     void retroPhone(M5Canvas& g, const char* status, uint16_t colour) {
         ui::panel(g, 76, BODY_Y + 17, 88, 55);

@@ -35,7 +35,7 @@ void Settings::load() {
     hostPort         = prefs.getUShort("hostport", hostPort);
     hostRemoteUrl    = prefs.getString("hremote", "").c_str();
     hostToken        = prefs.getString("htoken", "").c_str();
-    talkRoute        = prefs.getUChar("route", talkRoute);
+    talkRoute        = normalizedTalkRoute(prefs.getUChar("route", talkRoute));
     ttsEnabled       = prefs.getBool("tts", ttsEnabled);
     nudgePollMinutes = prefs.getUChar("npoll", nudgePollMinutes);
     firstRunComplete = prefs.getBool("firstrun", firstRunComplete);

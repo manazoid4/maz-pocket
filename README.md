@@ -50,6 +50,7 @@ Fresh v1 installs prefer **CLOUD** for Call MAZ. You can change it on the Cardpu
 - **CLOUD** — configured cloud model.
 - **LOCAL** — local model only; never silently falls through to cloud.
 - **AUTO** — local first, then configured cloud if needed.
+- **MAZLATEST** — explicit `MazLatest` model through 9router on the PC; fails loudly if unavailable.
 
 MAZ Core supports **Ollama** and **llama.cpp / llama-server** as local engines.
 

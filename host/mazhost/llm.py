@@ -6,7 +6,7 @@ import httpx
 
 from .config import Settings
 
-Route = Literal["local", "auto", "cloud"]
+Route = Literal["local", "auto", "cloud", "mazlatest"]
 
 # The handheld prompt explicitly asks for compact answers. Bounding generation
 # prevents a verbose local model from making the user wait for text that cannot
@@ -255,7 +255,31 @@ class Models:
         self._last_usage = {"provider": "cloud"}
         return text, "cloud"
 
+    def _mazlatest(self, messages: list[dict[str, str]]) -> tuple[str, str]:
+        response = self.client.post(
+            f"{self.settings.mazlatest_url.rstrip('/')}/chat/completions",
+            json={
+                "model": self.settings.mazlatest_model,
+                "messages": messages,
+                "temperature": 0.2,
+                "max_tokens": MAX_OUTPUT_TOKENS,
+                "stream": False,
+            },
+        )
+        response.raise_for_status()
+        text = response.json()["choices"][0]["message"]["content"].strip()
+        if not text:
+            raise RuntimeError("mazlatest_empty_reply")
+        provider = f"mazlatest:{self.settings.mazlatest_model}"
+        self._last_usage = {"provider": provider}
+        return text, provider
+
     def chat(self, messages: list[dict[str, str]], route: Route) -> tuple[str, str]:
+        if route == "mazlatest":
+            try:
+                return self._mazlatest(messages)
+            except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError) as error:
+                raise RuntimeError("mazlatest_unavailable") from error
         if route in ("local", "auto"):
             try:
                 return self._local(messages)

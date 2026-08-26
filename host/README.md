@@ -37,17 +37,16 @@ MAZ Core never launches inference itself. One long-lived `llama-server` keeps th
 
 The server stays loopback-only. Authenticated MAZ Core remains the single LAN-facing gateway.
 
-## Cloud through 9router
+## Cloud and the explicit MazLatest route
 
-The cloud step is any OpenAI-compatible endpoint. Pointing it at a locally running 9router (`http://localhost:20128/dashboard`) keeps every non-local request on one routed key:
+The CLOUD step remains any configured OpenAI-compatible endpoint. MAZLATEST is a separate fourth route for the locally running 9router:
 
 ```
-MAZ_CLOUD_URL=http://localhost:20128/v1
-MAZ_CLOUD_KEY=9router-local
-MAZ_CLOUD_MODEL=MazLatest
+MAZ_MAZLATEST_URL=http://localhost:20128/v1
+MAZ_MAZLATEST_MODEL=MazLatest
 ```
 
-Requests are sent with `stream: false`, because a streaming gateway reply returns concatenated SSE chunks that the single-object parse cannot read. LOCAL never reaches this step.
+MAZ Core restricts this endpoint to unauthenticated loopback HTTP, sends `stream: false`, and reports provider `mazlatest:MazLatest`. The Cardputer only sends `route=mazlatest` to authenticated MAZ Core; it never contacts 9router or stores router credentials. If 9router is unavailable, MAZLATEST fails explicitly and does not fall back to LOCAL, AUTO or CLOUD.
 
 ## Local AI profiles
 
@@ -57,7 +56,7 @@ Set `MAZ_AI_PROFILE` to one of:
 - `save` — 4096-first and unload after each request to free GPU memory.
 - `fast` — adaptive context with a 30-minute keep-alive for repeated conversations.
 
-LOCAL still tries configured local models only. AUTO tries local models before optional cloud. Performance data from Ollama replies is retained in the model status so tuning is evidence-based.
+LOCAL still tries configured local models only. AUTO tries local models before optional cloud. MAZLATEST uses only the explicit loopback route. Performance data from Ollama replies is retained in the model status so tuning is evidence-based.
 
 ## One-click Beam
 

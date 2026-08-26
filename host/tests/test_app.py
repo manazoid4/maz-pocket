@@ -21,12 +21,14 @@ class FakeStt:
 class FakeModels:
     def __init__(self):
         self.last_messages = []
+        self.last_route = None
 
     def status(self):
         return {"local": True, "cloud": False, "ai_profile": "smart"}
 
-    def chat(self, messages, _route):
+    def chat(self, messages, route):
         self.last_messages = messages
+        self.last_route = route
         prior = sum(message["role"] == "assistant" for message in messages)
         return f"Focus on the hardware test. Prior replies: {prior}", "local"
 
@@ -129,6 +131,22 @@ def test_text_turn_keeps_session_context_and_nudge_is_evidence_backed():
     assert second.status_code == 200
     assert second.json()["reply"].endswith("Prior replies: 1")
     assert api.get("/nudge", headers=headers).json()["state"] == "ALL_SYNCED"
+
+
+def test_text_turn_accepts_explicit_mazlatest_route():
+    models = FakeModels()
+    api = client(models=models)
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+
+    response = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "mazlatest", "text": "Use the routed model"},
+    )
+
+    assert response.status_code == 200
+    assert models.last_route == "mazlatest"
 
 
 def test_context_ask_is_added_as_untrusted_screen_evidence():

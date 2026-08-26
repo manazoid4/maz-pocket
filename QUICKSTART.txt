@@ -42,7 +42,7 @@ Hold SPACE = talk.
 Release SPACE = send.
 P = replay last spoken answer.
 V = voice replies on/off.
-A = change CLOUD / LOCAL / AUTO.
+A = change LOCAL / AUTO / CLOUD / MAZLATEST.
 N = new conversation.
 C = simple PC quick controls.
 
@@ -107,6 +107,7 @@ MAZ Core supports Ollama and llama.cpp/llama-server.
 LOCAL = never silently cloud.
 AUTO = local then configured cloud.
 CLOUD = configured cloud model.
+MAZLATEST = explicit MazLatest through PC-local 9router; no silent fallback.
 
 GLOBAL
 ------

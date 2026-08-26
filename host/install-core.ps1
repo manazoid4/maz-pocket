@@ -43,6 +43,8 @@ Set-MazEnv "MAZ_PROJECT_ROOTS" ($Roots -join ";")
 $Obsidian = Join-Path $Desktop "Obsidian Main Vault"
 if (Test-Path $Obsidian) { Set-MazEnv "MAZ_OBSIDIAN_ROOT" $Obsidian }
 Set-MazEnv "MAZ_DEFAULT_ROUTE" "local"
+Set-MazEnv "MAZ_MAZLATEST_URL" "http://localhost:20128/v1"
+Set-MazEnv "MAZ_MAZLATEST_MODEL" "MazLatest"
 Set-MazEnv "MAZ_CARDPUTER_URL" "http://mazpocket.local"
 Set-MazEnv "MAZ_WEB_ORIGINS" "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 Set-MazEnv "MAZ_BRIDGE_REPO" "manazoid4/maz-pocket"
@@ -137,6 +139,13 @@ if (-not $Address) {
     } | Select-Object -First 1 -ExpandProperty IPAddress
 }
 $Token = Get-MazEnv "MAZ_TOKEN"
+$Sha = [Security.Cryptography.SHA256]::Create()
+try {
+    $Digest = $Sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Token))
+    $TokenId = -join ($Digest[0..5] | ForEach-Object { $_.ToString("x2") })
+} finally {
+    $Sha.Dispose()
+}
 
 # If a v0.6 Cardputer is connected by USB, pair Core without asking for Wi-Fi
 # credentials or touching the device's known-good network configuration.
@@ -160,7 +169,7 @@ try {
 Write-Host ""
 Write-Host "MAZ Core v$Version READY" -ForegroundColor Green
 Write-Host "PC address: ${Address}:8787"
-Write-Host "Pair token: $Token"
+Write-Host "Pair token ID: $TokenId (secret not printed)"
 Write-Host "Local model chain: $(Get-MazEnv 'MAZ_OLLAMA_MODEL') -> $(Get-MazEnv 'MAZ_OLLAMA_BACKUP_MODEL')"
 Write-Host "USB pairing: $(if ($UsbPaired) { 'DONE' } else { 'not required / not available' })"
 Write-Host "GitHub bridge: $(if ($Bridge) { 'ON' } else { 'OFF - sign into gh if you want AI -> private GitHub -> PC actions' })"

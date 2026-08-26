@@ -127,10 +127,10 @@ public:
         if (!e.down) return false;
 
         if (e.code == KEY_A) {
-            Cfg.talkRoute = (Cfg.talkRoute + 1) % 3;
+            Cfg.talkRoute = (Cfg.talkRoute + 1) % TALK_ROUTE_COUNT;
             Cfg.save();
             notify::post(Note::Info, "Talk route",
-                         Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO"));
+                         talkRouteLabel(Cfg.talkRoute));
             invalidate();
             return true;
         }
@@ -200,7 +200,7 @@ public:
         if (!_reply.empty() && voice::state() != voice::State::Listening) {
             g.setFont(&fonts::Font0);
             g.setTextColor(ACCENT, BG);
-            g.drawString(Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO"), PAD, BODY_Y + 20);
+            g.drawString(talkRouteLabel(Cfg.talkRoute), PAD, BODY_Y + 20);
             drawShortText(g, _reply, BODY_Y + 36);
             return;
         }

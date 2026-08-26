@@ -45,21 +45,6 @@ def read_line(device: serial.Serial, deadline: float) -> str:
     return ""
 
 
-def handoff_complete(lines: list[str]) -> bool:
-    """Whether serial evidence proves the Launcher hand-back completed.
-
-    `launcher::reboot()` changes the boot partition and calls ESP.restart()
-    before `handleLine()` can return `MAZLAUNCHER OK`. Launcher may then
-    immediately fast-boot the selected MAZ app, so the observable success path
-    is often ESP-ROM reset output followed by a fresh MAZ READY banner.
-    """
-    if any(line.startswith("MAZLAUNCHER OK") or BOOT_BANNER in line for line in lines):
-        return True
-    saw_reset = any(line.startswith("ESP-ROM:") or line.startswith("rst:") for line in lines)
-    saw_ready = any("MAZ Pocket" in line and "READY" in line for line in lines)
-    return saw_reset and saw_ready
-
-
 def handoff(port: str) -> None:
     with serial.Serial(port, 115200, timeout=0.2) as device:
         deadline = time.time() + 15
@@ -69,30 +54,34 @@ def handoff(port: str) -> None:
                 break
         device.write(b"MAZLAUNCHER\n")
         device.flush()
-        lines: list[str] = []
         deadline = time.time() + 12
-        next_probe = time.time() + 0.4
+        next_navigation = time.time() + 0.15
+        saw_launcher = False
         while time.time() < deadline:
             line = read_line(device, min(deadline, time.time() + 0.35))
             if line:
-                lines.append(line)
                 if line.startswith("MAZLAUNCHER ERR"):
                     raise RuntimeError(line)
-            if handoff_complete(lines):
-                print("[+] MAZ Pocket completed the non-destructive M5Launcher hand-back.")
-                return
-            # Native USB CDC can retain the COM handle across ESP.restart(). A
-            # harmless ping keeps reads flowing through the brief Launcher ->
-            # app fast-boot cycle. Launcher may answer unknown-command; MAZ
-            # answers MAZPING after it is bootable again.
-            if time.time() >= next_probe:
+                if BOOT_BANNER in line:
+                    saw_launcher = True
+                    device.write(b"nav SelPress\n")
+                    device.flush()
+                    next_navigation = time.time() + 0.35
+                    continue
+                if saw_launcher and line.startswith("OK nav"):
+                    print("[+] M5Launcher banner and serial navigation confirmed.")
+                    return
+            # M5Launcher prints its entry banner while still accepting serial
+            # navigation. Keep it in the launcher menu rather than accepting
+            # an automatic fast-boot back to the old MAZ app as success.
+            if time.time() >= next_navigation:
                 try:
-                    device.write(b"MAZPING\n")
+                    device.write(b"nav SelPress\n")
                     device.flush()
                 except serial.SerialException:
                     pass
-                next_probe = time.time() + 0.4
-        raise RuntimeError("MAZ Pocket did not acknowledge Launcher hand-back")
+                next_navigation = time.time() + 0.35
+        raise RuntimeError("M5Launcher banner/navigation was not observed after hand-back")
 
 
 FREE_TOTAL = re.compile(r"free total:\s*(\d+)KB", re.IGNORECASE)
@@ -149,8 +138,9 @@ def stale_app_labels(lines: list[str]) -> list[str]:
     return labels
 
 
-def prepare(port: str, require_free: int = 0) -> None:
-    reset(port)
+def prepare(port: str, require_free: int = 0, already_in_launcher: bool = False) -> None:
+    if not already_in_launcher:
+        reset(port)
     with serial.Serial(port, 115200, timeout=0.2) as device:
         deadline = time.time() + 15
         while BOOT_BANNER not in read_line(device, deadline):
@@ -211,9 +201,11 @@ def main() -> None:
     parser.add_argument("--require-free", type=int, default=0,
                         help="bytes the image needs; prepare fails early if the "
                              "device cannot fit it")
+    parser.add_argument("--already-in-launcher", action="store_true",
+                        help="keep the verified launcher session from handoff")
     args = parser.parse_args()
     if args.mode == "prepare":
-        prepare(args.port, args.require_free)
+        prepare(args.port, args.require_free, args.already_in_launcher)
     else:
         {"handoff": handoff, "verify": verify}[args.mode](args.port)
 
