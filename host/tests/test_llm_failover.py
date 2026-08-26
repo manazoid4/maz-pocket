@@ -129,6 +129,54 @@ def test_auto_returns_explicit_degraded_when_every_stage_fails(monkeypatch):
     assert models._last_route["ok"] is False
 
 
+def test_auto_skips_cloud_when_it_shares_mazlatest_failure_domain(monkeypatch):
+    # CLOUD pointed at the exact same 9router loopback + key as MAZLATEST:
+    # a MAZLATEST outage takes CLOUD down with it. AUTO must not waste a
+    # second network round-trip proving that live.
+    models = Models(
+        settings(
+            local_model_policy="auto",
+            cloud_url="http://localhost:20128/v1",
+            cloud_key="",
+            cloud_model="MazLatest",
+            mazlatest_url="http://localhost:20128/v1",
+            mazlatest_key="",
+        )
+    )
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cloud must be skipped")))
+    monkeypatch.setattr(
+        models,
+        "_local_stage",
+        lambda stage, _messages, timeout=None: ("local fast ok", "local:primary:test")
+        if stage == "local_fast"
+        else (_ for _ in ()).throw(RouteError(ErrorCode.LOCAL_UNAVAILABLE, stage, retryable=False)),
+    )
+
+    assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("local fast ok", "local:primary:test")
+    assert models._last_route["active"] == "local_fast"
+    assert "cloud" not in models._effective_auto_chain()
+
+
+def test_auto_still_tries_cloud_when_genuinely_independent(monkeypatch):
+    models = Models(
+        settings(
+            cloud_url="https://openrouter.ai/api/v1",
+            cloud_key="real-separate-key",
+            mazlatest_url="http://localhost:20128/v1",
+            mazlatest_key="",
+        )
+    )
+    assert "cloud" in models._effective_auto_chain()
+
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", lambda _messages, timeout=None: ("cloud ok", "cloud"))
+    monkeypatch.setattr(models, "_local_stage", lambda *a, **k: (_ for _ in ()).throw(AssertionError("local used")))
+
+    assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("cloud ok", "cloud")
+    assert models._last_route["active"] == "cloud"
+
+
 def test_auto_chain_has_no_recursive_auto_stage():
     # AUTO_CHAIN must only name concrete routes. If "auto" ever appears here,
     # AUTO could call itself and loop forever instead of terminating.

@@ -398,15 +398,30 @@ class Models:
             return self._local_stage(stage, messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
         raise ValueError(f"unknown AUTO stage: {stage}")
 
+    def _cloud_is_independent_of_mazlatest(self) -> bool:
+        # Config-only check, no network call. The endpoint is what defines
+        # the failure domain: two routes hitting the same URL share the same
+        # process, same network path, same outage — regardless of which key
+        # each one presents. A different key at the *same* URL is still the
+        # same 9router process going down together, so it is deliberately
+        # NOT treated as independent; only a genuinely different endpoint is.
+        return self.settings.cloud_url.rstrip("/") != self.settings.mazlatest_url.rstrip("/")
+
+    def _effective_auto_chain(self) -> tuple[Route, ...]:
+        if self._cloud_is_independent_of_mazlatest():
+            return AUTO_CHAIN
+        return tuple(stage for stage in AUTO_CHAIN if stage != "cloud")
+
     def _auto(self, messages: list[dict[str, str]], started: float) -> tuple[str, str]:
+        chain = self._effective_auto_chain()
         last_error: RouteError | None = None
-        for stage in AUTO_CHAIN:
+        for stage in chain:
             try:
                 result = self._dispatch_one_bounded(stage, messages)
             except Exception as error:
                 last_error = normalize_upstream_error(error, route=stage, local=stage.startswith("local"))
                 continue
-            fallback = stage != AUTO_CHAIN[0]
+            fallback = stage != chain[0]
             self._last_route = {
                 "requested": "auto",
                 "active": stage,
@@ -526,13 +541,7 @@ class Models:
         # As shipped, an operator can leave CLOUD pointed at the same 9router
         # loopback MAZLATEST uses — diagnostics must say so plainly rather
         # than report AUTO as resilient when it silently is not.
-        independent_cloud = bool(
-            cloud_available
-            and (
-                self.settings.cloud_url.rstrip("/") != self.settings.mazlatest_url.rstrip("/")
-                or self.settings.cloud_key != self.settings.mazlatest_key
-            )
-        )
+        independent_cloud = bool(cloud_available and self._cloud_is_independent_of_mazlatest())
         mazlatest_available = bool(maz_probe["authenticated"] and maz_model_available)
         auto_available = mazlatest_available or independent_cloud or local_fast_available or local_smart_available
         return {
@@ -571,7 +580,8 @@ class Models:
                 "available": local_smart_available,
             },
             "auto": {
-                "chain": list(AUTO_CHAIN),
+                "chain": list(self._effective_auto_chain()),
+                "configured_chain": list(AUTO_CHAIN),
                 "available": auto_available,
                 "degraded": not mazlatest_available and not independent_cloud,
                 "independent_fallback_configured": independent_cloud or local_fast_available,
