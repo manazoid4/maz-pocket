@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: maz-pocket-${{ github.head_ref || github.ref_name }}
+  group: maz-pocket-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
