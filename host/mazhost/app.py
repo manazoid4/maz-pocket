@@ -35,6 +35,7 @@ from .sessions import SessionStore
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
 from .tts import SpeechOut
+from .validation import install_validation_exception_handler
 from .version import CORE_VERSION
 
 
@@ -120,6 +121,7 @@ def create_app(
         allow_headers=["Authorization", "Content-Type", "X-MAZ-Token", "X-MAZ-Context"],
         expose_headers=["X-MAZ-Width", "X-MAZ-Height", "X-MAZ-Format"],
     )
+    install_validation_exception_handler(api)
 
     @api.on_event("startup")
     def start_bridge() -> None:

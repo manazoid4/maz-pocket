@@ -12,6 +12,7 @@ from .config import Settings
 from .work_routes import install_work_routes
 from .work_service import WorkService
 from .work_store import WorkStore
+from .validation import install_validation_exception_handler
 
 
 CONTROL_HEADER = "X-MAZ-Control"
@@ -101,6 +102,7 @@ def build_phone_app(
     settings: Settings, broker: AuthorityBroker, *, work_store: WorkStore | None = None
 ) -> FastAPI:
     phone = FastAPI(title="MAZ Phone Control", docs_url=None, redoc_url=None, openapi_url=None)
+    install_validation_exception_handler(phone)
     if work_store is None:
         work_store = WorkStore(settings.work_dir)
     work_store.bootstrap()

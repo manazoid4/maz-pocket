@@ -45,6 +45,21 @@ def read_line(device: serial.Serial, deadline: float) -> str:
     return ""
 
 
+def handoff_complete(lines: list[str]) -> bool:
+    """Whether serial evidence proves the Launcher hand-back completed.
+
+    `launcher::reboot()` changes the boot partition and calls ESP.restart()
+    before `handleLine()` can return `MAZLAUNCHER OK`. Launcher may then
+    immediately fast-boot the selected MAZ app, so the observable success path
+    is often ESP-ROM reset output followed by a fresh MAZ READY banner.
+    """
+    if any(line.startswith("MAZLAUNCHER OK") or BOOT_BANNER in line for line in lines):
+        return True
+    saw_reset = any(line.startswith("ESP-ROM:") or line.startswith("rst:") for line in lines)
+    saw_ready = any("MAZ Pocket" in line and "READY" in line for line in lines)
+    return saw_reset and saw_ready
+
+
 def handoff(port: str) -> None:
     with serial.Serial(port, 115200, timeout=0.2) as device:
         deadline = time.time() + 15
@@ -54,12 +69,29 @@ def handoff(port: str) -> None:
                 break
         device.write(b"MAZLAUNCHER\n")
         device.flush()
-        deadline = time.time() + 4
+        lines: list[str] = []
+        deadline = time.time() + 12
+        next_probe = time.time() + 0.4
         while time.time() < deadline:
-            if read_line(device, deadline).startswith("MAZLAUNCHER OK"):
-                time.sleep(2)
-                print("[+] MAZ Pocket handed control back to M5Launcher.")
+            line = read_line(device, min(deadline, time.time() + 0.35))
+            if line:
+                lines.append(line)
+                if line.startswith("MAZLAUNCHER ERR"):
+                    raise RuntimeError(line)
+            if handoff_complete(lines):
+                print("[+] MAZ Pocket completed the non-destructive M5Launcher hand-back.")
                 return
+            # Native USB CDC can retain the COM handle across ESP.restart(). A
+            # harmless ping keeps reads flowing through the brief Launcher ->
+            # app fast-boot cycle. Launcher may answer unknown-command; MAZ
+            # answers MAZPING after it is bootable again.
+            if time.time() >= next_probe:
+                try:
+                    device.write(b"MAZPING\n")
+                    device.flush()
+                except serial.SerialException:
+                    pass
+                next_probe = time.time() + 0.4
         raise RuntimeError("MAZ Pocket did not acknowledge Launcher hand-back")
 
 
