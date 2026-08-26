@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from mazhost.config import Settings
+from mazhost.errors import ErrorCode, RouteError
 from mazhost.llm import Models
 
 
@@ -247,5 +248,6 @@ def test_explicit_mazlatest_failure_is_loud_and_never_falls_back(monkeypatch):
         lambda _messages: (_ for _ in ()).throw(AssertionError("local fallback used")),
     )
 
-    with pytest.raises(RuntimeError, match="^mazlatest_unavailable$"):
+    with pytest.raises(RouteError) as raised:
         models.chat([{"role": "user", "content": "hi"}], "mazlatest")
+    assert raised.value.code == ErrorCode.UPSTREAM_UNAVAILABLE

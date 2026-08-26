@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from mazhost.app import create_app
 from mazhost.config import Settings
+from mazhost.errors import ErrorCode, RouteError
 
 
 class FakeStt:
@@ -25,6 +26,18 @@ class FakeModels:
 
     def status(self):
         return {"local": True, "cloud": False, "ai_profile": "smart"}
+
+    def diagnostics(self, preferred_route):
+        return {
+            "preferred_route": preferred_route,
+            "active_route": self.last_route,
+            "last_route": {},
+            "9router": {"reachable": True, "authenticated": True, "auth_status": "accepted"},
+            "mazlatest": {"configured_aliases": ["MazLatest"], "model_available": True, "available": True},
+            "cloud": {"model": "test/model", "model_available": True, "available": True},
+            "local": {"engine": "llamacpp", "endpoint_available": False, "model": "local", "model_available": False, "available": False},
+            "auto": {"available": True, "degraded": True, "fallback": "cloud"},
+        }
 
     def chat(self, messages, route):
         self.last_messages = messages
@@ -91,7 +104,18 @@ class FakeTelemetry:
         }
 
 
-def client(pc=None, models=None, beam=None, telemetry=None):
+class FakeCore:
+    def status(self):
+        return {"ok": True}
+
+    def cardputer_status(self):
+        return {"ok": True, "route": "mazlatest"}
+
+    def context_for_prompt(self, _text):
+        return ""
+
+
+def client(pc=None, models=None, beam=None, telemetry=None, core=None):
     settings = Settings(token="test-token-that-is-not-default", _env_file=None)
     return TestClient(
         create_app(
@@ -100,6 +124,7 @@ def client(pc=None, models=None, beam=None, telemetry=None):
             models=models or FakeModels(),
             nudge=FakeNudge(),
             pc=pc or FakePC(),
+            core=core,
             beam=beam or FakeBeam(),
             telemetry=telemetry or FakeTelemetry(),
         )
@@ -148,6 +173,54 @@ def test_text_turn_accepts_explicit_mazlatest_route():
     assert response.status_code == 200
     assert models.last_route == "mazlatest"
 
+
+def test_diagnostics_is_authenticated_safe_and_distinguishes_route_state():
+    api = client(core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+
+    assert api.get("/diagnostics").status_code == 401
+    response = api.get("/diagnostics", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["routes"]["9router"]["authenticated"] is True
+    assert body["routes"]["mazlatest"]["model_available"] is True
+    assert body["routes"]["auto"]["degraded"] is True
+    assert body["cardputer"]["connected"] is True
+    serialized = response.text.lower()
+    assert "bearer" not in serialized
+    assert "test-token" not in serialized
+
+
+def test_typed_route_error_is_returned_at_top_level():
+    class FailingModels(FakeModels):
+        def chat(self, _messages, _route):
+            raise RouteError(
+                ErrorCode.MODEL_NOT_FOUND,
+                "cloud",
+                upstream_status=404,
+                retryable=False,
+                model="retired/model",
+            )
+
+    api = client(models=FailingModels(), core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+    response = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "cloud", "text": "hello"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "ok": False,
+        "route": "cloud",
+        "error": "MODEL_NOT_FOUND",
+        "retryable": False,
+        "upstream_status": 404,
+        "model": "retired/model",
+    }
 
 def test_context_ask_is_added_as_untrusted_screen_evidence():
     models = FakeModels()

@@ -42,9 +42,13 @@ Set-MazEnv "MAZ_PROJECT_ROOTS" ($Roots -join ";")
 
 $Obsidian = Join-Path $Desktop "Obsidian Main Vault"
 if (Test-Path $Obsidian) { Set-MazEnv "MAZ_OBSIDIAN_ROOT" $Obsidian }
-Set-MazEnv "MAZ_DEFAULT_ROUTE" "local"
+$CurrentRoute = (Get-MazEnv "MAZ_DEFAULT_ROUTE").ToLowerInvariant()
+if (@("local", "auto", "cloud", "mazlatest") -notcontains $CurrentRoute) {
+    Set-MazEnv "MAZ_DEFAULT_ROUTE" "local"
+}
 Set-MazEnv "MAZ_MAZLATEST_URL" "http://localhost:20128/v1"
 Set-MazEnv "MAZ_MAZLATEST_MODEL" "MazLatest"
+Set-MazEnv "MAZ_BUILD_ID" $Version
 Set-MazEnv "MAZ_CARDPUTER_URL" "http://mazpocket.local"
 Set-MazEnv "MAZ_WEB_ORIGINS" "https://mazos-site.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 Set-MazEnv "MAZ_BRIDGE_REPO" "manazoid4/maz-pocket"

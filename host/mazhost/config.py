@@ -42,8 +42,10 @@ class Settings(BaseSettings):
     # Explicit 9router route. Keeping this loopback-only ensures the Cardputer
     # never receives gateway credentials or contacts the model router itself.
     mazlatest_url: str = Field(default="http://localhost:20128/v1", max_length=200)
+    mazlatest_key: str = ""
     mazlatest_model: str = Field(default="MazLatest", min_length=1, max_length=120)
     default_route: Literal["local", "auto", "cloud", "mazlatest"] = "local"
+    build_id: str = Field(default="dev", min_length=1, max_length=120)
 
     max_upload_mb: int = Field(default=12, ge=1, le=64)
     max_audio_seconds: int = Field(default=900, ge=1, le=3600)
@@ -137,7 +139,7 @@ class Settings(BaseSettings):
             or parsed.query
             or parsed.fragment
         ):
-            raise ValueError("mazlatest_url must be an unauthenticated loopback HTTP URL")
+            raise ValueError("mazlatest_url must be a loopback HTTP URL without embedded credentials")
         return self
 
     @property

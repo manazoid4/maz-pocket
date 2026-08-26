@@ -10,7 +10,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.background import BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from .authority import AuthorityBroker
@@ -23,6 +23,7 @@ from .control_routes import install_control_routes
 from .core import CoreError, MazCore
 from .debug_capsule import DebugCapsules
 from .device import DeviceMonitor
+from .errors import ErrorCode, RouteError
 from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
@@ -123,6 +124,10 @@ def create_app(
     )
     install_validation_exception_handler(api)
 
+    @api.exception_handler(RouteError)
+    async def route_error_handler(_request: Request, error: RouteError) -> JSONResponse:
+        return JSONResponse(status_code=error.http_status, content=error.payload())
+
     @api.on_event("startup")
     def start_bridge() -> None:
         bridge_worker.start()
@@ -205,8 +210,10 @@ def create_app(
             reply, provider = model_router.chat(
                 grounded_messages(session_id, refined.text, pocket_context), route
             )
-        except RuntimeError as error:
-            raise HTTPException(503, str(error)) from error
+        except RouteError:
+            raise
+        except Exception as error:
+            raise RouteError(ErrorCode.INTERNAL_ERROR, route, requested_route=route) from error
         llm_ms = round((time.perf_counter() - started) * 1000)
         sessions.add_turn(session_id, refined.text, reply)
         return {
@@ -242,6 +249,32 @@ def create_app(
     @api.get("/models")
     def models_status():
         return {**model_router.status(), "default_route": cfg.default_route}
+
+    @api.get("/diagnostics")
+    def diagnostics():
+        routes = model_router.diagnostics(cfg.default_route)
+        device_state = device_monitor.status()
+        try:
+            cardputer_state = core_service.cardputer_status() if cfg.core_enabled else {"ok": False}
+        except Exception:
+            cardputer_state = {"ok": False}
+        cardputer_connected = bool(
+            device_state.get("connected")
+            or (isinstance(cardputer_state, dict) and "error" not in cardputer_state)
+        )
+        return {
+            "ok": True,
+            "pocket_host": {"status": "online"},
+            "core": {
+                "status": "online",
+                "enabled": cfg.core_enabled,
+                "version": CORE_VERSION,
+                "build_id": cfg.build_id,
+            },
+            "routes": routes,
+            "cardputer": {"connected": cardputer_connected},
+            "app": {"version": CORE_VERSION, "build_id": cfg.build_id},
+        }
 
     # ------------------------------------------------------------- MAZ Core
     @api.get("/core/status")

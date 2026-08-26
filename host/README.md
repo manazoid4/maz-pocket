@@ -43,10 +43,11 @@ The CLOUD step remains any configured OpenAI-compatible endpoint. MAZLATEST is a
 
 ```
 MAZ_MAZLATEST_URL=http://localhost:20128/v1
+MAZ_MAZLATEST_KEY=<9router API key, when required>
 MAZ_MAZLATEST_MODEL=MazLatest
 ```
 
-MAZ Core restricts this endpoint to unauthenticated loopback HTTP, sends `stream: false`, and reports provider `mazlatest:MazLatest`. The Cardputer only sends `route=mazlatest` to authenticated MAZ Core; it never contacts 9router or stores router credentials. If 9router is unavailable, MAZLATEST fails explicitly and does not fall back to LOCAL, AUTO or CLOUD.
+MAZ Core restricts this endpoint to loopback HTTP, keeps the optional router credential on the PC, sends `stream: false`, and reports provider `mazlatest:MazLatest`. The Cardputer only sends `route=mazlatest` to authenticated MAZ Core; it never contacts 9router or stores router credentials. If 9router is unavailable, MAZLATEST fails explicitly and does not fall back to LOCAL, AUTO or CLOUD. `/diagnostics` reports router reachability, whether authentication was accepted or is not required, and whether the configured alias is advertised without returning any credential.
 
 ## Local AI profiles
 

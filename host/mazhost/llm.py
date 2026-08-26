@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Literal
 
 import httpx
 
 from .config import Settings
+from .errors import ErrorCode, RouteError, normalize_upstream_error
 
 Route = Literal["local", "auto", "cloud", "mazlatest"]
 
@@ -19,6 +21,11 @@ class Models:
         self.settings = settings
         self.client = client or httpx.Client(timeout=90)
         self._last_usage: dict[str, int | float | str] = {}
+        self._last_route: dict[str, str | int | bool | None] = {}
+
+    @staticmethod
+    def _auth_headers(key: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {key}"} if key else {}
 
     def _local_models(self) -> list[str]:
         if self.settings.local_engine == "llamacpp":
@@ -101,7 +108,9 @@ class Models:
             "ai_profile": self.settings.ai_profile,
             "keep_alive": self._keep_alive(),
             "last_usage": dict(self._last_usage),
-            "cloud": bool(self.settings.cloud_key),
+            "last_route": dict(self._last_route),
+            "cloud": bool(self.settings.cloud_url and self.settings.cloud_model),
+            "cloud_credential_configured": bool(self.settings.cloud_key),
         }
 
     def _keep_alive(self) -> str | int:
@@ -223,67 +232,218 @@ class Models:
         return text, f"local:{model}"
 
     def _local(self, messages: list[dict[str, str]]) -> tuple[str, str]:
-        errors: list[str] = []
+        last_error: RouteError | None = None
         for model in self._local_models():
             try:
                 return self._local_one(model, messages)
-            except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError) as error:
-                errors.append(f"{model}:{error}")
-        raise RuntimeError("local_models_unavailable:" + "|".join(errors))
+            except Exception as error:
+                last_error = normalize_upstream_error(
+                    error, route="local", model=model, local=True
+                )
+        if last_error is not None:
+            raise RouteError(
+                ErrorCode.LOCAL_UNAVAILABLE,
+                "local",
+                upstream_status=last_error.upstream_status,
+                retryable=True,
+                model=last_error.model,
+            ) from last_error
+        raise RouteError(ErrorCode.LOCAL_UNAVAILABLE, "local", retryable=True)
+
+    def _openai_completion(
+        self,
+        *,
+        route: str,
+        url: str,
+        key: str,
+        model: str,
+        messages: list[dict[str, str]],
+        max_tokens: int | None = None,
+    ) -> tuple[str, str]:
+        body: dict = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.2,
+            "stream": False,
+        }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        try:
+            response = self.client.post(
+                f"{url.rstrip('/')}/chat/completions",
+                headers=self._auth_headers(key),
+                json=body,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            choices = payload["choices"]
+            if not isinstance(choices, list) or not choices:
+                raise ValueError("missing choices")
+            message = choices[0]["message"]
+            text = message["content"]
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("empty content")
+            resolved_model = str(payload.get("model") or model)
+            return text.strip(), resolved_model
+        except Exception as error:
+            raise normalize_upstream_error(error, route=route, model=model) from error
 
     def _cloud(self, messages: list[dict[str, str]]) -> tuple[str, str]:
         if not self.settings.cloud_key:
-            raise RuntimeError("no_model_available")
-        response = self.client.post(
-            f"{self.settings.cloud_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.cloud_key}"},
-            json={
-                "model": self.settings.cloud_model,
-                "messages": messages,
-                "temperature": 0.2,
-                # OpenAI-compatible gateways do not agree on the default. A
-                # local 9router endpoint streams unless told otherwise, which
-                # returns concatenated SSE chunks and breaks the single-object
-                # parse below. Ask for one complete response explicitly.
-                "stream": False,
-            },
+            raise RouteError(
+                ErrorCode.AUTH_FAILED, "cloud", retryable=False, model=self.settings.cloud_model
+            )
+        text, resolved_model = self._openai_completion(
+            route="cloud",
+            url=self.settings.cloud_url,
+            key=self.settings.cloud_key,
+            model=self.settings.cloud_model,
+            messages=messages,
         )
-        response.raise_for_status()
-        text = response.json()["choices"][0]["message"]["content"].strip()
-        if not text:
-            raise RuntimeError("cloud_model_empty_reply")
-        self._last_usage = {"provider": "cloud"}
+        self._last_usage = {"provider": "cloud", "model": resolved_model}
         return text, "cloud"
 
     def _mazlatest(self, messages: list[dict[str, str]]) -> tuple[str, str]:
-        response = self.client.post(
-            f"{self.settings.mazlatest_url.rstrip('/')}/chat/completions",
-            json={
-                "model": self.settings.mazlatest_model,
-                "messages": messages,
-                "temperature": 0.2,
-                "max_tokens": MAX_OUTPUT_TOKENS,
-                "stream": False,
-            },
+        text, resolved_model = self._openai_completion(
+            route="mazlatest",
+            url=self.settings.mazlatest_url,
+            key=self.settings.mazlatest_key,
+            model=self.settings.mazlatest_model,
+            messages=messages,
+            max_tokens=MAX_OUTPUT_TOKENS,
         )
-        response.raise_for_status()
-        text = response.json()["choices"][0]["message"]["content"].strip()
-        if not text:
-            raise RuntimeError("mazlatest_empty_reply")
         provider = f"mazlatest:{self.settings.mazlatest_model}"
-        self._last_usage = {"provider": provider}
+        self._last_usage = {"provider": provider, "model": resolved_model}
         return text, provider
 
     def chat(self, messages: list[dict[str, str]], route: Route) -> tuple[str, str]:
-        if route == "mazlatest":
+        started = time.perf_counter()
+        active_route = route
+        try:
+            if route == "mazlatest":
+                result = self._mazlatest(messages)
+            elif route in ("local", "auto"):
+                active_route = "local"
+                try:
+                    result = self._local(messages)
+                except RouteError:
+                    if route == "local":
+                        raise
+                    active_route = "cloud"
+                    result = self._cloud(messages)
+            else:
+                result = self._cloud(messages)
+            self._last_route = {
+                "requested": route,
+                "active": active_route,
+                "ok": True,
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+            }
+            return result
+        except Exception as error:
+            normalized = normalize_upstream_error(
+                error,
+                route=active_route,
+                model=(
+                    self.settings.mazlatest_model
+                    if active_route == "mazlatest"
+                    else self.settings.cloud_model if active_route == "cloud" else None
+                ),
+                local=active_route == "local",
+            )
+            normalized.requested_route = route
+            self._last_route = {
+                "requested": route,
+                "active": active_route,
+                "ok": False,
+                "error": normalized.code.value,
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+            }
+            raise normalized from error
+
+    def _models_probe(self, url: str, key: str) -> dict:
+        endpoint = f"{url.rstrip('/')}/models"
+        try:
+            response = self.client.get(endpoint, headers=self._auth_headers(key), timeout=3)
+        except httpx.TimeoutException:
+            return {"reachable": False, "authenticated": False, "auth_status": "timeout", "models": []}
+        except httpx.HTTPError:
+            return {"reachable": False, "authenticated": False, "auth_status": "unreachable", "models": []}
+        if response.status_code in (401, 403):
+            return {"reachable": True, "authenticated": False, "auth_status": "rejected", "models": []}
+        if response.status_code == 404:
+            return {"reachable": True, "authenticated": False, "auth_status": "endpoint_missing", "models": []}
+        if not response.is_success:
+            return {"reachable": True, "authenticated": False, "auth_status": "upstream_error", "models": []}
+        try:
+            payload = response.json()
+            items = payload.get("data", payload)
+            models = [str(item["id"]) for item in items if isinstance(item, dict) and item.get("id")]
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return {"reachable": True, "authenticated": False, "auth_status": "invalid_response", "models": []}
+
+        auth_status = "not_required"
+        if key:
             try:
-                return self._mazlatest(messages)
-            except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError) as error:
-                raise RuntimeError("mazlatest_unavailable") from error
-        if route in ("local", "auto"):
-            try:
-                return self._local(messages)
-            except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError):
-                if route == "local":
-                    raise RuntimeError("local_models_unavailable")
-        return self._cloud(messages)
+                invalid = self.client.get(
+                    endpoint,
+                    headers={"Authorization": "Bearer maz-diagnostics-invalid"},
+                    timeout=3,
+                )
+                if invalid.status_code in (401, 403):
+                    auth_status = "accepted"
+            except httpx.HTTPError:
+                pass
+        return {
+            "reachable": True,
+            "authenticated": True,
+            "auth_status": auth_status,
+            "models": models,
+        }
+
+    def diagnostics(self, preferred_route: Route) -> dict:
+        runtime = self.status()
+        maz_probe = self._models_probe(self.settings.mazlatest_url, self.settings.mazlatest_key)
+        if (
+            self.settings.cloud_url.rstrip("/") == self.settings.mazlatest_url.rstrip("/")
+            and self.settings.cloud_key == self.settings.mazlatest_key
+        ):
+            cloud_probe = maz_probe
+        else:
+            cloud_probe = self._models_probe(self.settings.cloud_url, self.settings.cloud_key)
+        maz_model_available = self.settings.mazlatest_model in maz_probe["models"]
+        cloud_model_available = self.settings.cloud_model in cloud_probe["models"]
+        cloud_available = bool(cloud_probe["authenticated"] and cloud_model_available)
+        local_available = bool(runtime["local"])
+        return {
+            "preferred_route": preferred_route,
+            "active_route": self._last_route.get("active"),
+            "last_route": dict(self._last_route),
+            "9router": {
+                "reachable": maz_probe["reachable"],
+                "authenticated": maz_probe["authenticated"],
+                "auth_status": maz_probe["auth_status"],
+            },
+            "mazlatest": {
+                "configured_aliases": [self.settings.mazlatest_model],
+                "model_available": maz_model_available,
+                "available": bool(maz_probe["authenticated"] and maz_model_available),
+            },
+            "cloud": {
+                "model": self.settings.cloud_model,
+                "model_available": cloud_model_available,
+                "available": cloud_available,
+            },
+            "local": {
+                "engine": runtime["local_engine"],
+                "endpoint_available": local_available,
+                "model": runtime["local_model"],
+                "model_available": runtime["local_model_installed"],
+                "available": local_available,
+            },
+            "auto": {
+                "available": local_available or cloud_available,
+                "degraded": not local_available and cloud_available,
+                "fallback": "cloud" if not local_available and cloud_available else None,
+            },
+        }
