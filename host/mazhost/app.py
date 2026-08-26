@@ -28,6 +28,7 @@ from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
 from .nudge import NudgeClient
+from .pairing import build_pairing_app
 from .pc import PCController
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
@@ -625,6 +626,12 @@ def create_app(
             return nudge_client.nudge(session_id)
         except (RuntimeError, httpx.HTTPError) as error:
             raise HTTPException(503, str(error)) from error
+
+    # Public mount: /pair/start requires the existing bearer token (an
+    # already-paired session inviting a new client in); /pair/claim is
+    # intentionally reachable with no token, since exchanging a short-lived
+    # code for the real credential is the whole point.
+    api.mount("/pair", build_pairing_app(cfg, security))
 
     if cfg.control_enabled:
         install_control_routes(

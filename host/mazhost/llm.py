@@ -8,7 +8,21 @@ import httpx
 from .config import Settings
 from .errors import ErrorCode, RouteError, normalize_upstream_error
 
-Route = Literal["local", "auto", "cloud", "mazlatest"]
+Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlatest"]
+
+# Explicit AUTO fallback order. One attempt per stage, no in-stage retries —
+# a stage that fails (auth, model-not-found, timeout, refused connection...)
+# just means that stage is unusable right now, so AUTO moves on immediately.
+# CLOUD is a real stage in this chain, but until it is pointed at a provider
+# genuinely separate from the 9router endpoint MAZLATEST uses, it does not
+# add independence — see diagnostics()["independent_fallback_configured"].
+AUTO_CHAIN: tuple[Route, ...] = ("mazlatest", "cloud", "local_fast", "local_smart")
+
+# Per-stage ceiling while AUTO is hopping through the chain. A user who
+# explicitly picks one route (mazlatest/cloud/local_fast/...) keeps the
+# client's full 90s patience; AUTO trades patience for not making the Pocket
+# wait through up to four stacked 90s hangs before it gives up.
+AUTO_STAGE_TIMEOUT_SECONDS = 15.0
 
 # The handheld prompt explicitly asks for compact answers. Bounding generation
 # prevents a verbose local model from making the user wait for text that cannot
@@ -148,18 +162,23 @@ class Models:
             options.update({"temperature": 0.30, "top_p": 0.90, "top_k": 30})
         return options
 
-    def _local_one(self, model: str, messages: list[dict[str, str]]) -> tuple[str, str]:
+    def _local_one(
+        self, model: str, messages: list[dict[str, str]], timeout: float | None = None
+    ) -> tuple[str, str]:
         if self.settings.local_engine == "llamacpp":
-            return self._llamacpp_one(model, messages)
-        return self._ollama_one(model, messages)
+            return self._llamacpp_one(model, messages, timeout=timeout)
+        return self._ollama_one(model, messages, timeout=timeout)
 
-    def _llamacpp_one(self, model: str, messages: list[dict[str, str]]) -> tuple[str, str]:
+    def _llamacpp_one(
+        self, model: str, messages: list[dict[str, str]], timeout: float | None = None
+    ) -> tuple[str, str]:
         # llama-server speaks the OpenAI shape and accepts llama.cpp sampling
         # names alongside it. Context size is fixed by the server's -c flag, so
         # the adaptive num_ctx used for Ollama has nothing to set here.
         url = self._llamacpp_url(model)
         response = self.client.post(
             f"{url}/v1/chat/completions",
+            **({} if timeout is None else {"timeout": timeout}),
             json={
                 "model": model,
                 "messages": messages,
@@ -203,7 +222,9 @@ class Models:
         }
         return text, f"local:{model}"
 
-    def _ollama_one(self, model: str, messages: list[dict[str, str]]) -> tuple[str, str]:
+    def _ollama_one(
+        self, model: str, messages: list[dict[str, str]], timeout: float | None = None
+    ) -> tuple[str, str]:
         options = self._options(model, messages)
         response = self.client.post(
             f"{self.settings.ollama_url.rstrip('/')}/api/chat",
@@ -213,7 +234,12 @@ class Models:
                 "stream": False,
                 "keep_alive": self._keep_alive(),
                 "options": options,
+                # Hybrid-reasoning models (qwen3.5, lfm2.5) otherwise burn most
+                # of num_predict on a "Thinking Process:" preamble before ever
+                # emitting the answer the Pocket screen needs.
+                "think": False,
             },
+            **({} if timeout is None else {"timeout": timeout}),
         )
         response.raise_for_status()
         payload = response.json()
@@ -250,6 +276,34 @@ class Models:
             ) from last_error
         raise RouteError(ErrorCode.LOCAL_UNAVAILABLE, "local", retryable=True)
 
+    def _local_stage_model(self, stage: str) -> str:
+        if self.settings.local_engine == "llamacpp":
+            primary = self.settings.llamacpp_model.strip()
+            backup = self.settings.llamacpp_backup_model.strip()
+        else:
+            primary = self.settings.ollama_model.strip()
+            backup = self.settings.ollama_backup_model.strip()
+        return primary if stage == "local_fast" else backup
+
+    def _local_stage(
+        self, stage: str, messages: list[dict[str, str]], timeout: float | None = None
+    ) -> tuple[str, str]:
+        # Single attempt against exactly one named model. No in-stage retry —
+        # AUTO's chain is what provides resilience, not looping here.
+        model = self._local_stage_model(stage)
+        if not model:
+            raise RouteError(ErrorCode.LOCAL_UNAVAILABLE, stage, retryable=False)
+        try:
+            return self._local_one(model, messages, timeout=timeout)
+        except Exception as error:
+            raise normalize_upstream_error(error, route=stage, model=model, local=True) from error
+
+    def _local_fast(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
+        return self._local_stage("local_fast", messages, timeout=timeout)
+
+    def _local_smart(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
+        return self._local_stage("local_smart", messages, timeout=timeout)
+
     def _openai_completion(
         self,
         *,
@@ -259,6 +313,7 @@ class Models:
         model: str,
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
+        timeout: float | None = None,
     ) -> tuple[str, str]:
         body: dict = {
             "model": model,
@@ -273,6 +328,7 @@ class Models:
                 f"{url.rstrip('/')}/chat/completions",
                 headers=self._auth_headers(key),
                 json=body,
+                **({} if timeout is None else {"timeout": timeout}),
             )
             response.raise_for_status()
             payload = response.json()
@@ -288,7 +344,7 @@ class Models:
         except Exception as error:
             raise normalize_upstream_error(error, route=route, model=model) from error
 
-    def _cloud(self, messages: list[dict[str, str]]) -> tuple[str, str]:
+    def _cloud(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
         if not self.settings.cloud_key:
             raise RouteError(
                 ErrorCode.AUTH_FAILED, "cloud", retryable=False, model=self.settings.cloud_model
@@ -299,11 +355,12 @@ class Models:
             key=self.settings.cloud_key,
             model=self.settings.cloud_model,
             messages=messages,
+            timeout=timeout,
         )
         self._last_usage = {"provider": "cloud", "model": resolved_model}
         return text, "cloud"
 
-    def _mazlatest(self, messages: list[dict[str, str]]) -> tuple[str, str]:
+    def _mazlatest(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
         text, resolved_model = self._openai_completion(
             route="mazlatest",
             url=self.settings.mazlatest_url,
@@ -311,31 +368,78 @@ class Models:
             model=self.settings.mazlatest_model,
             messages=messages,
             max_tokens=MAX_OUTPUT_TOKENS,
+            timeout=timeout,
         )
         provider = f"mazlatest:{self.settings.mazlatest_model}"
         self._last_usage = {"provider": provider, "model": resolved_model}
         return text, provider
 
+    def _dispatch_one(self, stage: Route, messages: list[dict[str, str]]) -> tuple[str, str]:
+        # A single, non-recursive attempt at exactly one named route. AUTO
+        # calls this in a loop; it never calls itself or "auto" through here.
+        if stage == "mazlatest":
+            return self._mazlatest(messages)
+        if stage == "cloud":
+            return self._cloud(messages)
+        if stage == "local_fast":
+            return self._local_fast(messages)
+        if stage == "local_smart":
+            return self._local_smart(messages)
+        if stage == "local":
+            return self._local(messages)
+        raise ValueError(f"unknown route stage: {stage}")
+
+    def _dispatch_one_bounded(self, stage: Route, messages: list[dict[str, str]]) -> tuple[str, str]:
+        if stage == "mazlatest":
+            return self._mazlatest(messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
+        if stage == "cloud":
+            return self._cloud(messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
+        if stage in ("local_fast", "local_smart"):
+            return self._local_stage(stage, messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
+        raise ValueError(f"unknown AUTO stage: {stage}")
+
+    def _auto(self, messages: list[dict[str, str]], started: float) -> tuple[str, str]:
+        last_error: RouteError | None = None
+        for stage in AUTO_CHAIN:
+            try:
+                result = self._dispatch_one_bounded(stage, messages)
+            except Exception as error:
+                last_error = normalize_upstream_error(error, route=stage, local=stage.startswith("local"))
+                continue
+            fallback = stage != AUTO_CHAIN[0]
+            self._last_route = {
+                "requested": "auto",
+                "active": stage,
+                "ok": True,
+                "fallback": fallback,
+                "fallback_reason": last_error.code.value if fallback and last_error else None,
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+            }
+            return result
+        # Every stage in the chain failed. Explicit DEGRADED, never an
+        # unhandled 500 — the caller gets the last real failure as context.
+        degraded_reason = last_error.code.value if last_error else "all_routes_unavailable"
+        self._last_route = {
+            "requested": "auto",
+            "active": "degraded",
+            "ok": False,
+            "fallback": True,
+            "fallback_reason": degraded_reason,
+            "latency_ms": round((time.perf_counter() - started) * 1000),
+        }
+        raise RouteError(
+            ErrorCode.ROUTE_UNAVAILABLE, "degraded", retryable=False, requested_route="auto"
+        ) from last_error
+
     def chat(self, messages: list[dict[str, str]], route: Route) -> tuple[str, str]:
         started = time.perf_counter()
-        active_route = route
+        if route == "auto":
+            return self._auto(messages, started)
         try:
-            if route == "mazlatest":
-                result = self._mazlatest(messages)
-            elif route in ("local", "auto"):
-                active_route = "local"
-                try:
-                    result = self._local(messages)
-                except RouteError:
-                    if route == "local":
-                        raise
-                    active_route = "cloud"
-                    result = self._cloud(messages)
-            else:
-                result = self._cloud(messages)
+            result = self._dispatch_one(route, messages)
             self._last_route = {
                 "requested": route,
-                "active": active_route,
+                "active": route,
                 "ok": True,
                 "latency_ms": round((time.perf_counter() - started) * 1000),
             }
@@ -343,18 +447,18 @@ class Models:
         except Exception as error:
             normalized = normalize_upstream_error(
                 error,
-                route=active_route,
+                route=route,
                 model=(
                     self.settings.mazlatest_model
-                    if active_route == "mazlatest"
-                    else self.settings.cloud_model if active_route == "cloud" else None
+                    if route == "mazlatest"
+                    else self.settings.cloud_model if route == "cloud" else None
                 ),
-                local=active_route == "local",
+                local=route.startswith("local"),
             )
             normalized.requested_route = route
             self._last_route = {
                 "requested": route,
-                "active": active_route,
+                "active": route,
                 "ok": False,
                 "error": normalized.code.value,
                 "latency_ms": round((time.perf_counter() - started) * 1000),
@@ -415,6 +519,22 @@ class Models:
         cloud_model_available = self.settings.cloud_model in cloud_probe["models"]
         cloud_available = bool(cloud_probe["authenticated"] and cloud_model_available)
         local_available = bool(runtime["local"])
+        local_fast_available = bool(local_available and runtime["local_model_installed"])
+        local_smart_available = bool(local_available and runtime["backup_model_installed"])
+        # CLOUD only counts as a genuinely independent failure domain from
+        # MAZLATEST if it is a different endpoint or a different credential.
+        # As shipped, an operator can leave CLOUD pointed at the same 9router
+        # loopback MAZLATEST uses — diagnostics must say so plainly rather
+        # than report AUTO as resilient when it silently is not.
+        independent_cloud = bool(
+            cloud_available
+            and (
+                self.settings.cloud_url.rstrip("/") != self.settings.mazlatest_url.rstrip("/")
+                or self.settings.cloud_key != self.settings.mazlatest_key
+            )
+        )
+        mazlatest_available = bool(maz_probe["authenticated"] and maz_model_available)
+        auto_available = mazlatest_available or independent_cloud or local_fast_available or local_smart_available
         return {
             "preferred_route": preferred_route,
             "active_route": self._last_route.get("active"),
@@ -427,12 +547,13 @@ class Models:
             "mazlatest": {
                 "configured_aliases": [self.settings.mazlatest_model],
                 "model_available": maz_model_available,
-                "available": bool(maz_probe["authenticated"] and maz_model_available),
+                "available": mazlatest_available,
             },
             "cloud": {
                 "model": self.settings.cloud_model,
                 "model_available": cloud_model_available,
                 "available": cloud_available,
+                "independent_of_mazlatest": independent_cloud,
             },
             "local": {
                 "engine": runtime["local_engine"],
@@ -441,9 +562,55 @@ class Models:
                 "model_available": runtime["local_model_installed"],
                 "available": local_available,
             },
-            "auto": {
-                "available": local_available or cloud_available,
-                "degraded": not local_available and cloud_available,
-                "fallback": "cloud" if not local_available and cloud_available else None,
+            "local_fast": {
+                "model": runtime["local_model"],
+                "available": local_fast_available,
             },
+            "local_smart": {
+                "model": runtime["backup_model"],
+                "available": local_smart_available,
+            },
+            "auto": {
+                "chain": list(AUTO_CHAIN),
+                "available": auto_available,
+                "degraded": not mazlatest_available and not independent_cloud,
+                "independent_fallback_configured": independent_cloud or local_fast_available,
+            },
+            # Small, display-ready shape any client (host UI, phone control
+            # page, device firmware) can render without re-deriving route
+            # logic: "AI: MAZLATEST / Status: Healthy / Fallback: Ready".
+            "summary": self._diagnostics_summary(
+                mazlatest_available=mazlatest_available,
+                auto_available=auto_available,
+                independent_fallback=independent_cloud or local_fast_available,
+                local_fast_available=local_fast_available,
+            ),
         }
+
+    def _diagnostics_summary(
+        self,
+        *,
+        mazlatest_available: bool,
+        auto_available: bool,
+        independent_fallback: bool,
+        local_fast_available: bool,
+    ) -> dict:
+        active = self._last_route.get("active")
+        label = {
+            "mazlatest": "MAZLATEST",
+            "cloud": "CLOUD",
+            "local_fast": "LOCAL_FAST",
+            "local_smart": "LOCAL_SMART",
+            "local": "LOCAL",
+            "degraded": "DEGRADED",
+        }.get(active, "MAZLATEST" if active is None else str(active).upper())
+        status = "Healthy" if mazlatest_available else ("Degraded" if auto_available else "Unavailable")
+        summary = {
+            "ai": label,
+            "status": status,
+            "fallback": "Ready" if independent_fallback else "Not configured",
+            "local": "Ready" if local_fast_available else "Unavailable",
+        }
+        if self._last_route.get("fallback"):
+            summary["reason"] = self._last_route.get("fallback_reason") or "primary_unavailable"
+        return summary

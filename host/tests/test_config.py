@@ -12,7 +12,8 @@ def test_defaults_are_local_first_and_conservative():
     s = Settings(_env_file=None)
     assert s.port == 8787
     assert s.default_route == "local"
-    assert s.ollama_model == "lfm2.5-8b-a1b-gpu:latest"
+    assert s.ollama_model == "qwen3.5:4b", "LOCAL_FAST default must be the compact, reliability-critical model"
+    assert s.ollama_backup_model == "lfm2.5-8b-a1b-gpu:latest", "LOCAL_SMART is the optional larger model"
     assert s.ai_profile == "smart"
     assert s.tts_enabled is False, "TTS must be opt-in so it cannot delay answers"
     assert s.max_audio_seconds == 900

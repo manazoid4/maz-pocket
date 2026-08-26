@@ -31,8 +31,11 @@ class Settings(BaseSettings):
     llamacpp_backup_url: str = ""
     llamacpp_backup_model: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
-    ollama_backup_model: str = "qwen3.5:4b"
+    # LOCAL_FAST: the reliability-critical default. Small enough to stay fully
+    # resident on a 6 GB card and answer in single-digit seconds once warm.
+    ollama_model: str = "qwen3.5:4b"
+    # LOCAL_SMART: optional, larger/slower. Never the AUTO reliability default.
+    ollama_backup_model: str = "lfm2.5-8b-a1b-gpu:latest"
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 

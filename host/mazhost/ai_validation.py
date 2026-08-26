@@ -72,7 +72,11 @@ def run_semantic_suite(models: Models, route: Route) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run deterministic MAZ AI semantic checks")
-    parser.add_argument("--route", choices=("local", "auto", "cloud", "mazlatest"), required=True)
+    parser.add_argument(
+        "--route",
+        choices=("local", "local_fast", "local_smart", "auto", "cloud", "mazlatest"),
+        required=True,
+    )
     args = parser.parse_args()
     route: Route = args.route
     results = run_semantic_suite(Models(Settings()), route)
