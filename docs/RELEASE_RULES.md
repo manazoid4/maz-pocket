@@ -31,6 +31,33 @@ Do not clone a new `release-vX.Y.yml` per version. That pattern produced five id
 - Never turn the local portal into a direct firmware-partition writer.
 - Keep the known `0x180000` app-image ceiling enforced in CI.
 
+## Direct-flash recovery path
+
+`scripts/install.ps1` hands a new image back to M5Launcher for it to flash --
+that stays the product's install path. But `scripts/launcher-device.py
+handoff` can fail even when the target partition is genuinely valid and
+bootable: `esp_ota_set_boot_partition()` on a TEST-subtype partition can
+report success and the device can reboot (confirmed via a fresh ESP-ROM
+banner) while the bootloader still ignores the TEST target and reboots
+straight back into MAZ Pocket. That is a bootloader-level defect, not
+something `launcher-device.py`'s serial protocol can work around.
+
+When that happens, `scripts/flash-direct.py` writes the new app-only image
+straight to MAZ Pocket's own currently-running OTA slot over USB, bypassing
+Launcher's hand-back entirely:
+
+```
+python scripts/flash-direct.py --port COM5 --binary dist/Maz-Pocket-v<version>-M5Launcher.bin
+```
+
+It reads the live partition table off the device first -- never assume it
+matches `partitions.csv` in this repo, which is a placeholder for standalone
+compile/link checks only (see that file's header comment); the real layout
+is whatever M5Launcher actually installed. It refuses to run if it finds
+anything other than exactly one non-TEST, non-FACTORY app partition, and it
+never writes outside that slot, so Launcher's own partition -- and its
+recovery path -- is never touched.
+
 ## Stability boundary
 
 - CI green means source/tests/package integrity, not physical Cardputer proof.
