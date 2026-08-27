@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 
@@ -66,11 +67,13 @@ class PairingStore:
         self._current_digest: str | None = None
         self._current: _Pending | None = None
         self._claim_attempts_by_ip: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
 
     def start(self) -> tuple[str, int]:
         code = _generate_code()
-        self._current_digest = _hash_code(code)
-        self._current = _Pending(expires_at=time.monotonic() + CODE_TTL_SECONDS)
+        with self._lock:
+            self._current_digest = _hash_code(code)
+            self._current = _Pending(expires_at=time.monotonic() + CODE_TTL_SECONDS)
         return code, CODE_TTL_SECONDS
 
     def _rate_limited(self, client_ip: str) -> bool:
@@ -88,23 +91,24 @@ class PairingStore:
         "rate limited". That distinction is exactly what would let repeated
         guessing narrow down a live credential.
         """
-        if self._rate_limited(client_ip):
-            return False
-        if self._current is None:
-            return False
-        self._current.attempts += 1
-        expired = time.monotonic() > self._current.expires_at
-        exhausted = self._current.used or self._current.attempts > MAX_CLAIM_ATTEMPTS_PER_CODE or expired
-        matches = _hash_code(code) == self._current_digest
-        if exhausted or not matches:
-            if exhausted:
-                self._current = None
-                self._current_digest = None
-            return False
-        self._current.used = True
-        self._current = None
-        self._current_digest = None
-        return True
+        with self._lock:
+            if self._rate_limited(client_ip):
+                return False
+            if self._current is None:
+                return False
+            self._current.attempts += 1
+            expired = time.monotonic() > self._current.expires_at
+            exhausted = self._current.used or self._current.attempts > MAX_CLAIM_ATTEMPTS_PER_CODE or expired
+            matches = _hash_code(code) == self._current_digest
+            if exhausted or not matches:
+                if exhausted:
+                    self._current = None
+                    self._current_digest = None
+                return False
+            self._current.used = True
+            self._current = None
+            self._current_digest = None
+            return True
 
 
 class ClaimRequest(BaseModel):

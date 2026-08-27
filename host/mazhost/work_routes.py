@@ -63,7 +63,7 @@ class CreateTrackBody(BaseModel):
 
 
 class EventTypeUpdateBody(BaseModel):
-    id: str = Field(min_length=1, max_length=120)
+    id: str | None = Field(default=None, min_length=1, max_length=120)
     label: str = Field(min_length=1, max_length=60)
     # Updates are whole event-type records. Requiring these fields prevents a
     # partial rename request from silently resetting ordering/headline flags.
@@ -89,6 +89,7 @@ class UpdateTrackBody(BaseModel):
     sort_order: int | None = Field(default=None, ge=0, le=10_000)
     state: Literal["active", "paused", "archived"] | None = None
     primary_event_type_id: str | None = Field(default=None, min_length=1, max_length=120)
+    primary_event_type_index: int | None = Field(default=None, ge=0)
     event_types: list[EventTypeUpdateBody] | None = Field(default=None, min_length=1, max_length=12)
 
     @field_validator("name", "short_label")
@@ -100,6 +101,16 @@ class UpdateTrackBody(BaseModel):
         if not clean:
             raise ValueError("value must not be blank")
         return clean
+
+    @model_validator(mode="after")
+    def validate_primary_event_type_index(self):
+        if self.primary_event_type_index is None:
+            return self
+        if self.event_types is None or self.primary_event_type_index >= len(self.event_types):
+            raise ValueError("primary_event_type_index_out_of_range")
+        if not self.event_types[self.primary_event_type_index].active:
+            raise ValueError("primary_event_type_must_be_active")
+        return self
 
 
 class CreateEventBody(BaseModel):
@@ -113,7 +124,7 @@ class CreateEventBody(BaseModel):
 
 class PipelineItemBody(BaseModel):
     item_id: str | None = Field(default=None, min_length=1, max_length=100)
-    pipeline: Literal["client", "job"]
+    pipeline: Literal["client"]
     title: str = Field(min_length=1, max_length=160)
     organisation: str = Field(default="", max_length=160)
     stage: str = Field(min_length=1, max_length=40)
@@ -221,17 +232,21 @@ def install_work_routes(
         maz_control_session: Annotated[str | None, Cookie()] = None,
     ):
         require_session(request, maz_control_session)
-        raw = body.model_dump(exclude={"event_types"})
+        raw = body.model_dump(exclude={"event_types", "primary_event_type_index"})
         fields = {
             key: value for key, value in raw.items()
             if key in body.model_fields_set
             and (value is not None or key == "target")
         }
-        event_type_updates = (
-            [event_type.model_dump() for event_type in body.event_types]
-            if body.event_types is not None
-            else None
-        )
+        event_type_updates = None
+        if body.event_types is not None:
+            event_type_updates = []
+            for event_type in body.event_types:
+                update = event_type.model_dump()
+                update["id"] = update["id"] or f"{track_id}.{uuid.uuid4().hex[:12]}"
+                event_type_updates.append(update)
+            if body.primary_event_type_index is not None:
+                fields["primary_event_type_id"] = event_type_updates[body.primary_event_type_index]["id"]
         try:
             track = store.update_track(
                 track_id,
@@ -291,11 +306,10 @@ def install_work_routes(
     @app.get("/work/pipeline")
     def work_pipeline(
         request: Request,
-        pipeline: Literal["client", "job"] | None = None,
         maz_control_session: Annotated[str | None, Cookie()] = None,
     ):
         require_session(request, maz_control_session)
-        return {"ok": True, "items": store.list_pipeline_items(pipeline)}
+        return {"ok": True, "items": store.list_pipeline_items("client")}
 
     @app.post("/work/pipeline")
     def work_put_pipeline_item(
@@ -321,7 +335,7 @@ def install_work_routes(
     ):
         require_session(request, maz_control_session)
         existing = store.get_pipeline_item(item_id)
-        if not existing:
+        if not existing or existing["pipeline"] != "client":
             raise HTTPException(404, "pipeline_item_not_found")
         fields = body.model_dump(exclude_unset=True)
         if fields.get("stage") is not None:

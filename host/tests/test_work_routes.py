@@ -272,6 +272,59 @@ def test_event_type_rename_via_manage_tracks_preserves_history(tmp_path):
     assert renamed["label"] == "SUBMITTED"
 
 
+def test_manage_tracks_can_add_remove_restore_and_change_primary_event_type(tmp_path):
+    client = make_client(tmp_path)
+    created = client.post(
+        "work/tracks",
+        json={
+            "name": "Build Loop", "short_label": "BUILD", "mode": "count",
+            "unit": "steps", "event_types": ["DESIGN", "SHIP"], "pinned": True,
+        },
+    ).json()["track"]
+    first, second = created["event_types"]
+    assert client.post(
+        f"work/tracks/{created['id']}/events",
+        json={"event_id": "evt_before_remove", "event_type_id": first["id"]},
+    ).status_code == 200
+
+    first["active"] = False
+    second["contributes_to_headline"] = False
+    response = client.patch(
+        f"work/tracks/{created['id']}",
+        json={
+            "primary_event_type_index": 2,
+            "event_types": [
+                first,
+                second,
+                {
+                    "id": None, "label": "VERIFY", "sort_order": 2,
+                    "active": True, "contributes_to_headline": True,
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+    updated = response.json()["track"]
+    removed = next(event for event in updated["event_types"] if event["id"] == first["id"])
+    added = next(event for event in updated["event_types"] if event["label"] == "VERIFY")
+    assert removed["active"] == 0, "remove must deactivate, not delete historical identity"
+    assert updated["primary_event_type_id"] == added["id"]
+    assert added["contributes_to_headline"] == 1
+    assert client.post(
+        f"work/tracks/{created['id']}/events",
+        json={"event_id": "evt_inactive", "event_type_id": first["id"]},
+    ).status_code == 400
+
+    first["active"] = True
+    restored = client.patch(
+        f"work/tracks/{created['id']}", json={"event_types": [first]},
+    )
+    assert restored.status_code == 200
+    summary = client.get("work/summary").json()
+    track_summary = next(t for t in summary["tracks"] if t["track_id"] == created["id"])
+    assert track_summary["today_total"] == 1, "restoring the type must reveal its preserved event"
+
+
 def test_archive_removes_track_from_today_but_history_remains_queryable(tmp_path):
     client = make_client(tmp_path)
     client.post(
@@ -331,7 +384,7 @@ def test_cardputer_payload_caps_pinned_tracks_and_history_length(tmp_path):
     payload = resp.json()
     assert len(payload["tracks"]) <= 4
     assert len(payload["seven_day"]) == 7
-    assert payload["next_action"] == "Research one real prospect or vacancy"
+    assert payload["next_action"] == "Research one real prospect"
     assert all(track["primary_event_type_id"] for track in payload["tracks"])
     assert len(resp.content) <= 4096
 
@@ -349,7 +402,7 @@ def test_cardputer_payload_caps_pinned_tracks_and_history_length(tmp_path):
     assert increment.json()["created"] is True
 
 
-def test_client_and_job_pipeline_drive_today_from_stored_state(tmp_path):
+def test_client_pipeline_drives_today_from_stored_state_and_rejects_jobfinder(tmp_path):
     client = make_client(tmp_path)
     prospects = [
         {
@@ -385,7 +438,7 @@ def test_client_and_job_pipeline_drive_today_from_stored_state(tmp_path):
         "rationale": "Strong Python and workflow fit.",
         "next_action": "Submit the prepared Automation Engineer application",
     }
-    assert client.post("work/pipeline", json=job).status_code == 200
+    assert client.post("work/pipeline", json=job).status_code == 422
 
     today = client.get("work/today").json()
     assert today["stats"]["clients"] == {
@@ -396,10 +449,11 @@ def test_client_and_job_pipeline_drive_today_from_stored_state(tmp_path):
         "follow_ups_due": 0,
         "mini_solutions": 1,
     }
-    assert today["stats"]["jobs"]["jobs_reviewed"] == 1
+    assert "jobs" not in today["stats"]
     assert today["recommendations"][0]["item_id"] == "client_0"
     assert today["recommendations"][1]["item_id"] == "client_1"
-    assert today["recommendations"][2]["item_id"] == "job_real_1"
+    assert len(today["recommendations"]) == 2
+    assert all(item["pipeline"] == "client" for item in today["recommendations"])
     assert "Finish Prospect 0 enquiry triage mock-up" in today["reply"]
 
     update = client.patch(

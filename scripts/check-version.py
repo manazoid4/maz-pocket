@@ -65,6 +65,8 @@ if "esp_ota_set_boot_partition" not in launcher:
     raise SystemExit("M5Launcher hand-back must select a boot partition")
 if "esp_rom_spiflash_write" in launcher or "spi_flash_write" in launcher:
     raise SystemExit("M5Launcher hand-back must never erase/invalidate the running MAZ app")
+if (ROOT / "scripts" / "flash-direct.py").exists():
+    raise SystemExit("M5Launcher must remain the only firmware installer; direct-slot flashing is forbidden")
 
 field = (ROOT / "src" / "core" / "field.cpp").read_text(encoding="utf-8-sig")
 if "submitOutboxAudio" not in field or "submitOutboxBeam" not in field:

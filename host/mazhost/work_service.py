@@ -129,7 +129,7 @@ class WorkService:
             "today_score": sum(t["current_total"] for t in pinned),
             "next_action": (
                 today["recommendations"][0]["action"][:80]
-                if today["recommendations"] else "Research one real prospect or vacancy"
+                if today["recommendations"] else "Research one real prospect"
             ),
             "tracks": [
                 {
@@ -158,9 +158,7 @@ class WorkService:
     def pipeline_summary(self) -> dict[str, Any]:
         now = time.time()
         clients = self.store.list_pipeline_items("client")
-        jobs = self.store.list_pipeline_items("job")
         client_qualified = {"QUALIFIED", "READY_TO_SEND", "SENT", "FOLLOW_UP_DUE", "WON"}
-        job_qualified = {"QUALIFIED", "READY_TO_APPLY", "APPLIED", "FOLLOW_UP_DUE", "INTERVIEW", "OFFER"}
         due = lambda item: item["due_at"] is not None and item["due_at"] <= now
         return {
             "clients": {
@@ -171,19 +169,11 @@ class WorkService:
                 "follow_ups_due": sum(due(item) and item["stage"] in {"SENT", "FOLLOW_UP_DUE"} for item in clients),
                 "mini_solutions": sum(item["proof_status"] == "READY" for item in clients),
             },
-            "jobs": {
-                "jobs_reviewed": len(jobs),
-                "jobs_qualified": sum(item["stage"] in job_qualified for item in jobs),
-                "applications_submitted": sum(item["stage"] in {"APPLIED", "FOLLOW_UP_DUE", "INTERVIEW", "OFFER", "REJECTED"} for item in jobs),
-                "follow_ups_due": sum(due(item) and item["stage"] in {"APPLIED", "FOLLOW_UP_DUE"} for item in jobs),
-                "interviews": sum(item["stage"] == "INTERVIEW" for item in jobs),
-                "outcomes": sum(item["stage"] in {"OFFER", "REJECTED", "WITHDRAWN"} for item in jobs),
-            },
         }
 
     def today(self) -> dict[str, Any]:
         now = time.time()
-        items = self.store.list_pipeline_items()
+        items = self.store.list_pipeline_items("client")
         ranked: list[tuple[int, float, dict[str, Any]]] = []
         for item in items:
             action = item["next_action"].strip()
@@ -193,20 +183,17 @@ class WorkService:
             if due:
                 priority = 0
                 reason = "Stored follow-up or deadline is due now."
-            elif item["pipeline"] == "client" and item["stage"] == "QUALIFIED" and item["proof_status"] != "READY":
+            elif item["stage"] == "QUALIFIED" and item["proof_status"] != "READY":
                 priority = 10
                 reason = "Qualified prospect; proof is still needed before outreach."
-            elif item["pipeline"] == "client" and item["stage"] == "READY_TO_SEND":
+            elif item["stage"] == "READY_TO_SEND":
                 priority = 20
                 reason = "Personalised outreach and proof are ready, but nothing has been sent."
-            elif item["pipeline"] == "job" and item["stage"] == "READY_TO_APPLY":
-                priority = 30
-                reason = "Qualified live vacancy is ready for the human application step."
-            elif item["stage"] in {"REJECTED", "SKIPPED", "LOST", "WON", "OFFER", "WITHDRAWN"}:
+            elif item["stage"] in {"REJECTED", "LOST", "WON"}:
                 continue
             else:
                 priority = 50
-                reason = f"Stored {item['pipeline']} pipeline stage is {item['stage']}."
+                reason = f"Stored client pipeline stage is {item['stage']}."
             ranked.append((priority, -(item["score"] or 0), {
                 "item_id": item["item_id"], "pipeline": item["pipeline"],
                 "stage": item["stage"], "action": action, "reason": reason,
@@ -214,13 +201,12 @@ class WorkService:
             }))
         ranked.sort(key=lambda row: (row[0], row[1], row[2]["item_id"]))
         recommendations: list[dict[str, Any]] = []
-        seen_categories: set[tuple[str, int]] = set()
+        seen_categories: set[int] = set()
         for priority, _score, item in ranked:
-            category = (item["pipeline"], priority)
-            if category in seen_categories:
+            if priority in seen_categories:
                 continue
             recommendations.append(item)
-            seen_categories.add(category)
+            seen_categories.add(priority)
             if len(recommendations) == 3:
                 break
         if len(recommendations) < 3:
@@ -231,17 +217,6 @@ class WorkService:
                 if row[2]["item_id"] not in selected_ids
             )
             recommendations = recommendations[:3]
-        # Keep the daily answer useful across both active pipelines.  If a
-        # qualified job exists but three client actions outrank it, reserve
-        # the last slot for that independent job action rather than hiding it
-        # behind a wall of outreach tasks.
-        if not any(item["pipeline"] == "job" for item in recommendations):
-            job_candidate = next((row[2] for row in ranked if row[2]["pipeline"] == "job"), None)
-            if job_candidate:
-                if len(recommendations) == 3:
-                    recommendations[-1] = job_candidate
-                else:
-                    recommendations.append(job_candidate)
         work_summary = self.summary()
         work_progress = [
             {
@@ -257,7 +232,7 @@ class WorkService:
             for index, item in enumerate(recommendations, 1):
                 lines.extend((f"{index}. {item['action']}", f"   Reason: {item['reason']}"))
         else:
-            lines.extend(("1. Research one real prospect or vacancy.", "   Reason: no active pipeline action is stored."))
+            lines.extend(("1. Research one real prospect.", "   Reason: no active client pipeline action is stored."))
         return {
             "ok": True,
             "generated_at": now,

@@ -11,6 +11,7 @@ environment-specific setup step outside this test's control."""
 
 from __future__ import annotations
 
+import os
 import socket
 import threading
 import time
@@ -47,8 +48,15 @@ def _chromium_available() -> bool:
         return False
 
 
-@pytest.mark.skipif(not _chromium_available(), reason="Playwright Chromium not installed in this environment")
+_BROWSER_AVAILABLE = _chromium_available()
+
+
+@pytest.mark.skipif(
+    not _BROWSER_AVAILABLE and not os.environ.get("CI"),
+    reason="Playwright Chromium not installed in this local environment",
+)
 def test_one_tap_quick_log_application_from_open_work_tab(tmp_path):
+    assert _BROWSER_AVAILABLE, "CI must install Playwright Chromium; browser acceptance cannot be skipped"
     settings = Settings(
         _env_file=None,
         token="e2e-pairing-token-123456",

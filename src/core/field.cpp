@@ -205,6 +205,21 @@ void finishWork(const host::WorkSummary& s) {
     shell::invalidate();
 }
 
+void finishWorkIncrement(const host_worker::WorkIncrementResult& result) {
+    if (!result.reply.ok) {
+        notify::post(Note::Error, "WORK not saved", result.reply.error.c_str());
+        return;
+    }
+    for (int i = 0; i < Sys.workTrackCount; ++i) {
+        if (Sys.workTrackId[i] != result.trackId) continue;
+        Sys.workTrackToday[i] += 1;
+        notify::post(Note::Success, "+1 saved", Sys.workTrackLabel[i].c_str());
+        break;
+    }
+    gWorkRequested = true;
+    shell::invalidate();
+}
+
 bool submitNextOutbox() {
     if (!store::ready()) return false;
     const auto rows = store::loadRecords("outbox", 64);
@@ -277,6 +292,11 @@ void update() {
             case host_worker::JobKind::WorkSummary: {
                 host::WorkSummary r;
                 if (host_worker::takeWorkSummaryResult(r)) finishWork(r);
+                break;
+            }
+            case host_worker::JobKind::WorkIncrement: {
+                host_worker::WorkIncrementResult r;
+                if (host_worker::takeWorkIncrementResult(r)) finishWorkIncrement(r);
                 break;
             }
             default: break;  // COMM/PC results belong to their caller.
@@ -422,6 +442,10 @@ void requestSystemStatus() {
 }
 
 void requestWorkSummary() { gWorkRequested = true; }
+
+bool requestWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
+    return host_worker::submitWorkIncrement(trackId, eventTypeId);
+}
 
 void queueBeam(const std::string& text) {
     if (text.empty()) return;

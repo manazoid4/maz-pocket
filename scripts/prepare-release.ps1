@@ -26,7 +26,8 @@ $CoreStage = Join-Path $Dist "core-package"
 Remove-Item $CoreStage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $CoreStage | Out-Null
 Get-ChildItem (Join-Path $Root "host") -Force | ForEach-Object {
-    if ($_.Name -ne ".env" -and $_.Name -ne ".venv" -and $_.Name -ne "__pycache__" -and $_.Extension -ne ".log") {
+    $IsPrivateEnv = $_.Name -eq ".env" -or ($_.Name -like ".env.*" -and $_.Name -ne ".env.example")
+    if (-not $IsPrivateEnv -and $_.Name -ne ".venv" -and $_.Name -ne "__pycache__" -and $_.Extension -ne ".log") {
         Copy-Item $_.FullName $CoreStage -Recurse -Force
     }
 }
@@ -43,6 +44,9 @@ Get-ChildItem $CoreStage -Recurse -Directory -Force |
 Get-ChildItem $CoreStage -Recurse -File -Force -Filter "*.pyc" |
     Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem $CoreStage -Recurse -File -Force -Filter "*.log" |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem $CoreStage -Recurse -File -Force |
+    Where-Object { $_.Name -eq ".env" -or ($_.Name -like ".env.*" -and $_.Name -ne ".env.example") } |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
 Remove-Item $CoreZip -Force -ErrorAction SilentlyContinue
@@ -134,6 +138,8 @@ $InstallNames = @(
 foreach ($name in $InstallNames) { Copy-Item (Join-Path $Dist $name) $InstallStage -Force }
 Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $InstallStage "*") -DestinationPath $Bundle -Force
+$BundleHash = (Get-FileHash $Bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+"$BundleHash  $BundleName" | Add-Content -Encoding ascii (Join-Path $Dist "SHA256SUMS.txt")
 
 Write-Host "Prepared MAZ Pocket v$Version release:"
 Get-ChildItem $Firmware, $CoreZip, $CardputerZip, $Bundle, (Join-Path $Dist "SHA256SUMS.txt") | Select-Object Name, Length

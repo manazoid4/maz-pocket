@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from mazhost.app import create_app
 from mazhost.config import Settings
+import mazhost.pairing as pairing
 from mazhost.pairing import CODE_LENGTH, MAX_CLAIM_ATTEMPTS_PER_CODE, PairingStore
 
 TOKEN = "test-token-that-is-not-default"
@@ -89,6 +92,27 @@ def test_claim_succeeds_exactly_once_then_is_dead():
     code, _ = store.start()
     assert store.claim(code, "1.2.3.4") is True
     assert store.claim(code, "1.2.3.4") is False, "a used code must never be claimable again"
+
+
+def test_simultaneous_claim_succeeds_exactly_once(monkeypatch):
+    store = PairingStore()
+    code, _ = store.start()
+    expected_digest = pairing._hash_code(code)
+    rendezvous = threading.Barrier(2)
+
+    class RacingDigest:
+        def __eq__(self, other):
+            try:
+                rendezvous.wait(timeout=0.2)
+            except threading.BrokenBarrierError:
+                pass
+            return expected_digest == other
+
+    monkeypatch.setattr(pairing, "_hash_code", lambda _code: RacingDigest())
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda ip: store.claim(code, ip), ("1.2.3.4", "5.6.7.8")))
+
+    assert sorted(results) == [False, True]
 
 
 def test_wrong_code_never_succeeds():

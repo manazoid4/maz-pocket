@@ -226,24 +226,37 @@ class WorkStore:
                         (*sets.values(), track_id),
                     )
                 for update in event_type_updates or []:
-                    cursor = conn.execute(
-                        "UPDATE event_types SET label=?, sort_order=?, active=?, "
-                        "contributes_to_headline=? WHERE id=? AND track_id=?",
-                        (
-                            update["label"], update["sort_order"],
-                            1 if update["active"] else 0,
-                            1 if update["contributes_to_headline"] else 0,
-                            update["id"], track_id,
-                        ),
+                    existing = conn.execute(
+                        "SELECT track_id FROM event_types WHERE id=?", (update["id"],)
+                    ).fetchone()
+                    values = (
+                        update["label"], update["sort_order"],
+                        1 if update["active"] else 0,
+                        1 if update["contributes_to_headline"] else 0,
                     )
-                    if cursor.rowcount != 1:
-                        raise WorkStoreError("event_type_not_found")
-                primary = sets.get("primary_event_type_id")
+                    if existing:
+                        if existing["track_id"] != track_id:
+                            raise WorkStoreError("event_type_id_conflict")
+                        conn.execute(
+                            "UPDATE event_types SET label=?, sort_order=?, active=?, "
+                            "contributes_to_headline=? WHERE id=? AND track_id=?",
+                            (*values, update["id"], track_id),
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT INTO event_types (label, sort_order, active, "
+                            "contributes_to_headline, id, track_id) VALUES (?,?,?,?,?,?)",
+                            (*values, update["id"], track_id),
+                        )
+                primary_row = conn.execute(
+                    "SELECT primary_event_type_id FROM tracks WHERE id=?", (track_id,)
+                ).fetchone()
+                primary = primary_row["primary_event_type_id"] if primary_row else None
                 if primary and not conn.execute(
-                    "SELECT 1 FROM event_types WHERE id=? AND track_id=?",
+                    "SELECT 1 FROM event_types WHERE id=? AND track_id=? AND active=1",
                     (primary, track_id),
                 ).fetchone():
-                    raise WorkStoreError("primary_event_type_not_found")
+                    raise WorkStoreError("primary_event_type_not_found_or_inactive")
                 conn.execute("COMMIT")
             except WorkStoreError:
                 if conn.in_transaction:

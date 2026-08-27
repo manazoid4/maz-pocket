@@ -175,17 +175,13 @@ public:
             return true;
         }
         if (e.code == KEY_ENTER && _selected < Sys.workTrackCount) {
-            const host::Reply result = host::workIncrement(
-                Sys.workTrackId[_selected], Sys.workTrackPrimaryEventTypeId[_selected]
-            );
-            if (!result.ok) {
-                notify::post(Note::Error, "WORK not saved", result.error.c_str());
+            if (field::requestWorkIncrement(
+                    Sys.workTrackId[_selected], Sys.workTrackPrimaryEventTypeId[_selected])) {
+                notify::post(Note::Info, "+1 queued", Sys.workTrackLabel[_selected].c_str());
             } else {
-                Sys.workTrackToday[_selected] += 1;
-                notify::post(Note::Success, "+1 saved", Sys.workTrackLabel[_selected].c_str());
-                poll();
-                invalidate();
+                notify::post(Note::Warn, "WORK busy", "try again in a moment");
             }
+            invalidate();
             return true;
         }
         return false;

@@ -27,6 +27,7 @@ std::string shiftElapsedText();
 
 void requestSystemStatus();
 void requestWorkSummary();
+bool requestWorkIncrement(const std::string& trackId, const std::string& eventTypeId);
 void queueBeam(const std::string& text);
 
 }  // namespace field
