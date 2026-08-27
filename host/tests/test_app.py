@@ -115,8 +115,13 @@ class FakeCore:
         return ""
 
 
-def client(pc=None, models=None, beam=None, telemetry=None, core=None):
-    settings = Settings(token="test-token-that-is-not-default", _env_file=None)
+def client(pc=None, models=None, beam=None, telemetry=None, core=None, work_dir=None):
+    settings_kwargs = {"token": "test-token-that-is-not-default", "_env_file": None}
+    if work_dir is not None:
+        settings_kwargs["work_dir"] = str(work_dir)
+        settings_kwargs["control_dir"] = str(work_dir / "control")
+        settings_kwargs["debug_dir"] = str(work_dir / "debug")
+    settings = Settings(**settings_kwargs)
     return TestClient(
         create_app(
             settings,
@@ -172,6 +177,37 @@ def test_text_turn_accepts_explicit_mazlatest_route():
 
     assert response.status_code == 200
     assert models.last_route == "mazlatest"
+
+
+def test_what_should_i_do_today_is_traced_to_work_state_not_model(tmp_path):
+    from mazhost.work_store import WorkStore
+
+    work_dir = tmp_path / "work"
+    store = WorkStore(work_dir)
+    store.bootstrap()
+    store.put_pipeline_item({
+        "item_id": "client_daily", "pipeline": "client", "title": "Acme",
+        "organisation": "Acme Ltd", "stage": "QUALIFIED", "score": 88,
+        "proof_status": "IN_PROGRESS", "evidence": "Public form reviewed",
+        "next_action": "Finish Acme workflow mock-up",
+    })
+    models = FakeModels()
+    api = client(models=models, work_dir=work_dir)
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+
+    response = api.post(
+        "/turn/text", headers=headers,
+        json={"session_id": sid, "route": "auto", "text": "What should I do today?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "work-state-local"
+    assert body["timings"]["llm_ms"] == 0
+    assert "Finish Acme workflow mock-up" in body["reply"]
+    assert body["work_state"]["recommendations"][0]["item_id"] == "client_daily"
+    assert models.last_messages == []
 
 
 def test_diagnostics_is_authenticated_safe_and_distinguishes_route_state():

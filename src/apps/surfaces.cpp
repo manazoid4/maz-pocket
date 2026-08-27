@@ -4,10 +4,12 @@
 
 #include "../audio/sfx.h"
 #include "../core/field.h"
+#include "../core/notify.h"
 #include "../core/settings.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
+#include "../net/mazhost.h"
 #include "apps.h"
 #include "common.h"
 
@@ -144,13 +146,14 @@ class WorkGlanceApp : public App {
 public:
     const char* id() const override { return "flow"; }
     const char* title() const override { return "WORK"; }
-    const char* hints() const override { return "ENTER work tools   ESC home"; }
+    const char* hints() const override { return "UP/DOWN track  ENTER +1  P tools"; }
 
     void onEnter() override { poll(); }
 
     void update() override {
         const uint32_t pollInterval = workPollIntervalMs();
         if (millis() - _lastPollMs >= pollInterval) poll();
+        if (_selected >= Sys.workTrackCount) _selected = std::max(0, Sys.workTrackCount - 1);
         const bool nowStale = Sys.workLoaded &&
                               (millis() - Sys.workReceivedAt > pollInterval * 3u);
         if (nowStale != _lastStale) { _lastStale = nowStale; invalidate(); }
@@ -158,9 +161,31 @@ public:
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;
-        if (e.code == KEY_ENTER) {
+        if (e.code == KEY_UP && Sys.workTrackCount > 0) {
+            _selected = (_selected + Sys.workTrackCount - 1) % Sys.workTrackCount;
+            sfx::select(); invalidate(); return true;
+        }
+        if (e.code == KEY_DOWN && Sys.workTrackCount > 0) {
+            _selected = (_selected + 1) % Sys.workTrackCount;
+            sfx::select(); invalidate(); return true;
+        }
+        if (e.code == KEY_P) {
             sfx::confirm();
             shell::pushById("flowtools");
+            return true;
+        }
+        if (e.code == KEY_ENTER && _selected < Sys.workTrackCount) {
+            const host::Reply result = host::workIncrement(
+                Sys.workTrackId[_selected], Sys.workTrackPrimaryEventTypeId[_selected]
+            );
+            if (!result.ok) {
+                notify::post(Note::Error, "WORK not saved", result.error.c_str());
+            } else {
+                Sys.workTrackToday[_selected] += 1;
+                notify::post(Note::Success, "+1 saved", Sys.workTrackLabel[_selected].c_str());
+                poll();
+                invalidate();
+            }
             return true;
         }
         return false;
@@ -172,6 +197,7 @@ public:
         for (int i = 0; i < Sys.workTrackCount; ++i) {
             out += " " + Sys.workTrackLabel[i] + "=" + std::to_string(static_cast<int>(Sys.workTrackToday[i]));
         }
+        if (!Sys.workNextAction.empty()) out += " next=" + Sys.workNextAction;
         if (_lastStale) out += " (STALE)";
         return out;
     }
@@ -192,7 +218,7 @@ public:
         for (int i = 0; i < Sys.workTrackCount; ++i) {
             const int y = BODY_Y + 6 + i * pitch;
             g.fillRoundRect(PAD, y, SCREEN_W - PAD * 2, 19, 4, PANEL);
-            g.drawRoundRect(PAD, y, SCREEN_W - PAD * 2, 19, 4, LINE);
+            g.drawRoundRect(PAD, y, SCREEN_W - PAD * 2, 19, 4, i == _selected ? ACCENT : LINE);
             g.setTextDatum(top_left);
             g.setFont(&fonts::Font0);
             g.setTextColor(TEXT, PANEL);
@@ -205,16 +231,28 @@ public:
             g.drawString(value.c_str(), SCREEN_W - PAD - 6, y + 5);
         }
 
+        const int actionY = BODY_Y + 6 + Sys.workTrackCount * pitch + 4;
+        int stripY = actionY;
+        if (!Sys.workNextAction.empty() && actionY + 27 < SCREEN_H) {
+            g.setTextDatum(top_left);
+            g.setFont(&fonts::Font0);
+            g.setTextColor(ACCENT2, BG);
+            g.drawString("NEXT", PAD, actionY);
+            g.setTextColor(TEXT, BG);
+            g.drawString(ui::ellipsis(Sys.workNextAction, 34).c_str(), PAD, actionY + 11);
+            stripY += 27;
+        }
         // Compact 7-day strip: fixed-length bars, tallest day sets the scale.
-        const int stripY = BODY_Y + 6 + Sys.workTrackCount * pitch + 6;
-        float maxDay = 0.001f;
-        for (float v : Sys.workSeven) maxDay = std::max(maxDay, v);
         constexpr int barW = 6, barGap = 4, barMaxH = 18;
-        int x = PAD;
-        for (float v : Sys.workSeven) {
-            const int h = std::max(2, static_cast<int>(barMaxH * (v / maxDay)));
-            g.fillRoundRect(x, stripY + (barMaxH - h), barW, h, 2, _lastStale ? LINE : ACCENT);
-            x += barW + barGap;
+        if (stripY + barMaxH <= SCREEN_H) {
+            float maxDay = 0.001f;
+            for (float v : Sys.workSeven) maxDay = std::max(maxDay, v);
+            int x = PAD;
+            for (float v : Sys.workSeven) {
+                const int h = std::max(2, static_cast<int>(barMaxH * (v / maxDay)));
+                g.fillRoundRect(x, stripY + (barMaxH - h), barW, h, 2, _lastStale ? LINE : ACCENT);
+                x += barW + barGap;
+            }
         }
         g.setTextDatum(top_left);
     }
@@ -222,6 +260,7 @@ public:
 private:
     uint32_t _lastPollMs = 0;
     bool _lastStale = false;
+    int _selected = 0;
 
     void poll() {
         _lastPollMs = millis();

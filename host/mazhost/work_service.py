@@ -122,9 +122,15 @@ class WorkService:
         for day in history["history"]:
             strip.append({tid: day["totals"].get(tid, 0) for tid in track_ids})
 
+        today = self.today()
         return {
             "ok": True,
             "generated_at": summary["generated_at"],
+            "today_score": sum(t["current_total"] for t in pinned),
+            "next_action": (
+                today["recommendations"][0]["action"][:80]
+                if today["recommendations"] else "Research one real prospect or vacancy"
+            ),
             "tracks": [
                 {
                     "track_id": t["track_id"],
@@ -133,8 +139,112 @@ class WorkService:
                     # value; for weekly cadence it is the current local week.
                     "today_total": t["current_total"],
                     "target": t["target"],
+                    "primary_event_type_id": next(
+                        (
+                            event_type["event_type_id"]
+                            for event_type in t["breakdown"]
+                            if event_type["event_type_id"]
+                            == self.store.get_track(t["track_id"])["primary_event_type_id"]
+                        ),
+                        "",
+                    ),
                 }
                 for t in pinned
             ],
             "seven_day": strip[-CARDPUTER_HISTORY_DAYS:],
+        }
+
+    # ------------------------------------------------------------ pipelines
+    def pipeline_summary(self) -> dict[str, Any]:
+        now = time.time()
+        clients = self.store.list_pipeline_items("client")
+        jobs = self.store.list_pipeline_items("job")
+        client_qualified = {"QUALIFIED", "READY_TO_SEND", "SENT", "FOLLOW_UP_DUE", "WON"}
+        job_qualified = {"QUALIFIED", "READY_TO_APPLY", "APPLIED", "FOLLOW_UP_DUE", "INTERVIEW", "OFFER"}
+        due = lambda item: item["due_at"] is not None and item["due_at"] <= now
+        return {
+            "clients": {
+                "prospects_researched": len(clients),
+                "qualified": sum(item["stage"] in client_qualified for item in clients),
+                "outreach_ready": sum(item["stage"] == "READY_TO_SEND" for item in clients),
+                "outreach_sent": sum(item["stage"] in {"SENT", "FOLLOW_UP_DUE", "WON", "LOST"} for item in clients),
+                "follow_ups_due": sum(due(item) and item["stage"] in {"SENT", "FOLLOW_UP_DUE"} for item in clients),
+                "mini_solutions": sum(item["proof_status"] == "READY" for item in clients),
+            },
+            "jobs": {
+                "jobs_reviewed": len(jobs),
+                "jobs_qualified": sum(item["stage"] in job_qualified for item in jobs),
+                "applications_submitted": sum(item["stage"] in {"APPLIED", "FOLLOW_UP_DUE", "INTERVIEW", "OFFER", "REJECTED"} for item in jobs),
+                "follow_ups_due": sum(due(item) and item["stage"] in {"APPLIED", "FOLLOW_UP_DUE"} for item in jobs),
+                "interviews": sum(item["stage"] == "INTERVIEW" for item in jobs),
+                "outcomes": sum(item["stage"] in {"OFFER", "REJECTED", "WITHDRAWN"} for item in jobs),
+            },
+        }
+
+    def today(self) -> dict[str, Any]:
+        now = time.time()
+        items = self.store.list_pipeline_items()
+        ranked: list[tuple[int, float, dict[str, Any]]] = []
+        for item in items:
+            action = item["next_action"].strip()
+            if not action:
+                continue
+            due = item["due_at"] is not None and item["due_at"] <= now
+            if due:
+                priority = 0
+                reason = "Stored follow-up or deadline is due now."
+            elif item["pipeline"] == "client" and item["stage"] == "QUALIFIED" and item["proof_status"] != "READY":
+                priority = 10
+                reason = "Qualified prospect; proof is still needed before outreach."
+            elif item["pipeline"] == "client" and item["stage"] == "READY_TO_SEND":
+                priority = 20
+                reason = "Personalised outreach and proof are ready, but nothing has been sent."
+            elif item["pipeline"] == "job" and item["stage"] == "READY_TO_APPLY":
+                priority = 30
+                reason = "Qualified live vacancy is ready for the human application step."
+            elif item["stage"] in {"REJECTED", "SKIPPED", "LOST", "WON", "OFFER", "WITHDRAWN"}:
+                continue
+            else:
+                priority = 50
+                reason = f"Stored {item['pipeline']} pipeline stage is {item['stage']}."
+            ranked.append((priority, -(item["score"] or 0), {
+                "item_id": item["item_id"], "pipeline": item["pipeline"],
+                "stage": item["stage"], "action": action, "reason": reason,
+                "source_url": item["source_url"],
+            }))
+        ranked.sort(key=lambda row: (row[0], row[1], row[2]["item_id"]))
+        recommendations = [row[2] for row in ranked[:3]]
+        # Keep the daily answer useful across both active pipelines.  If a
+        # qualified job exists but three client actions outrank it, reserve
+        # the last slot for that independent job action rather than hiding it
+        # behind a wall of outreach tasks.
+        if not any(item["pipeline"] == "job" for item in recommendations):
+            job_candidate = next((row[2] for row in ranked if row[2]["pipeline"] == "job"), None)
+            if job_candidate:
+                if len(recommendations) == 3:
+                    recommendations[-1] = job_candidate
+                else:
+                    recommendations.append(job_candidate)
+        work_summary = self.summary()
+        work_progress = [
+            {
+                "track_id": track["track_id"],
+                "today_total": track["today_total"],
+                "current_total": track["current_total"],
+                "target": track["target"],
+            }
+            for track in work_summary["tracks"]
+        ]
+        lines = ["TODAY"]
+        if recommendations:
+            for index, item in enumerate(recommendations, 1):
+                lines.extend((f"{index}. {item['action']}", f"   Reason: {item['reason']}"))
+        else:
+            lines.extend(("1. Research one real prospect or vacancy.", "   Reason: no active pipeline action is stored."))
+        return {
+            "ok": True,
+            "generated_at": now,
+            "stats": {**self.pipeline_summary(), "work": work_progress},
+            "recommendations": recommendations,
+            "reply": "\n".join(lines),
         }

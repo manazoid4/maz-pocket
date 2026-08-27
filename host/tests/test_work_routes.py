@@ -331,7 +331,83 @@ def test_cardputer_payload_caps_pinned_tracks_and_history_length(tmp_path):
     payload = resp.json()
     assert len(payload["tracks"]) <= 4
     assert len(payload["seven_day"]) == 7
+    assert payload["next_action"] == "Research one real prospect or vacancy"
+    assert all(track["primary_event_type_id"] for track in payload["tracks"])
     assert len(resp.content) <= 4096
+
+    first = payload["tracks"][0]
+    increment = bearer_client.post(
+        "/work/cardputer/increment",
+        headers={"Authorization": f"Bearer {settings.token}"},
+        json={
+            "event_id": "evt_cardputer_test",
+            "track_id": first["track_id"],
+            "event_type_id": first["primary_event_type_id"],
+        },
+    )
+    assert increment.status_code == 200
+    assert increment.json()["created"] is True
+
+
+def test_client_and_job_pipeline_drive_today_from_stored_state(tmp_path):
+    client = make_client(tmp_path)
+    prospects = [
+        {
+            "item_id": f"client_{index}", "pipeline": "client",
+            "title": f"Prospect {index}", "organisation": f"Business {index}",
+            "stage": "REJECTED", "score": 30 + index,
+            "source_url": f"https://example.com/{index}",
+            "evidence": "Public booking flow reviewed.",
+            "friction": "Manual enquiry handling.",
+            "rationale": "Evidence-backed review.",
+            "next_action": "",
+        }
+        for index in range(5)
+    ]
+    prospects[0].update({
+        "stage": "QUALIFIED", "score": 86, "proof_status": "IN_PROGRESS",
+        "solution": "A small enquiry triage mock-up.",
+        "next_action": "Finish Prospect 0 enquiry triage mock-up",
+    })
+    prospects[1].update({
+        "stage": "READY_TO_SEND", "score": 79, "proof_status": "READY",
+        "outreach_status": "READY_TO_SEND", "outreach_draft": "Personalised draft",
+        "next_action": "Review and send Prospect 1 outreach",
+    })
+    for prospect in prospects:
+        response = client.post("work/pipeline", json=prospect)
+        assert response.status_code == 200
+
+    job = {
+        "item_id": "job_real_1", "pipeline": "job", "title": "Automation Engineer",
+        "organisation": "Example Employer", "stage": "READY_TO_APPLY", "score": 82,
+        "source_url": "https://example.com/job", "evidence": "Live vacancy reviewed.",
+        "rationale": "Strong Python and workflow fit.",
+        "next_action": "Submit the prepared Automation Engineer application",
+    }
+    assert client.post("work/pipeline", json=job).status_code == 200
+
+    today = client.get("work/today").json()
+    assert today["stats"]["clients"] == {
+        "prospects_researched": 5,
+        "qualified": 2,
+        "outreach_ready": 1,
+        "outreach_sent": 0,
+        "follow_ups_due": 0,
+        "mini_solutions": 1,
+    }
+    assert today["stats"]["jobs"]["jobs_reviewed"] == 1
+    assert today["recommendations"][0]["item_id"] == "client_0"
+    assert today["recommendations"][1]["item_id"] == "client_1"
+    assert today["recommendations"][2]["item_id"] == "job_real_1"
+    assert "Finish Prospect 0 enquiry triage mock-up" in today["reply"]
+
+    update = client.patch(
+        "work/pipeline/client_0",
+        json={"proof_status": "READY", "stage": "READY_TO_SEND"},
+    )
+    assert update.status_code == 200
+    assert update.json()["item"]["stage"] == "READY_TO_SEND"
 
 
 def test_history_bounded_to_seven_days(tmp_path):

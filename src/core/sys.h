@@ -74,11 +74,14 @@ struct SysState {
     bool        workLoaded = false;  // ever received one successful payload
     uint32_t    workReceivedAt = 0;  // millis() of the last successful poll
     uint8_t     workTrackCount = 0;
+    std::string workTrackId[WORK_MAX_TRACKS];
     std::string workTrackLabel[WORK_MAX_TRACKS];
+    std::string workTrackPrimaryEventTypeId[WORK_MAX_TRACKS];
     float       workTrackToday[WORK_MAX_TRACKS] = {};
     bool        workTrackHasTarget[WORK_MAX_TRACKS] = {};
     float       workTrackTarget[WORK_MAX_TRACKS] = {};
     float       workSeven[WORK_HISTORY_DAYS] = {};
+    std::string workNextAction;
 
     uint32_t freeHeap           = 0;
     uint32_t minFreeHeap        = 0;

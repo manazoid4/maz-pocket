@@ -303,6 +303,9 @@ WorkSummary workSummary() {
             out.error = "malformed work response";
             return out;
         }
+        const char* nextAction = doc["next_action"] | "";
+        if (strlen(nextAction) > 80) { out.error = "work next action too long"; return out; }
+        out.nextAction = nextAction;
         JsonArray tracks = doc["tracks"].as<JsonArray>();
         if (tracks.size() > WORK_MAX_TRACKS) {
             out.error = "too many work tracks";
@@ -312,8 +315,10 @@ WorkSummary workSummary() {
         for (JsonObject t : tracks) {
             const char* id = t["track_id"] | nullptr;
             const char* label = t["short_label"] | nullptr;
+            const char* primary = t["primary_event_type_id"] | nullptr;
             if (!id || !label || !id[0] || !label[0] || strlen(id) > 80 ||
-                strlen(label) > 16 || !t["today_total"].is<float>()) {
+                strlen(label) > 16 || !primary || !primary[0] || strlen(primary) > 120 ||
+                !t["today_total"].is<float>()) {
                 out.error = "malformed work track";
                 return out;
             }
@@ -321,6 +326,7 @@ WorkSummary workSummary() {
             if (!std::isfinite(today)) { out.error = "invalid work total"; return out; }
             out.tracks[i].id = id;
             out.tracks[i].shortLabel = label;
+            out.tracks[i].primaryEventTypeId = primary;
             out.tracks[i].todayTotal = today;
             out.tracks[i].hasTarget = !t["target"].isNull();
             if (out.tracks[i].hasTarget) {
@@ -355,6 +361,40 @@ WorkSummary workSummary() {
             ++d;
         }
         out.ok = true;
+        fieldOnline();
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
+}
+
+Reply workIncrement(const std::string& trackId, const std::string& eventTypeId) {
+    Reply out;
+    if (trackId.empty() || trackId.size() > 80 || eventTypeId.empty() || eventTypeId.size() > 120) {
+        out.error = "invalid work increment";
+        return out;
+    }
+    for (const auto& base : fieldBases()) {
+        HTTPClient http;
+        if (!beginField(http, base.first, "/work/cardputer/increment", base.second)) continue;
+        JsonDocument request;
+        request["event_id"] = "evt_cardputer_" + std::to_string(ESP.getEfuseMac()) + "_" + std::to_string(millis());
+        request["track_id"] = trackId;
+        request["event_type_id"] = eventTypeId;
+        String body;
+        serializeJson(request, body);
+        http.addHeader("Content-Type", "application/json");
+        const int status = http.POST(body);
+        const String response = status > 0 ? http.getString() : String();
+        http.end();
+        if (status <= 0) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, response)) { out.error = "invalid work increment response"; return out; }
+        if (status < 200 || status >= 300) { out.error = jsonError(doc, "work increment failed"); return out; }
+        out.ok = true;
+        out.text = "+1 saved";
+        out.provider = "work-local";
         fieldOnline();
         return out;
     }

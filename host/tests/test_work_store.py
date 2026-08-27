@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from mazhost.work_schema import SCHEMA_VERSION
 from mazhost.work_store import (
     MIGRATIONS,
     WorkStore,
@@ -57,7 +58,7 @@ def test_concurrent_fresh_bootstrap_is_idempotent(tmp_path):
     store = WorkStore(root)
     assert {track["id"] for track in store.list_tracks()} == {"job_hunt", "maz_works"}
     with sqlite3.connect(store.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_migration_crash_mid_step_resumes_cleanly(tmp_path, monkeypatch):
@@ -92,7 +93,7 @@ module.WorkStore(sys.argv[1]).bootstrap()
         crash_table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='crash_marker'"
         ).fetchone()
-    assert version == 1
+    assert version == SCHEMA_VERSION
     assert crash_table is None
     assert {t["id"] for t in store.list_tracks()} == {"job_hunt", "maz_works"}
 

@@ -19,6 +19,8 @@ from typing import Any, Iterator
 
 from .work_schema import (
     BUILTIN_TEMPLATES,
+    PIPELINE_STAGES,
+    PROOF_STAGES,
     MAX_NOTE_LENGTH,
     MIGRATIONS,
     SCHEMA_VERSION,
@@ -373,6 +375,109 @@ class WorkStore:
                 (start, end),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # ----------------------------------------------------------- pipelines
+    def put_pipeline_item(self, item: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        """Create or replace one researched client/job item by stable ID."""
+        pipeline = str(item.get("pipeline") or "").strip().lower()
+        stage = str(item.get("stage") or "").strip().upper()
+        proof_status = str(item.get("proof_status") or "NOT_STARTED").strip().upper()
+        if pipeline not in PIPELINE_STAGES:
+            raise WorkStoreError("invalid_pipeline")
+        if stage not in PIPELINE_STAGES[pipeline]:
+            raise WorkStoreError("invalid_pipeline_stage")
+        if proof_status not in PROOF_STAGES:
+            raise WorkStoreError("invalid_proof_status")
+        item_id = str(item.get("item_id") or "").strip()
+        title = " ".join(str(item.get("title") or "").replace("\x00", "").splitlines()).strip()
+        if not item_id or not title:
+            raise WorkStoreError("pipeline_item_id_and_title_required")
+        score = item.get("score")
+        if score is not None and (not isinstance(score, int) or isinstance(score, bool) or score < 0 or score > 100):
+            raise WorkStoreError("invalid_pipeline_score")
+
+        limits = {
+            "organisation": 160, "source_url": 1000, "evidence": 4000,
+            "friction": 4000, "rationale": 4000, "solution": 4000,
+            "contact_role": 240, "outreach_draft": 8000,
+            "outreach_status": 80, "next_action": 500,
+        }
+        clean: dict[str, Any] = {}
+        for field, limit in limits.items():
+            value = str(item.get(field) or "").replace("\x00", "").strip()
+            clean[field] = value[:limit]
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                created = not bool(conn.execute(
+                    "SELECT 1 FROM pipeline_items WHERE item_id = ?", (item_id,)
+                ).fetchone())
+                conn.execute(
+                    """INSERT INTO pipeline_items (
+                        item_id, pipeline, title, organisation, stage, score,
+                        source_url, evidence, friction, rationale, solution,
+                        contact_role, outreach_draft, outreach_status, proof_status,
+                        next_action, due_at, last_contact_at, created_at, updated_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(item_id) DO UPDATE SET
+                        pipeline=excluded.pipeline, title=excluded.title,
+                        organisation=excluded.organisation, stage=excluded.stage,
+                        score=excluded.score, source_url=excluded.source_url,
+                        evidence=excluded.evidence, friction=excluded.friction,
+                        rationale=excluded.rationale, solution=excluded.solution,
+                        contact_role=excluded.contact_role,
+                        outreach_draft=excluded.outreach_draft,
+                        outreach_status=excluded.outreach_status,
+                        proof_status=excluded.proof_status,
+                        next_action=excluded.next_action, due_at=excluded.due_at,
+                        last_contact_at=excluded.last_contact_at,
+                        updated_at=excluded.updated_at""",
+                    (
+                        item_id, pipeline, title[:160], clean["organisation"], stage, score,
+                        clean["source_url"], clean["evidence"], clean["friction"],
+                        clean["rationale"], clean["solution"], clean["contact_role"],
+                        clean["outreach_draft"], clean["outreach_status"] or "NOT_READY",
+                        proof_status, clean["next_action"], item.get("due_at"),
+                        item.get("last_contact_at"), now, now,
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+        return self.get_pipeline_item(item_id), created  # type: ignore[return-value]
+
+    def get_pipeline_item(self, item_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM pipeline_items WHERE item_id = ?", (item_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_pipeline_items(self, pipeline: str | None = None) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            if pipeline:
+                if pipeline not in PIPELINE_STAGES:
+                    raise WorkStoreError("invalid_pipeline")
+                rows = conn.execute(
+                    "SELECT * FROM pipeline_items WHERE pipeline = ? "
+                    "ORDER BY updated_at DESC, item_id", (pipeline,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM pipeline_items ORDER BY pipeline, updated_at DESC, item_id"
+                ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_pipeline_item(self, item_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+        existing = self.get_pipeline_item(item_id)
+        if not existing:
+            raise WorkStoreError("pipeline_item_not_found")
+        merged = {**existing, **fields, "item_id": item_id}
+        updated, _created = self.put_pipeline_item(merged)
+        return updated
 
 
 def local_day_bounds(

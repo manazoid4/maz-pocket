@@ -10,8 +10,22 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Callable
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_NOTE_LENGTH = 500
+
+CLIENT_PIPELINE_STAGES = (
+    "RESEARCHED", "QUALIFIED", "REJECTED", "READY_TO_SEND", "SENT",
+    "FOLLOW_UP_DUE", "WON", "LOST",
+)
+JOB_PIPELINE_STAGES = (
+    "REVIEWED", "QUALIFIED", "SKIPPED", "READY_TO_APPLY", "APPLIED",
+    "FOLLOW_UP_DUE", "INTERVIEW", "OFFER", "REJECTED", "WITHDRAWN",
+)
+PIPELINE_STAGES = {
+    "client": frozenset(CLIENT_PIPELINE_STAGES),
+    "job": frozenset(JOB_PIPELINE_STAGES),
+}
+PROOF_STAGES = frozenset(("NOT_STARTED", "IN_PROGRESS", "READY"))
 
 
 @dataclass(frozen=True)
@@ -133,6 +147,37 @@ def _migration_v1(conn: sqlite3.Connection) -> None:
         conn.execute(statement)
 
 
+def _migration_v2(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE pipeline_items (
+            item_id TEXT PRIMARY KEY,
+            pipeline TEXT NOT NULL CHECK (pipeline IN ('client', 'job')),
+            title TEXT NOT NULL,
+            organisation TEXT NOT NULL DEFAULT '',
+            stage TEXT NOT NULL,
+            score INTEGER CHECK (score IS NULL OR (score >= 0 AND score <= 100)),
+            source_url TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            friction TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL DEFAULT '',
+            solution TEXT NOT NULL DEFAULT '',
+            contact_role TEXT NOT NULL DEFAULT '',
+            outreach_draft TEXT NOT NULL DEFAULT '',
+            outreach_status TEXT NOT NULL DEFAULT 'NOT_READY',
+            proof_status TEXT NOT NULL DEFAULT 'NOT_STARTED'
+                CHECK (proof_status IN ('NOT_STARTED', 'IN_PROGRESS', 'READY')),
+            next_action TEXT NOT NULL DEFAULT '',
+            due_at REAL,
+            last_contact_at REAL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX idx_pipeline_stage ON pipeline_items(pipeline, stage)")
+    conn.execute("CREATE INDEX idx_pipeline_due ON pipeline_items(due_at)")
+
+
 MIGRATIONS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
     (1, _migration_v1),
+    (2, _migration_v2),
 )

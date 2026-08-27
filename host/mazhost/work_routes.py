@@ -15,6 +15,7 @@ from typing import Annotated, Literal
 from fastapi import Cookie, FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .work_schema import PIPELINE_STAGES, PROOF_STAGES
 from .work_service import WorkService
 from .work_store import WorkStore, WorkStoreError
 
@@ -108,6 +109,56 @@ class CreateEventBody(BaseModel):
     occurred_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     source: Literal["phone_manual", "cardputer_manual", "import"] = "phone_manual"
     note: str = Field(default="", max_length=500)
+
+
+class PipelineItemBody(BaseModel):
+    item_id: str | None = Field(default=None, min_length=1, max_length=100)
+    pipeline: Literal["client", "job"]
+    title: str = Field(min_length=1, max_length=160)
+    organisation: str = Field(default="", max_length=160)
+    stage: str = Field(min_length=1, max_length=40)
+    score: int | None = Field(default=None, ge=0, le=100)
+    source_url: str = Field(default="", max_length=1000)
+    evidence: str = Field(default="", max_length=4000)
+    friction: str = Field(default="", max_length=4000)
+    rationale: str = Field(default="", max_length=4000)
+    solution: str = Field(default="", max_length=4000)
+    contact_role: str = Field(default="", max_length=240)
+    outreach_draft: str = Field(default="", max_length=8000)
+    outreach_status: str = Field(default="NOT_READY", max_length=80)
+    proof_status: str = Field(default="NOT_STARTED", max_length=40)
+    next_action: str = Field(default="", max_length=500)
+    due_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    last_contact_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_pipeline_state(self):
+        self.stage = self.stage.strip().upper()
+        self.proof_status = self.proof_status.strip().upper()
+        if self.stage not in PIPELINE_STAGES[self.pipeline]:
+            raise ValueError("invalid_pipeline_stage")
+        if self.proof_status not in PROOF_STAGES:
+            raise ValueError("invalid_proof_status")
+        self.title = " ".join(self.title.replace("\x00", "").splitlines()).strip()
+        if not self.title:
+            raise ValueError("title_must_not_be_blank")
+        return self
+
+
+class PipelineUpdateBody(BaseModel):
+    stage: str | None = Field(default=None, min_length=1, max_length=40)
+    score: int | None = Field(default=None, ge=0, le=100)
+    evidence: str | None = Field(default=None, max_length=4000)
+    friction: str | None = Field(default=None, max_length=4000)
+    rationale: str | None = Field(default=None, max_length=4000)
+    solution: str | None = Field(default=None, max_length=4000)
+    contact_role: str | None = Field(default=None, max_length=240)
+    outreach_draft: str | None = Field(default=None, max_length=8000)
+    outreach_status: str | None = Field(default=None, max_length=80)
+    proof_status: str | None = Field(default=None, min_length=1, max_length=40)
+    next_action: str | None = Field(default=None, max_length=500)
+    due_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    last_contact_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 def install_work_routes(
@@ -236,3 +287,61 @@ def install_work_routes(
     ):
         require_session(request, maz_control_session)
         return service.history(days=days)
+
+    @app.get("/work/pipeline")
+    def work_pipeline(
+        request: Request,
+        pipeline: Literal["client", "job"] | None = None,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        return {"ok": True, "items": store.list_pipeline_items(pipeline)}
+
+    @app.post("/work/pipeline")
+    def work_put_pipeline_item(
+        body: PipelineItemBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        item = body.model_dump()
+        item["item_id"] = item["item_id"] or f"{body.pipeline}_{uuid.uuid4().hex[:16]}"
+        try:
+            saved, created = store.put_pipeline_item(item)
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "item": saved, "created": created}
+
+    @app.patch("/work/pipeline/{item_id}")
+    def work_update_pipeline_item(
+        item_id: str,
+        body: PipelineUpdateBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        existing = store.get_pipeline_item(item_id)
+        if not existing:
+            raise HTTPException(404, "pipeline_item_not_found")
+        fields = body.model_dump(exclude_unset=True)
+        if fields.get("stage") is not None:
+            fields["stage"] = fields["stage"].strip().upper()
+            if fields["stage"] not in PIPELINE_STAGES[existing["pipeline"]]:
+                raise HTTPException(422, "invalid_pipeline_stage")
+        if fields.get("proof_status") is not None:
+            fields["proof_status"] = fields["proof_status"].strip().upper()
+            if fields["proof_status"] not in PROOF_STAGES:
+                raise HTTPException(422, "invalid_proof_status")
+        try:
+            saved = store.update_pipeline_item(item_id, fields)
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "item": saved}
+
+    @app.get("/work/today")
+    def work_today(
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        return service.today()

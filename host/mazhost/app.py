@@ -39,6 +39,8 @@ from .telemetry import SystemTelemetry
 from .tts import SpeechOut
 from .validation import install_validation_exception_handler
 from .version import CORE_VERSION
+from .work_service import WorkService
+from .work_store import WorkStore
 
 
 class TextTurn(BaseModel):
@@ -109,6 +111,9 @@ def create_app(
     authority = AuthorityBroker(cfg)
     elevated_executor = ElevatedExecutor(cfg, authority)
     debug_capsules = DebugCapsules(cfg)
+    work_store = WorkStore(cfg.work_dir)
+    work_store.bootstrap()
+    work_service = WorkService(work_store)
 
     api = FastAPI(
         title="MAZ Core",
@@ -201,6 +206,27 @@ def create_app(
 
     def answer(session_id: str, text: str, route: Route, pocket_context: str = "") -> dict:
         refined = refine(text)
+        normalized = " ".join(
+            refined.text.lower().replace("?", "").replace("!", "").split()
+        )
+        if normalized in {
+            "what should i do today",
+            "what do i need to do today",
+            "what is my next action today",
+            "what's my next action today",
+        }:
+            if not sessions.has(session_id):
+                raise HTTPException(404, "session_not_found")
+            daily = work_service.today()
+            sessions.add_turn(session_id, refined.text, daily["reply"])
+            return {
+                "text": refined.text,
+                "reply": daily["reply"],
+                "provider": "work-state-local",
+                "actions": refined.actions,
+                "work_state": daily,
+                "timings": {"llm_ms": 0},
+            }
         # Context Ask is informational: selected-screen context must never turn
         # an ordinary question into an executable PC/reminder command.
         command = None if pocket_context else parse_command(refined.text)
@@ -646,6 +672,7 @@ def create_app(
             model_router=model_router,
             nudge_client=nudge_client,
             device_monitor=device_monitor,
+            work_store=work_store,
         )
 
     return api

@@ -193,12 +193,15 @@ void finishWork(const host::WorkSummary& s) {
     Sys.workReceivedAt = millis();
     Sys.workTrackCount = static_cast<uint8_t>(std::min(s.trackCount, SysState::WORK_MAX_TRACKS));
     for (int i = 0; i < Sys.workTrackCount; ++i) {
+        Sys.workTrackId[i] = s.tracks[i].id;
         Sys.workTrackLabel[i] = s.tracks[i].shortLabel;
+        Sys.workTrackPrimaryEventTypeId[i] = s.tracks[i].primaryEventTypeId;
         Sys.workTrackToday[i] = s.tracks[i].todayTotal;
         Sys.workTrackHasTarget[i] = s.tracks[i].hasTarget;
         Sys.workTrackTarget[i] = s.tracks[i].target;
     }
     for (int d = 0; d < SysState::WORK_HISTORY_DAYS; ++d) Sys.workSeven[d] = s.sevenDay[d];
+    Sys.workNextAction = s.nextAction;
     shell::invalidate();
 }
 

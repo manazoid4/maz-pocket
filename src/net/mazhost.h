@@ -110,6 +110,7 @@ constexpr int WORK_HISTORY_DAYS = 7;
 struct WorkTrack {
     std::string id;
     std::string shortLabel;
+    std::string primaryEventTypeId;
     float todayTotal = 0;
     bool hasTarget = false;
     float target = 0;
@@ -120,6 +121,7 @@ struct WorkSummary {
     int trackCount = 0;
     WorkTrack tracks[WORK_MAX_TRACKS];
     float sevenDay[WORK_HISTORY_DAYS] = {};
+    std::string nextAction;
     std::string error;
 };
 
@@ -180,6 +182,7 @@ Reply beamSend(const std::string& text);
 BeamMessage beamPull();
 SystemStatus systemStatus();
 WorkSummary workSummary();
+Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 
 CoreStatus coreStatus();
 std::vector<CoreProject> coreProjects(std::string& error);
