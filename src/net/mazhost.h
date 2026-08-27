@@ -18,6 +18,13 @@ struct Reply {
     uint32_t    reminderDelay = 0;
 };
 
+struct PairCode {
+    bool ok = false;
+    std::string code;
+    int expiresInSeconds = 0;
+    std::string error;
+};
+
 struct Agent {
     std::string id;
     std::string name;
@@ -138,6 +145,7 @@ bool configured();
 bool health();
 const char* linkName();
 std::string startSession();
+PairCode startPairing();
 Reply talkText(const std::string& session, const std::string& text);
 Reply talkTextContext(const std::string& session, const std::string& text,
                       const std::string& context);

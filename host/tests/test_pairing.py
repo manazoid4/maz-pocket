@@ -134,6 +134,15 @@ def test_pair_start_requires_the_existing_bearer_token():
     assert response.status_code == 401
 
 
+def test_pair_page_is_public_mobile_ux_and_contains_no_durable_token():
+    response = client().get("/pair/")
+    assert response.status_code == 200
+    assert "PAIR DEVICE" in response.text
+    assert "one-time-code" in response.text
+    assert "/control/session/login" in response.text
+    assert TOKEN not in response.text
+
+
 def test_pair_claim_needs_no_bearer_token_but_needs_a_valid_code():
     api = client()
     headers = {"Authorization": f"Bearer {TOKEN}"}

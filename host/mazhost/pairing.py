@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
@@ -18,6 +19,16 @@ CODE_LENGTH = 8
 CODE_TTL_SECONDS = 300
 MAX_CLAIM_ATTEMPTS_PER_CODE = 8
 MAX_CLAIMS_PER_MINUTE_PER_IP = 10
+
+
+PAIR_PAGE = r"""<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#080b0e"><title>Pair with MAZ</title><style>
+:root{color-scheme:dark}body{margin:0;background:#080b0e;color:#f2f4f5;font:15px ui-monospace,Consolas,monospace;display:grid;min-height:100vh;place-items:center}.c{box-sizing:border-box;width:min(92vw,420px);border:1px solid #27323b;background:#11171c;border-radius:12px;padding:20px}b{color:#ffcc00}p{color:#aeb9c1;line-height:1.5}input,button{box-sizing:border-box;width:100%;font:inherit;padding:13px;border-radius:8px;border:1px solid #394852;background:#080c0f;color:#f2f4f5;margin-top:10px;text-transform:uppercase;letter-spacing:.12em}button{background:#ffcc00;color:#08090a;font-weight:900}.ok{color:#62d98b}.bad{color:#ff7676}small{color:#7f909b}</style></head>
+<body><form class="c" id="pair"><h1><b>MAZ</b> PAIR DEVICE</h1><p>On the Cardputer open <b>CONTROL → PAIRING + PHONE</b>, press Enter, then type the temporary 8-character code below.</p><input id="code" inputmode="text" autocomplete="one-time-code" maxlength="8" pattern="[A-Za-z2-9]{8}" placeholder="8-CHAR CODE" required autofocus><button>PAIR THIS PHONE</button><p id="status"><small>The code expires in 5 minutes and works once.</small></p></form><script>
+const f=document.getElementById('pair'),s=document.getElementById('status'),c=document.getElementById('code');
+f.addEventListener('submit',async e=>{e.preventDefault();s.textContent='Pairing…';try{const r=await fetch('claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c.value.trim().toUpperCase()})});const d=await r.json();if(!r.ok)throw new Error('Code invalid, expired, or already used.');s.className='ok';s.textContent='Paired. Opening MAZ WORK…';const login=document.createElement('form');login.method='post';login.action='/control/session/login';const token=document.createElement('input');token.type='hidden';token.name='token';token.value=d.token;login.appendChild(token);document.body.appendChild(login);login.submit()}catch(err){s.className='bad';s.textContent=err.message;c.select()}});
+</script></body></html>"""
 
 
 def _generate_code() -> str:
@@ -105,6 +116,12 @@ def build_pairing_app(
 ) -> FastAPI:
     pairing_store = store or PairingStore()
     pair_app = FastAPI(title="MAZ Pairing")
+
+    @pair_app.get("/", response_class=HTMLResponse)
+    def home() -> HTMLResponse:
+        # Public by design: the page contains no credential and a claimant
+        # still needs the short-lived, rate-limited, single-use device code.
+        return HTMLResponse(PAIR_PAGE)
 
     @pair_app.post("/start", dependencies=[Depends(security.authorize)])
     def start() -> dict:

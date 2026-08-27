@@ -230,6 +230,47 @@ std::string startSession() {
     return "";
 }
 
+PairCode startPairing() {
+    PairCode out;
+    if (!configured() || WiFi.status() != WL_CONNECTED) {
+        out.error = "MAZ Core offline";
+        return out;
+    }
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, "/pair/start", base.second)) continue;
+        const int status = http.POST("");
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        const String body = http.getString();
+        http.end();
+        JsonDocument doc;
+        if (deserializeJson(doc, body)) {
+            out.error = "invalid pairing response";
+            return out;
+        }
+        if (status < 200 || status >= 300) {
+            out.error = doc["detail"] | "pairing unavailable";
+            return out;
+        }
+        const std::string code = doc["code"] | "";
+        if (code.size() != 8) {
+            out.error = "invalid pairing code";
+            return out;
+        }
+        markOnline(base.second);
+        out.ok = true;
+        out.code = code;
+        out.expiresInSeconds = doc["expires_in_seconds"] | 300;
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "MAZ Core unreachable";
+    return out;
+}
+
 Reply talkText(const std::string& session, const std::string& text) {
     JsonDocument doc;
     doc["session_id"] = session;

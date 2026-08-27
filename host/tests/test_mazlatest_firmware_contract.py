@@ -51,3 +51,15 @@ def test_installer_pins_the_explicit_loopback_9router_route():
     assert 'Write-Host "Pair token: $Token"' not in installer
     assert 'Write-Host "  Token:   $ConfiguredToken"' not in setup
     assert "secret not printed" in installer
+
+
+def test_cardputer_pairing_uses_short_code_without_rendering_durable_token():
+    app = (ROOT / "src/apps/pairing.cpp").read_text(encoding="utf-8-sig")
+    host_header = (ROOT / "src/net/mazhost.h").read_text(encoding="utf-8-sig")
+    host_client = (ROOT / "src/net/mazhost.cpp").read_text(encoding="utf-8-sig")
+    assert "host::startPairing()" in app
+    assert "ENTER pair device" in app
+    assert '"/pair/"' in app
+    assert "PAIRING TOKEN" not in app
+    assert "PairCode startPairing();" in host_header
+    assert 'beginRequest(http, base.first, "/pair/start"' in host_client

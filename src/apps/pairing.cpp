@@ -42,12 +42,12 @@ class PairingApp final : public App {
 public:
     const char* id() const override { return "pairing"; }
     const char* title() const override { return "PAIRING + PHONE"; }
-    const char* hints() const override { return "P hide/show token   ESC back"; }
+    const char* hints() const override { return "ENTER pair device   ESC back"; }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;
-        if (e.code == KEY_P) {
-            _show = !_show;
+        if (e.code == KEY_ENTER) {
+            _pair = host::startPairing();
             invalidate();
             return true;
         }
@@ -56,7 +56,7 @@ public:
 
     std::string contextSnapshot() const override {
         return std::string("MAZ pairing token ID ") + tokenId() +
-               "; phone control is MAZ Core /control";
+               "; short-lived phone pairing is MAZ Core /pair";
     }
 
     void render(M5Canvas& g) override {
@@ -68,35 +68,38 @@ public:
         g.setTextColor(ACCENT, BG);
         g.drawString(tokenId().c_str(), 80, BODY_Y + 15);
 
-        g.setTextColor(DIM, BG);
-        g.drawString("PAIRING TOKEN", PAD, BODY_Y + 34);
-        const std::string shown = Cfg.hostToken.empty()
-            ? "NOT SET"
-            : (_show ? Cfg.hostToken : std::string(Cfg.hostToken.size(), '*'));
-        g.setTextColor(_show ? TEXT : DIM, BG);
-        constexpr size_t W = 36;
-        g.drawString(shown.substr(0, W).c_str(), PAD, BODY_Y + 50);
-        if (shown.size() > W)
-            g.drawString(shown.substr(W, W).c_str(), PAD, BODY_Y + 64);
+        g.setTextColor(ACCENT2, BG);
+        g.drawString("PAIR DEVICE", PAD, BODY_Y + 35);
+        if (_pair.ok) {
+            g.setFont(&fonts::Font2);
+            g.setTextColor(TEXT, BG);
+            g.drawCentreString(_pair.code.c_str(), 120, BODY_Y + 48);
+            g.setFont(&fonts::Font0);
+            g.setTextColor(DIM, BG);
+            g.drawString("ONE USE  -  EXPIRES IN 5 MIN", PAD, BODY_Y + 70);
+        } else {
+            g.setTextColor(_pair.error.empty() ? TEXT : WARN, BG);
+            g.drawString(ui::ellipsis(_pair.error.empty() ? "Press ENTER for a temporary code" : _pair.error, 38).c_str(), PAD, BODY_Y + 52);
+        }
 
-        g.setTextColor(DIM, BG);
-        g.drawString("PHONE APPROVALS", PAD, BODY_Y + 84);
         std::string url;
         if (!Cfg.hostRemoteUrl.empty()) {
             url = Cfg.hostRemoteUrl;
             while (!url.empty() && url.back() == '/') url.pop_back();
-            url += "/control/";
+            url += "/pair/";
         } else if (!Cfg.hostAddr.empty()) {
-            url = "http://" + Cfg.hostAddr + ":" + std::to_string(Cfg.hostPort) + "/control/";
+            url = "http://" + Cfg.hostAddr + ":" + std::to_string(Cfg.hostPort) + "/pair/";
         } else {
             url = "Configure MAZ Core first";
         }
+        g.setTextColor(DIM, BG);
+        g.drawString("OPEN ON PHONE", PAD, BODY_Y + 87);
         g.setTextColor(ACCENT2, BG);
-        g.drawString(ui::ellipsis(url, 37).c_str(), PAD, BODY_Y + 99);
+        g.drawString(ui::ellipsis(url, 37).c_str(), PAD, BODY_Y + 101);
     }
 
 private:
-    bool _show = false;
+    host::PairCode _pair;
 };
 
 }  // namespace
