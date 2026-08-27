@@ -213,7 +213,24 @@ class WorkService:
                 "source_url": item["source_url"],
             }))
         ranked.sort(key=lambda row: (row[0], row[1], row[2]["item_id"]))
-        recommendations = [row[2] for row in ranked[:3]]
+        recommendations: list[dict[str, Any]] = []
+        seen_categories: set[tuple[str, int]] = set()
+        for priority, _score, item in ranked:
+            category = (item["pipeline"], priority)
+            if category in seen_categories:
+                continue
+            recommendations.append(item)
+            seen_categories.add(category)
+            if len(recommendations) == 3:
+                break
+        if len(recommendations) < 3:
+            selected_ids = {item["item_id"] for item in recommendations}
+            recommendations.extend(
+                row[2]
+                for row in ranked
+                if row[2]["item_id"] not in selected_ids
+            )
+            recommendations = recommendations[:3]
         # Keep the daily answer useful across both active pipelines.  If a
         # qualified job exists but three client actions outrank it, reserve
         # the last slot for that independent job action rather than hiding it

@@ -258,6 +258,35 @@ def test_typed_route_error_is_returned_at_top_level():
         "model": "retired/model",
     }
 
+
+def test_all_provider_failure_returns_explicit_degraded_state_never_500():
+    class AllFailingModels(FakeModels):
+        def chat(self, _messages, _route):
+            raise RouteError(
+                ErrorCode.LOCAL_UNAVAILABLE,
+                "degraded",
+                retryable=True,
+                requested_route="auto",
+            )
+
+    api = client(models=AllFailingModels(), core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+    response = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "auto", "text": "hello"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ok": False,
+        "route": "degraded",
+        "error": "LOCAL_UNAVAILABLE",
+        "retryable": True,
+        "requested_route": "auto",
+    }
+
 def test_context_ask_is_added_as_untrusted_screen_evidence():
     models = FakeModels()
     api = client(models=models)

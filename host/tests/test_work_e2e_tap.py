@@ -83,12 +83,7 @@ def test_one_tap_quick_log_application_from_open_work_tab(tmp_path):
                 page.goto(base)
                 page.fill('input[name="token"]', settings.token)
                 page.click("form button")
-                # Login's server-side redirect target ("./") resolves relative
-                # to the POST path (/control/session/login), landing one
-                # directory too deep — a pre-existing quirk in the v0.8 login
-                # flow, unrelated to WORK. Navigate to the control root
-                # explicitly rather than following that redirect.
-                page.goto(base)
+                page.wait_for_url(base)
 
                 # WORK tab is already the default/open tab per spec Section 5 —
                 # no extra tap needed to reach it.

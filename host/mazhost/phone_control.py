@@ -149,7 +149,7 @@ def build_phone_app(
         if not hmac.compare_digest(token, settings.token):
             raise HTTPException(401, "invalid_pairing_token")
         signed = broker.issue_phone_session(request.headers.get("user-agent", ""))
-        response = RedirectResponse(url="./", status_code=303)
+        response = RedirectResponse(url="/control/", status_code=303)
         response.set_cookie(
             COOKIE,
             signed,
