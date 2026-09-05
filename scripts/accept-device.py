@@ -25,6 +25,7 @@ def find_port() -> str:
 class Device:
     def __init__(self, port: str):
         self.serial = serial.Serial(port, 115200, timeout=0.25)
+        self._pending = bytearray()
 
     def close(self) -> None:
         self.serial.close()
@@ -34,7 +35,14 @@ class Device:
         self.serial.flush()
         deadline = time.time() + timeout
         while time.time() < deadline:
-            line = self.serial.readline().decode(errors="replace").strip()
+            chunk = self.serial.read(max(self.serial.in_waiting, 1))
+            if chunk:
+                self._pending.extend(chunk)
+            if b"\n" not in self._pending:
+                continue
+            raw, _, remainder = self._pending.partition(b"\n")
+            self._pending = bytearray(remainder)
+            line = raw.decode(errors="replace").strip()
             if line:
                 print(f"    < {line}")
             if line.startswith(prefix):
