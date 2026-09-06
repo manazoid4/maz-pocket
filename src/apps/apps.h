@@ -36,6 +36,7 @@ App* makeDesk();
 App* makeRecall();
 App* makeFlow();
 App* makeControlCenter();
+App* makePcActions();
 App* makeNetworkV5();
 App* makeCoreConsole();
 App* makePairing();

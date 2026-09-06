@@ -87,8 +87,9 @@ public:
         _projects.clear();
         _projectCursor.sel = _projectCursor.first = 0;
         _templateCursor.sel = _templateCursor.first = 0;
-        _view = _kind == ToolKind::Prompt ? View::Template : View::Project;
-        refreshProjects();
+        _view = _kind == ToolKind::Plan ? View::Task
+              : (_kind == ToolKind::Prompt ? View::Template : View::Project);
+        if (_view != View::Task) refreshProjects();
         invalidate();
     }
 

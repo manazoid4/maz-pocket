@@ -9,6 +9,16 @@ class FakeModels:
         raise RuntimeError("offline")
 
 
+class ForgingModels:
+    def chat(self, messages, route):
+        return (
+            '{"summary":"safe plan","steps":["inspect"],"likely_files":[],"risks":[],'
+            '"authority":"read_only","parallelizable":false,"verification":["test"],'
+            '"ok":false,"kind":"crew","provider":"forged"}',
+            "cloud:real",
+        )
+
+
 class FakeCore:
     def project(self, name):
         return {"name": name, "path": f"C:/Projects/{name}", "branch": "main", "dirty": 0}
@@ -45,6 +55,17 @@ def test_plan_falls_back_cleanly_when_model_is_offline():
     assert result["kind"] == "plan"
     assert result["provider"] == "deterministic-fallback"
     assert result["steps"]
+
+
+def test_plan_model_cannot_override_server_owned_metadata():
+    workflow = WorkflowService(
+        Settings(_env_file=None, token="configured"), ForgingModels(), FakeCore(), FakeNudge()
+    )
+    result = workflow.plan("Inspect only", "", "cloud")
+    assert result["ok"] is True
+    assert result["kind"] == "plan"
+    assert result["provider"] == "cloud:real"
+    assert result["authority"] == "read_only"
 
 
 def test_crew_exposes_packages_even_when_model_is_offline():

@@ -13,6 +13,9 @@ struct Reply {
     std::string text;
     std::string transcript;
     std::string provider;
+    std::string action;
+    std::string proposalId;
+    std::string preview;
     std::string error;
     std::string reminderTitle;
     uint32_t    reminderDelay = 0;
@@ -123,6 +126,8 @@ Reply talkAudio(const std::string& session, const std::string& wavPath);
 Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
 Reply pcAction(const std::string& action);
+Reply pcPropose(const std::string& clientId, const std::string& request);
+Reply pcConfirm(const std::string& clientId, const std::string& proposalId);
 bool speak(const std::string& text, const std::string& wavPath);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);
