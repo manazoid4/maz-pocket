@@ -58,7 +58,7 @@ try {
 # command it cannot satisfy with silence, which the flasher can only report as
 # "Timed out waiting for READY" -- a space problem that reads like a cable fault.
 $ImageBytes = (Get-Item $Binary).Length
-& $HostPython (Join-Path $Root "scripts\launcher-device.py") prepare --port $Port --require-free $ImageBytes
+& $HostPython (Join-Path $Root "scripts\launcher-device.py") prepare --port $Port --require-free $ImageBytes --already-in-launcher
 if ($LASTEXITCODE -ne 0) { throw "M5Launcher preparation failed." }
 
 $ToolDir = Join-Path ([IO.Path]::GetTempPath()) "maz-pocket-m5launcher-2.8.0"
