@@ -46,6 +46,29 @@ class SpeechToText:
         )
         return " ".join(segment.text.strip() for segment in segments).strip()
 
+    def _groq(self, path: Path, prompt: str) -> str:
+        import httpx
+        with path.open("rb") as f:
+            r = httpx.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self.settings.groq_api_key}"},
+                data={"model": "whisper-large-v3-turbo", "language": "en", "temperature": "0",
+                      "response_format": "text", "prompt": prompt},
+                files={"file": (path.name, f, "audio/wav")},
+                timeout=20,
+            )
+        r.raise_for_status()
+        return r.text.strip()
+
+    def transcribe_prompted(self, path: Path, prompt: str) -> str:
+        """Groq Whisper when keyed (fast, free); local Whisper otherwise."""
+        if self.settings.groq_api_key:
+            try:
+                return self._groq(path, prompt)
+            except Exception:  # noqa: BLE001 - fall back to local
+                pass
+        return self.transcribe(path)
+
     def transcribe(self, path: Path) -> str:
         return self._transcribe_with(
             path,
@@ -67,3 +90,4 @@ class SpeechToText:
         if choice == "quality":
             return self.transcribe(path)
         return self._transcribe_with(path, "small.en", "cpu", "int8")
+

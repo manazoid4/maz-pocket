@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 
+    groq_api_key: str = ""
+    flow_dir: str = "~/.maz-pocket/flow"
+
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"
@@ -165,3 +168,5 @@ class Settings(BaseSettings):
     @property
     def web_origin_list(self) -> list[str]:
         return [x.strip() for x in self.web_origins.split(",") if x.strip()]
+
+
