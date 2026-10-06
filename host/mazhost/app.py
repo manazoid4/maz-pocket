@@ -278,6 +278,19 @@ def create_app(
             },
         }
 
+    @api.get("/fw/manifest")
+    def fw_manifest():
+        m = fw.manifest()
+        if not m:
+            raise HTTPException(404, "no_firmware")
+        return m
+
+    @api.get("/fw/latest.bin")
+    def fw_latest_bin():
+        if not fw.manifest():
+            raise HTTPException(404, "no_firmware")
+        return FileResponse(fw.fw_dir() / "latest.bin", media_type="application/octet-stream")
+
     @api.get("/models")
     def models_status():
         return {**model_router.status(), "default_route": cfg.default_route}

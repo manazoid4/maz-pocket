@@ -190,7 +190,10 @@ struct CoreInfo { bool ok = false; std::string version, fwVersion, fwSha; };
 CoreInfo fetchCoreInfo();
 const CoreInfo& coreInfo();          // last poll result (cached)
 void setCoreInfo(const CoreInfo& info);
-bool updateReady();                  // Core holds a different build than this one
+bool updateReady();
+bool fwUpdate();       // blocking: download Core's firmware into the spare slot, verify sha256, reboot
+void fwBootGuard();    // call at boot: roll back to the previous slot if a fresh update never ran stable
+void fwMarkGood();     // call once running stable: drop the rollback marker                  // Core holds a different build than this one
 std::vector<CoreProject> coreProjects(std::string& error);
 Reply coreAction(const std::string& action, const std::string& project);
 CoreJob coreStartJob(const std::string& action, const std::string& project);

@@ -38,6 +38,7 @@ void setup() {
     Sys.bootMillis = millis();
 
     Cfg.load();
+    host::fwBootGuard();
     Serial.println("[boot] settings");
 
     if (!KB.begin())
