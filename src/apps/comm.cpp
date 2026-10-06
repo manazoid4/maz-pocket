@@ -350,6 +350,8 @@ private:
         _sendContext.clear();
         if (!result.session.empty()) gCommSession = result.session;
 
+        Serial.printf("[call] ok=%d status=%d err=%s wav=%s\n", result.reply.ok, result.reply.status,
+                      result.reply.error.c_str(), result.wavPath.c_str());
         if (!result.reply.ok) {
             queueRaw(result.wavPath, result.reply.error.empty() ? "PC unavailable" : result.reply.error, result.context);
             notify::post(Note::Warn, "MAZ unavailable", "voice call kept in outbox");
