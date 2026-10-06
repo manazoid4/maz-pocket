@@ -311,7 +311,7 @@ private:
             // A background poll may hold the worker for a moment: wait up to 8 s
             // instead of failing the call outright.
             if (!_waitSince) _waitSince = millis();
-            if (millis() - _waitSince < 8000) { _sendAt = millis() + 200; return; }
+            if (millis() - _waitSince < 30000) { _sendAt = millis() + 200; return; }
             _waitSince = 0;
             _sending = false;
             notify::post(Note::Error, "Call busy", host_worker::stateName());
@@ -328,7 +328,9 @@ private:
 
     void consumeWorkerResult() {
         if (host_worker::state() != host_worker::State::Done) {
-            _sending = host_worker::busy();
+            // A recording still waiting for the worker keeps us sending; clearing
+            // it here silently dropped the call whenever a background job ran.
+            _sending = host_worker::busy() || _haveTake;
             return;
         }
         if (host_worker::jobKind() == host_worker::JobKind::PcAction) {
