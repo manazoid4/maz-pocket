@@ -32,6 +32,7 @@ from .llm import Models, Route
 from .nudge import NudgeClient
 from .pairing import build_pairing_app
 from .pc import PCController
+from .brain import maths_line, priorities_line, weather_line
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
 from .security import Security
@@ -165,6 +166,13 @@ def create_app(
             "this line; never say you lack access to the time or date. "
             "Reply in 1-2 short spoken sentences, no markdown.\n"
         )
+        last_q = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+        if last_q:
+            context += (
+                "\nThe user\'s previous question was: \"" + last_q[:200] + "\". Use it for follow-ups like "
+                "\"and after that\" or \"what did I just ask\".\n"
+            )
+        context += maths_line(text) + weather_line(text) + priorities_line(text, cfg.now_path)
         clean_pocket_context = " ".join(pocket_context.replace("\x00", "").splitlines()).strip()[:1200]
         if clean_pocket_context:
             context += (
@@ -215,6 +223,8 @@ def create_app(
         }
 
     def answer(session_id: str, text: str, route: Route, pocket_context: str = "") -> dict:
+        if cfg.smart_voice and route == "local":
+            route = "auto"  # free cloud brain first, local only as last fallback
         refined = refine(text)
         normalized = " ".join(
             refined.text.lower().replace("?", "").replace("!", "").split()

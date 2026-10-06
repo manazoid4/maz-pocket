@@ -183,7 +183,7 @@ def test_auto_chain_has_no_recursive_auto_stage():
     from mazhost.llm import AUTO_CHAIN
 
     assert "auto" not in AUTO_CHAIN
-    assert set(AUTO_CHAIN) <= {"mazlatest", "cloud", "local_fast", "local_smart"}
+    assert set(AUTO_CHAIN) <= {"groq", "groq_alt", "mazlatest", "cloud", "local_fast", "local_smart"}
 
 
 def test_llamacpp_engine_uses_its_own_model_chain():

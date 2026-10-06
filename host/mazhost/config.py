@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 
+    # Free fast brain for conversation: Groq first (key from env/.env), models in
+    # quality order; each is one AUTO stage. Empty key = stages skipped.
+    groq_url: str = "https://api.groq.com/openai/v1"
+    groq_key: str = ""
+    groq_models: str = "llama-3.3-70b-versatile,openai/gpt-oss-120b"
+    # Conversational turns on LOCAL/AUTO use the full free chain (local last).
+    smart_voice: bool = True
+    now_path: str = "~/Desktop/Maz Works Knowledge Vault/NOW.md"
+
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"

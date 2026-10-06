@@ -6,9 +6,10 @@ from typing import Literal
 import httpx
 
 from .config import Settings
+from .brain import is_refusal
 from .errors import ErrorCode, RouteError, normalize_upstream_error
 
-Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlatest"]
+Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlatest", "groq", "groq_alt"]
 
 # Explicit AUTO fallback order. One attempt per stage, no in-stage retries —
 # a stage that fails (auth, model-not-found, timeout, refused connection...)
@@ -16,13 +17,15 @@ Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlates
 # CLOUD is a real stage in this chain, but until it is pointed at a provider
 # genuinely separate from the 9router endpoint MAZLATEST uses, it does not
 # add independence — see diagnostics()["independent_fallback_configured"].
-AUTO_CHAIN: tuple[Route, ...] = ("mazlatest", "cloud", "local_fast", "local_smart")
+AUTO_CHAIN: tuple[Route, ...] = ("groq", "groq_alt", "mazlatest", "cloud", "local_fast", "local_smart")
 
 # Per-stage ceiling while AUTO is hopping through the chain. A user who
 # explicitly picks one route (mazlatest/cloud/local_fast/...) keeps the
 # client's full 90s patience; AUTO trades patience for not making the Pocket
 # wait through up to four stacked 90s hangs before it gives up.
 AUTO_STAGE_TIMEOUT_SECONDS = 15.0
+# Groq answers in well under 2 s; if it has not by 6 s, hop to the next model.
+GROQ_TIMEOUT_SECONDS = 6.0
 
 # The handheld prompt explicitly asks for compact answers. Bounding generation
 # prevents a verbose local model from making the user wait for text that cannot
@@ -314,12 +317,14 @@ class Models:
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
         timeout: float | None = None,
+        extra: dict | None = None,
     ) -> tuple[str, str]:
         body: dict = {
             "model": model,
             "messages": messages,
             "temperature": 0.2,
             "stream": False,
+            **(extra or {}),
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
@@ -360,6 +365,30 @@ class Models:
         self._last_usage = {"provider": "cloud", "model": resolved_model}
         return text, "cloud"
 
+    def _groq_model(self, stage: str) -> str:
+        models = [m.strip() for m in self.settings.groq_models.split(",") if m.strip()]
+        index = 1 if stage == "groq_alt" else 0
+        return models[index] if len(models) > index else ""
+
+    def _groq(self, stage: str, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
+        model = self._groq_model(stage)
+        if not self.settings.groq_key or not model:
+            raise RouteError(ErrorCode.AUTH_FAILED, stage, retryable=False, model=model or None)
+        reasoning = "gpt-oss" in model  # reasoning model: keep thinking short and leave room to answer
+        text, resolved = self._openai_completion(
+            route=stage,
+            url=self.settings.groq_url,
+            key=self.settings.groq_key,
+            model=model,
+            messages=messages,
+            max_tokens=400 if reasoning else MAX_OUTPUT_TOKENS,
+            timeout=GROQ_TIMEOUT_SECONDS if timeout is None else min(timeout, GROQ_TIMEOUT_SECONDS),
+            extra={"reasoning_effort": "low"} if reasoning else None,
+        )
+        provider = f"groq:{resolved}"
+        self._last_usage = {"provider": provider, "model": resolved}
+        return text, provider
+
     def _mazlatest(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
         text, resolved_model = self._openai_completion(
             route="mazlatest",
@@ -377,6 +406,8 @@ class Models:
     def _dispatch_one(self, stage: Route, messages: list[dict[str, str]]) -> tuple[str, str]:
         # A single, non-recursive attempt at exactly one named route. AUTO
         # calls this in a loop; it never calls itself or "auto" through here.
+        if stage in ("groq", "groq_alt"):
+            return self._groq(stage, messages)
         if stage == "mazlatest":
             return self._mazlatest(messages)
         if stage == "cloud":
@@ -390,6 +421,8 @@ class Models:
         raise ValueError(f"unknown route stage: {stage}")
 
     def _dispatch_one_bounded(self, stage: Route, messages: list[dict[str, str]]) -> tuple[str, str]:
+        if stage in ("groq", "groq_alt"):
+            return self._groq(stage, messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
         if stage == "mazlatest":
             return self._mazlatest(messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
         if stage == "cloud":
@@ -408,18 +441,26 @@ class Models:
         return self.settings.cloud_url.rstrip("/") != self.settings.mazlatest_url.rstrip("/")
 
     def _effective_auto_chain(self) -> tuple[Route, ...]:
+        chain = AUTO_CHAIN
+        if not self.settings.groq_key:
+            chain = tuple(stage for stage in chain if not stage.startswith("groq"))
         if self._cloud_is_independent_of_mazlatest():
-            return AUTO_CHAIN
-        return tuple(stage for stage in AUTO_CHAIN if stage != "cloud")
+            return chain
+        return tuple(stage for stage in chain if stage != "cloud")
 
     def _auto(self, messages: list[dict[str, str]], started: float) -> tuple[str, str]:
         chain = self._effective_auto_chain()
         last_error: RouteError | None = None
+        refused: tuple[str, tuple[str, str]] | None = None
         for stage in chain:
             try:
                 result = self._dispatch_one_bounded(stage, messages)
             except Exception as error:
                 last_error = normalize_upstream_error(error, route=stage, local=stage.startswith("local"))
+                continue
+            # Refusal guard: a "can't / no access" reply gets exactly one retry on the next stage.
+            if refused is None and is_refusal(result[0]) and stage != chain[-1]:
+                refused = (stage, result)
                 continue
             fallback = stage != chain[0]
             self._last_route = {
@@ -431,6 +472,13 @@ class Models:
                 "latency_ms": round((time.perf_counter() - started) * 1000),
             }
             return result
+        if refused is not None:  # retry stages all failed: a refusal still beats an outage
+            self._last_route = {
+                "requested": "auto", "active": refused[0], "ok": True, "fallback": False,
+                "refusal_retry_failed": True,
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+            }
+            return refused[1]
         # Every stage in the chain failed. Explicit DEGRADED, never an
         # unhandled 500 — the caller gets the last real failure as context.
         degraded_reason = last_error.code.value if last_error else "all_routes_unavailable"
