@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import json
 import tempfile
 import time
@@ -154,7 +156,15 @@ def create_app(
         if not history and not sessions.has(session_id):
             raise HTTPException(404, "session_not_found")
 
-        context = ""
+        history = history[-8:]  # last 4 turns
+        now = datetime.now(ZoneInfo("Europe/London"))
+        context = (
+            "\nNow: " + now.strftime("%A ") + str(now.day) + now.strftime(" %B %Y, ")
+            + str(now.hour % 12 or 12) + now.strftime(":%M ") + ("am" if now.hour < 12 else "pm")
+            + " (Europe/London). Location: UK. You always know the current date and time from "
+            "this line; never say you lack access to the time or date. "
+            "Reply in 1-2 short spoken sentences, no markdown.\n"
+        )
         clean_pocket_context = " ".join(pocket_context.replace("\x00", "").splitlines()).strip()[:1200]
         if clean_pocket_context:
             context += (
