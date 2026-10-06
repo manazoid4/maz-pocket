@@ -10,7 +10,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.background import BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from .authority import AuthorityBroker
@@ -23,10 +23,12 @@ from .control_routes import install_control_routes
 from .core import CoreError, MazCore
 from .debug_capsule import DebugCapsules
 from .device import DeviceMonitor
+from .errors import ErrorCode, RouteError
 from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
 from .nudge import NudgeClient
+from .pairing import build_pairing_app
 from .pc import PCController
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
@@ -35,7 +37,10 @@ from .sessions import SessionStore
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
 from .tts import SpeechOut
+from .validation import install_validation_exception_handler
 from .version import CORE_VERSION
+from .work_service import WorkService
+from .work_store import WorkStore
 
 
 class TextTurn(BaseModel):
@@ -106,6 +111,9 @@ def create_app(
     authority = AuthorityBroker(cfg)
     elevated_executor = ElevatedExecutor(cfg, authority)
     debug_capsules = DebugCapsules(cfg)
+    work_store = WorkStore(cfg.work_dir)
+    work_store.bootstrap()
+    work_service = WorkService(work_store)
 
     api = FastAPI(
         title="MAZ Core",
@@ -120,6 +128,11 @@ def create_app(
         allow_headers=["Authorization", "Content-Type", "X-MAZ-Token", "X-MAZ-Context"],
         expose_headers=["X-MAZ-Width", "X-MAZ-Height", "X-MAZ-Format"],
     )
+    install_validation_exception_handler(api)
+
+    @api.exception_handler(RouteError)
+    async def route_error_handler(_request: Request, error: RouteError) -> JSONResponse:
+        return JSONResponse(status_code=error.http_status, content=error.payload())
 
     @api.on_event("startup")
     def start_bridge() -> None:
@@ -193,6 +206,27 @@ def create_app(
 
     def answer(session_id: str, text: str, route: Route, pocket_context: str = "") -> dict:
         refined = refine(text)
+        normalized = " ".join(
+            refined.text.lower().replace("?", "").replace("!", "").split()
+        )
+        if normalized in {
+            "what should i do today",
+            "what do i need to do today",
+            "what is my next action today",
+            "what's my next action today",
+        }:
+            if not sessions.has(session_id):
+                raise HTTPException(404, "session_not_found")
+            daily = work_service.today()
+            sessions.add_turn(session_id, refined.text, daily["reply"])
+            return {
+                "text": refined.text,
+                "reply": daily["reply"],
+                "provider": "work-state-local",
+                "actions": refined.actions,
+                "work_state": daily,
+                "timings": {"llm_ms": 0},
+            }
         # Context Ask is informational: selected-screen context must never turn
         # an ordinary question into an executable PC/reminder command.
         command = None if pocket_context else parse_command(refined.text)
@@ -203,8 +237,10 @@ def create_app(
             reply, provider = model_router.chat(
                 grounded_messages(session_id, refined.text, pocket_context), route
             )
-        except RuntimeError as error:
-            raise HTTPException(503, str(error)) from error
+        except RouteError:
+            raise
+        except Exception as error:
+            raise RouteError(ErrorCode.INTERNAL_ERROR, route, requested_route=route) from error
         llm_ms = round((time.perf_counter() - started) * 1000)
         sessions.add_turn(session_id, refined.text, reply)
         return {
@@ -240,6 +276,32 @@ def create_app(
     @api.get("/models")
     def models_status():
         return {**model_router.status(), "default_route": cfg.default_route}
+
+    @api.get("/diagnostics")
+    def diagnostics():
+        routes = model_router.diagnostics(cfg.default_route)
+        device_state = device_monitor.status()
+        try:
+            cardputer_state = core_service.cardputer_status() if cfg.core_enabled else {"ok": False}
+        except Exception:
+            cardputer_state = {"ok": False}
+        cardputer_connected = bool(
+            device_state.get("connected")
+            or (isinstance(cardputer_state, dict) and "error" not in cardputer_state)
+        )
+        return {
+            "ok": True,
+            "pocket_host": {"status": "online"},
+            "core": {
+                "status": "online",
+                "enabled": cfg.core_enabled,
+                "version": CORE_VERSION,
+                "build_id": cfg.build_id,
+            },
+            "routes": routes,
+            "cardputer": {"connected": cardputer_connected},
+            "app": {"version": CORE_VERSION, "build_id": cfg.build_id},
+        }
 
     # ------------------------------------------------------------- MAZ Core
     @api.get("/core/status")
@@ -591,6 +653,12 @@ def create_app(
         except (RuntimeError, httpx.HTTPError) as error:
             raise HTTPException(503, str(error)) from error
 
+    # Public mount: /pair/start requires the existing bearer token (an
+    # already-paired session inviting a new client in); /pair/claim is
+    # intentionally reachable with no token, since exchanging a short-lived
+    # code for the real credential is the whole point.
+    api.mount("/pair", build_pairing_app(cfg, security))
+
     if cfg.control_enabled:
         install_control_routes(
             api,
@@ -604,6 +672,7 @@ def create_app(
             model_router=model_router,
             nudge_client=nudge_client,
             device_monitor=device_monitor,
+            work_store=work_store,
         )
 
     return api

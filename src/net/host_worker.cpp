@@ -20,6 +20,7 @@ std::atomic<bool> gRetainPcResult{true};
 TaskHandle_t gTask = nullptr;
 
 std::string gSession, gPath, gSpeechPath, gAction, gContext, gRecordId, gText, gProject, gTemplateId, gDisplayId;
+std::string gWorkTrackId, gWorkEventTypeId;
 WorkflowKind gWorkflowKind = WorkflowKind::Plan;
 TeachKind gTeachKind = TeachKind::Status;
 
@@ -29,6 +30,8 @@ OutboxAudioResult gOutboxAudioResult;
 OutboxBeamResult gOutboxBeamResult;
 host::BeamMessage gBeamPullResult;
 host::SystemStatus gSystemResult;
+host::WorkSummary gWorkResult;
+WorkIncrementResult gWorkIncrementResult;
 WorkflowResult gWorkflowResult;
 TeachResult gTeachResult;
 std::atomic<uint32_t> gStackHighWater{0};
@@ -36,6 +39,7 @@ std::atomic<uint32_t> gStackHighWater{0};
 void resetToIdle() {
     gSession.clear(); gPath.clear(); gSpeechPath.clear(); gAction.clear(); gContext.clear();
     gRecordId.clear(); gText.clear(); gProject.clear(); gTemplateId.clear(); gDisplayId.clear();
+    gWorkTrackId.clear(); gWorkEventTypeId.clear();
     gKind.store(JobKind::None, std::memory_order_release);
     gState.store(State::Idle, std::memory_order_release);
 }
@@ -95,6 +99,7 @@ void worker(void*) {
             host::Reply reply;
             bool speechReady = false;
             if (session.empty()) session = host::startSession();
+            Serial.printf("[worker] talk session=%s path=%s\n", session.c_str(), path.c_str());
             if (session.empty()) reply.error = "PC unreachable";
             else reply = contextAudio(session, path, context);
             if (reply.ok && !speechPath.empty() && !reply.text.empty()) speechReady = host::speak(reply.text, speechPath);
@@ -123,6 +128,11 @@ void worker(void*) {
             gBeamPullResult = host::beamPull();
         } else if (kind == JobKind::SystemStatus) {
             gSystemResult = host::systemStatus();
+        } else if (kind == JobKind::WorkSummary) {
+            gWorkResult = host::workSummary();
+        } else if (kind == JobKind::WorkIncrement) {
+            gWorkIncrementResult.trackId = gWorkTrackId;
+            gWorkIncrementResult.reply = host::workIncrement(gWorkTrackId, gWorkEventTypeId);
         } else if (kind == JobKind::Workflow) {
             gWorkflowResult.kind = gWorkflowKind;
             gWorkflowResult.task = gText;
@@ -162,7 +172,9 @@ bool canSubmit() {
 void clearResults() {
     gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gOutboxAudioResult = OutboxAudioResult{};
     gOutboxBeamResult = OutboxBeamResult{}; gBeamPullResult = host::BeamMessage{};
-    gSystemResult = host::SystemStatus{}; gWorkflowResult = WorkflowResult{}; gTeachResult = TeachResult{};
+    gSystemResult = host::SystemStatus{}; gWorkResult = host::WorkSummary{};
+    gWorkIncrementResult = WorkIncrementResult{};
+    gWorkflowResult = WorkflowResult{}; gTeachResult = TeachResult{};
 }
 
 void publish(JobKind kind) {
@@ -194,6 +206,12 @@ bool submitOutboxBeam(const std::string& recordId, const std::string& text) {
 }
 bool submitBeamPull() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::BeamPull); return true; }
 bool submitSystemStatus() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::SystemStatus); return true; }
+bool submitWorkSummary() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::WorkSummary); return true; }
+bool submitWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
+    if (trackId.empty() || eventTypeId.empty() || !canSubmit() || !ensureWorker()) return false;
+    gWorkTrackId = trackId; gWorkEventTypeId = eventTypeId;
+    clearResults(); publish(JobKind::WorkIncrement); return true;
+}
 bool submitWorkflow(WorkflowKind kind, const std::string& task,
                     const std::string& project, const std::string& templateId) {
     if ((task.empty() && kind != WorkflowKind::Retro) || !canSubmit() || !ensureWorker()) return false;
@@ -214,6 +232,8 @@ bool takeOutboxAudioResult(OutboxAudioResult& result) { if (state()!=State::Done
 bool takeOutboxBeamResult(OutboxBeamResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxBeam)return false; result=std::move(gOutboxBeamResult); resetToIdle(); return true; }
 bool takeBeamPullResult(host::BeamMessage& result) { if (state()!=State::Done||jobKind()!=JobKind::BeamPull)return false; result=std::move(gBeamPullResult); resetToIdle(); return true; }
 bool takeSystemStatusResult(host::SystemStatus& result) { if (state()!=State::Done||jobKind()!=JobKind::SystemStatus)return false; result=std::move(gSystemResult); resetToIdle(); return true; }
+bool takeWorkSummaryResult(host::WorkSummary& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkSummary)return false; result=std::move(gWorkResult); resetToIdle(); return true; }
+bool takeWorkIncrementResult(WorkIncrementResult& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkIncrement)return false; result=std::move(gWorkIncrementResult); resetToIdle(); return true; }
 bool takeWorkflowResult(WorkflowResult& result) { if (state()!=State::Done||jobKind()!=JobKind::Workflow)return false; result=std::move(gWorkflowResult); resetToIdle(); return true; }
 bool takeTeachResult(TeachResult& result) { if (state()!=State::Done||jobKind()!=JobKind::Teach)return false; result=std::move(gTeachResult); resetToIdle(); return true; }
 

@@ -35,6 +35,7 @@ App* makeAgentsHub();
 App* makeDesk();
 App* makeRecall();
 App* makeFlow();
+App* makeFlowTools();
 App* makeControlCenter();
 App* makeNetworkV5();
 App* makeCoreConsole();

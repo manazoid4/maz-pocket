@@ -13,7 +13,7 @@ const Descriptor TABLE[] = {
     {"agents",     "Agents",      "AGENTS", "agents plan crew retro nudge status assurance sync",   KEY_N, true,  makeAgentsHub},
     {"desk",       "Control",     "CONTROL","control wifi pc device storage settings core laptop debug pairing phone", 0, true, makeDesk},
     {"recall",     "Memory",      "MEMORY", "memory inbox notes prompt deck snippets viewer skills knowledge", 0, true, makeRecall},
-    {"flow",       "Focus",       "FOCUS",  "focus reminders sprint tasks shift workflows",         0,     true,  makeFlow},
+    {"flow",       "Work",        "WORK",   "work job hunt applications maz works consistency track focus reminders sprint tasks shift", 0, true, makeFlow},
 
     {"braindump",  "Brain Dump",   "BRAIN",  "brain dump voice structured capture highlight",        0, false, makeCapture},
     {"teach",      "Teach Demo",   "TEACH",  "teach demonstration screen record monitor mark workflow", 0, false, makeTeach},
@@ -30,6 +30,7 @@ const Descriptor TABLE[] = {
     {"laptop",     "Laptop Status", "LAP",  "laptop cpu ram gpu vram battery ollama status",    0,     false, makeLaptop},
     {"beam",       "Send to PC",  "BEAM",   "beam laptop pocket text url clipboard offline",    0,     false, makeBeam},
     {"shift",      "Shift Clock", "SHIFT",  "shift work field elapsed timer log",               0,     false, makeShift},
+    {"flowtools",  "Work Tools",  "TOOLS",  "work tools focus timer sprint tasks reminders shift", 0,  false, makeFlowTools},
 
     {"snake",      "Snake",       nullptr, "snake game arcade retro fun",               0, false, makeSnake},
     {"hyperdrive", "Hyperdrive",  nullptr, "hyperdrive starfield imu tilt motion demo", 0, false, makeHyperdrive},

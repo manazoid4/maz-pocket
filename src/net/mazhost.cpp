@@ -70,7 +70,7 @@ std::vector<std::pair<std::string, bool>> bases() {
 }
 
 const char* route() {
-    return Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
+    return talkRouteApiName(Cfg.talkRoute);
 }
 
 bool beginRequest(HTTPClient& http, const std::string& base, const char* path,
@@ -127,6 +127,7 @@ Reply upload(const char* path, const std::string& wavPath,
     }
     File file = store::fs()->open(wavPath.c_str(), FILE_READ);
     if (!file) {
+        Serial.printf("[upload] cannot open %s\n", wavPath.c_str());
         out.error = "recording missing";
         return out;
     }
@@ -139,6 +140,8 @@ Reply upload(const char* path, const std::string& wavPath,
         for (const auto& header : headers)
             http.addHeader(header.first.c_str(), header.second.c_str());
         const int status = http.sendRequest("POST", &file, file.size());
+        Serial.printf("[upload] %s%s size=%u status=%d\n", base.first.c_str(), path,
+                      static_cast<unsigned>(file.size()), status);
         if (status <= 0) {
             http.end();
             continue;
@@ -228,6 +231,47 @@ std::string startSession() {
     }
     Sys.hostOnline = false;
     return "";
+}
+
+PairCode startPairing() {
+    PairCode out;
+    if (!configured() || WiFi.status() != WL_CONNECTED) {
+        out.error = "MAZ Core offline";
+        return out;
+    }
+    for (const auto& base : bases()) {
+        HTTPClient http;
+        if (!beginRequest(http, base.first, "/pair/start", base.second)) continue;
+        const int status = http.POST("");
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        const String body = http.getString();
+        http.end();
+        JsonDocument doc;
+        if (deserializeJson(doc, body)) {
+            out.error = "invalid pairing response";
+            return out;
+        }
+        if (status < 200 || status >= 300) {
+            out.error = doc["detail"] | "pairing unavailable";
+            return out;
+        }
+        const std::string code = doc["code"] | "";
+        if (code.size() != 8) {
+            out.error = "invalid pairing code";
+            return out;
+        }
+        markOnline(base.second);
+        out.ok = true;
+        out.code = code;
+        out.expiresInSeconds = doc["expires_in_seconds"] | 300;
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "MAZ Core unreachable";
+    return out;
 }
 
 Reply talkText(const std::string& session, const std::string& text) {

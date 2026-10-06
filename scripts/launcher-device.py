@@ -54,13 +54,34 @@ def handoff(port: str) -> None:
                 break
         device.write(b"MAZLAUNCHER\n")
         device.flush()
-        deadline = time.time() + 4
+        deadline = time.time() + 12
+        next_navigation = time.time() + 0.15
+        saw_launcher = False
         while time.time() < deadline:
-            if read_line(device, deadline).startswith("MAZLAUNCHER OK"):
-                time.sleep(2)
-                print("[+] MAZ Pocket handed control back to M5Launcher.")
-                return
-        raise RuntimeError("MAZ Pocket did not acknowledge Launcher hand-back")
+            line = read_line(device, min(deadline, time.time() + 0.35))
+            if line:
+                if line.startswith("MAZLAUNCHER ERR"):
+                    raise RuntimeError(line)
+                if BOOT_BANNER in line:
+                    saw_launcher = True
+                    device.write(b"nav SelPress\n")
+                    device.flush()
+                    next_navigation = time.time() + 0.35
+                    continue
+                if saw_launcher and line.startswith("OK nav"):
+                    print("[+] M5Launcher banner and serial navigation confirmed.")
+                    return
+            # M5Launcher prints its entry banner while still accepting serial
+            # navigation. Keep it in the launcher menu rather than accepting
+            # an automatic fast-boot back to the old MAZ app as success.
+            if time.time() >= next_navigation:
+                try:
+                    device.write(b"nav SelPress\n")
+                    device.flush()
+                except serial.SerialException:
+                    pass
+                next_navigation = time.time() + 0.35
+        raise RuntimeError("M5Launcher banner/navigation was not observed after hand-back")
 
 
 FREE_TOTAL = re.compile(r"free total:\s*(\d+)KB", re.IGNORECASE)
@@ -117,8 +138,9 @@ def stale_app_labels(lines: list[str]) -> list[str]:
     return labels
 
 
-def prepare(port: str, require_free: int = 0) -> None:
-    reset(port)
+def prepare(port: str, require_free: int = 0, already_in_launcher: bool = False) -> None:
+    if not already_in_launcher:
+        reset(port)
     with serial.Serial(port, 115200, timeout=0.2) as device:
         deadline = time.time() + 15
         while BOOT_BANNER not in read_line(device, deadline):
@@ -179,9 +201,11 @@ def main() -> None:
     parser.add_argument("--require-free", type=int, default=0,
                         help="bytes the image needs; prepare fails early if the "
                              "device cannot fit it")
+    parser.add_argument("--already-in-launcher", action="store_true",
+                        help="keep the verified launcher session from handoff")
     args = parser.parse_args()
     if args.mode == "prepare":
-        prepare(args.port, args.require_free)
+        prepare(args.port, args.require_free, args.already_in_launcher)
     else:
         {"handoff": handoff, "verify": verify}[args.mode](args.port)
 

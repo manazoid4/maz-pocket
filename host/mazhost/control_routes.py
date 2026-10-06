@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +15,8 @@ from .phone_control import build_phone_app
 from .stt import SpeechToText
 from .teach_capture import TeachCapture
 from .teach_routes import install_teach_routes
+from .work_service import WorkService
+from .work_store import WorkStore, WorkStoreError
 from .workflow_routes import install_workflow_routes
 from .workflows import WorkflowService
 
@@ -58,6 +61,12 @@ class DebugRequest(BaseModel):
     project: str = Field(default="", max_length=160)
 
 
+class CardputerWorkIncrement(BaseModel):
+    event_id: str = Field(min_length=1, max_length=80)
+    track_id: str = Field(min_length=1, max_length=80)
+    event_type_id: str = Field(min_length=1, max_length=120)
+
+
 def install_control_routes(
     api: FastAPI,
     *,
@@ -71,8 +80,36 @@ def install_control_routes(
     model_router,
     nudge_client,
     device_monitor,
+    work_store: WorkStore | None = None,
 ) -> None:
-    api.mount("/control", build_phone_app(settings, broker))
+    work_store = work_store or WorkStore(settings.work_dir)
+    work_store.bootstrap()
+    work_service = WorkService(work_store)
+    api.mount("/control", build_phone_app(settings, broker, work_store=work_store))
+
+    # Bearer-token boundary (same as every other Cardputer-facing route on
+    # this app, e.g. /core/cardputer/status) — the firmware never holds a
+    # phone-session cookie, so this cannot live under /control.
+    @api.get("/work/cardputer")
+    def work_cardputer():
+        return work_service.cardputer_payload()
+
+    @api.post("/work/cardputer/increment")
+    def work_cardputer_increment(body: CardputerWorkIncrement):
+        try:
+            event, created = work_store.create_event(
+                event_id=body.event_id,
+                track_id=body.track_id,
+                event_type_id=body.event_type_id,
+                value=1,
+                occurred_at=time.time(),
+                source="cardputer_manual",
+                note="Cardputer quick increment",
+                session_id="cardputer",
+            )
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "event": event, "created": created}
 
     workflows = WorkflowService(settings, model_router, core_service, nudge_client)
     install_workflow_routes(api, workflows)

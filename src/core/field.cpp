@@ -37,6 +37,7 @@ uint32_t gNextOutboxTry = 0;
 uint32_t gOutboxBackoffMs = 15000;
 uint32_t gNextBeamPoll = 0;
 bool gSystemRequested = false;
+bool gWorkRequested = false;
 bool gReminderDue = false;
 
 std::string& quickSetting(int slot) {
@@ -185,6 +186,40 @@ void finishSystem(const host::SystemStatus& s) {
     shell::invalidate();
 }
 
+void finishWork(const host::WorkSummary& s) {
+    gWorkRequested = false;
+    if (!s.ok) return;  // keep last-known values on a failed poll — never blank/zero
+    Sys.workLoaded = true;
+    Sys.workReceivedAt = millis();
+    Sys.workTrackCount = static_cast<uint8_t>(std::min(s.trackCount, SysState::WORK_MAX_TRACKS));
+    for (int i = 0; i < Sys.workTrackCount; ++i) {
+        Sys.workTrackId[i] = s.tracks[i].id;
+        Sys.workTrackLabel[i] = s.tracks[i].shortLabel;
+        Sys.workTrackPrimaryEventTypeId[i] = s.tracks[i].primaryEventTypeId;
+        Sys.workTrackToday[i] = s.tracks[i].todayTotal;
+        Sys.workTrackHasTarget[i] = s.tracks[i].hasTarget;
+        Sys.workTrackTarget[i] = s.tracks[i].target;
+    }
+    for (int d = 0; d < SysState::WORK_HISTORY_DAYS; ++d) Sys.workSeven[d] = s.sevenDay[d];
+    Sys.workNextAction = s.nextAction;
+    shell::invalidate();
+}
+
+void finishWorkIncrement(const host_worker::WorkIncrementResult& result) {
+    if (!result.reply.ok) {
+        notify::post(Note::Error, "WORK not saved", result.reply.error.c_str());
+        return;
+    }
+    for (int i = 0; i < Sys.workTrackCount; ++i) {
+        if (Sys.workTrackId[i] != result.trackId) continue;
+        Sys.workTrackToday[i] += 1;
+        notify::post(Note::Success, "+1 saved", Sys.workTrackLabel[i].c_str());
+        break;
+    }
+    gWorkRequested = true;
+    shell::invalidate();
+}
+
 bool submitNextOutbox() {
     if (!store::ready()) return false;
     const auto rows = store::loadRecords("outbox", 64);
@@ -254,6 +289,16 @@ void update() {
                 if (host_worker::takeSystemStatusResult(r)) finishSystem(r);
                 break;
             }
+            case host_worker::JobKind::WorkSummary: {
+                host::WorkSummary r;
+                if (host_worker::takeWorkSummaryResult(r)) finishWork(r);
+                break;
+            }
+            case host_worker::JobKind::WorkIncrement: {
+                host_worker::WorkIncrementResult r;
+                if (host_worker::takeWorkIncrementResult(r)) finishWorkIncrement(r);
+                break;
+            }
             default: break;  // COMM/PC results belong to their caller.
         }
     }
@@ -272,13 +317,19 @@ void update() {
         if (host_worker::submitSystemStatus()) return;
     }
 
+    if (gWorkRequested) {
+        if (host_worker::submitWorkSummary()) return;
+    }
+
     if (Sys.outboxQueued && static_cast<int32_t>(millis() - gNextOutboxTry) >= 0) {
         if (submitNextOutbox()) return;
     }
 
     if (static_cast<int32_t>(millis() - gNextBeamPoll) >= 0) {
-        if (host_worker::submitBeamPull()) return;
+        // Schedule before submitting: returning first re-polled every tick and
+        // kept the single worker busy, so Call reported "busy".
         gNextBeamPoll = millis() + (Cfg.fieldMode ? 45000u : 15000u);
+        host_worker::submitBeamPull();
     }
 }
 
@@ -390,6 +441,12 @@ void requestSystemStatus() {
         Sys.laptopStatusOk = false;
         Sys.laptopStatusAt = millis();
     }
+}
+
+void requestWorkSummary() { gWorkRequested = true; }
+
+bool requestWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
+    return host_worker::submitWorkIncrement(trackId, eventTypeId);
 }
 
 void queueBeam(const std::string& text) {

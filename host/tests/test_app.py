@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from mazhost.app import create_app
 from mazhost.config import Settings
+from mazhost.errors import ErrorCode, RouteError
 
 
 class FakeStt:
@@ -21,12 +22,26 @@ class FakeStt:
 class FakeModels:
     def __init__(self):
         self.last_messages = []
+        self.last_route = None
 
     def status(self):
         return {"local": True, "cloud": False, "ai_profile": "smart"}
 
-    def chat(self, messages, _route):
+    def diagnostics(self, preferred_route):
+        return {
+            "preferred_route": preferred_route,
+            "active_route": self.last_route,
+            "last_route": {},
+            "9router": {"reachable": True, "authenticated": True, "auth_status": "accepted"},
+            "mazlatest": {"configured_aliases": ["MazLatest"], "model_available": True, "available": True},
+            "cloud": {"model": "test/model", "model_available": True, "available": True},
+            "local": {"engine": "llamacpp", "endpoint_available": False, "model": "local", "model_available": False, "available": False},
+            "auto": {"available": True, "degraded": True, "fallback": "cloud"},
+        }
+
+    def chat(self, messages, route):
         self.last_messages = messages
+        self.last_route = route
         prior = sum(message["role"] == "assistant" for message in messages)
         return f"Focus on the hardware test. Prior replies: {prior}", "local"
 
@@ -89,8 +104,24 @@ class FakeTelemetry:
         }
 
 
-def client(pc=None, models=None, beam=None, telemetry=None):
-    settings = Settings(token="test-token-that-is-not-default", _env_file=None)
+class FakeCore:
+    def status(self):
+        return {"ok": True}
+
+    def cardputer_status(self):
+        return {"ok": True, "route": "mazlatest"}
+
+    def context_for_prompt(self, _text):
+        return ""
+
+
+def client(pc=None, models=None, beam=None, telemetry=None, core=None, work_dir=None):
+    settings_kwargs = {"token": "test-token-that-is-not-default", "_env_file": None}
+    if work_dir is not None:
+        settings_kwargs["work_dir"] = str(work_dir)
+        settings_kwargs["control_dir"] = str(work_dir / "control")
+        settings_kwargs["debug_dir"] = str(work_dir / "debug")
+    settings = Settings(**settings_kwargs)
     return TestClient(
         create_app(
             settings,
@@ -98,6 +129,7 @@ def client(pc=None, models=None, beam=None, telemetry=None):
             models=models or FakeModels(),
             nudge=FakeNudge(),
             pc=pc or FakePC(),
+            core=core,
             beam=beam or FakeBeam(),
             telemetry=telemetry or FakeTelemetry(),
         )
@@ -130,6 +162,130 @@ def test_text_turn_keeps_session_context_and_nudge_is_evidence_backed():
     assert second.json()["reply"].endswith("Prior replies: 1")
     assert api.get("/nudge", headers=headers).json()["state"] == "ALL_SYNCED"
 
+
+def test_text_turn_accepts_explicit_mazlatest_route():
+    models = FakeModels()
+    api = client(models=models)
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+
+    response = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "mazlatest", "text": "Use the routed model"},
+    )
+
+    assert response.status_code == 200
+    assert models.last_route == "mazlatest"
+
+
+def test_what_should_i_do_today_is_traced_to_work_state_not_model(tmp_path):
+    from mazhost.work_store import WorkStore
+
+    work_dir = tmp_path / "work"
+    store = WorkStore(work_dir)
+    store.bootstrap()
+    store.put_pipeline_item({
+        "item_id": "client_daily", "pipeline": "client", "title": "Acme",
+        "organisation": "Acme Ltd", "stage": "QUALIFIED", "score": 88,
+        "proof_status": "IN_PROGRESS", "evidence": "Public form reviewed",
+        "next_action": "Finish Acme workflow mock-up",
+    })
+    models = FakeModels()
+    api = client(models=models, work_dir=work_dir)
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+
+    response = api.post(
+        "/turn/text", headers=headers,
+        json={"session_id": sid, "route": "auto", "text": "What should I do today?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "work-state-local"
+    assert body["timings"]["llm_ms"] == 0
+    assert "Finish Acme workflow mock-up" in body["reply"]
+    assert body["work_state"]["recommendations"][0]["item_id"] == "client_daily"
+    assert models.last_messages == []
+
+
+def test_diagnostics_is_authenticated_safe_and_distinguishes_route_state():
+    api = client(core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+
+    assert api.get("/diagnostics").status_code == 401
+    response = api.get("/diagnostics", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["routes"]["9router"]["authenticated"] is True
+    assert body["routes"]["mazlatest"]["model_available"] is True
+    assert body["routes"]["auto"]["degraded"] is True
+    assert body["cardputer"]["connected"] is True
+    serialized = response.text.lower()
+    assert "bearer" not in serialized
+    assert "test-token" not in serialized
+
+
+def test_typed_route_error_is_returned_at_top_level():
+    class FailingModels(FakeModels):
+        def chat(self, _messages, _route):
+            raise RouteError(
+                ErrorCode.MODEL_NOT_FOUND,
+                "cloud",
+                upstream_status=404,
+                retryable=False,
+                model="retired/model",
+            )
+
+    api = client(models=FailingModels(), core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+    response = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "cloud", "text": "hello"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "ok": False,
+        "route": "cloud",
+        "error": "MODEL_NOT_FOUND",
+        "retryable": False,
+        "upstream_status": 404,
+        "model": "retired/model",
+    }
+
+
+def test_all_provider_failure_returns_explicit_degraded_state_never_500():
+    class AllFailingModels(FakeModels):
+        def chat(self, _messages, _route):
+            raise RouteError(
+                ErrorCode.LOCAL_UNAVAILABLE,
+                "degraded",
+                retryable=True,
+                requested_route="auto",
+            )
+
+    api = client(models=AllFailingModels(), core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+    response = api.post(
+        "/turn/text",
+        headers=headers,
+        json={"session_id": sid, "route": "auto", "text": "hello"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ok": False,
+        "route": "degraded",
+        "error": "LOCAL_UNAVAILABLE",
+        "retryable": True,
+        "requested_route": "auto",
+    }
 
 def test_context_ask_is_added_as_untrusted_screen_evidence():
     models = FakeModels()

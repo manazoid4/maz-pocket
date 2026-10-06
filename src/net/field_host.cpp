@@ -7,6 +7,9 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -81,6 +84,46 @@ std::string jsonError(JsonDocument& doc, const char* fallback) {
     return fallback;
 }
 
+enum class BodyReadResult : uint8_t { Ok, TooLarge, Incomplete };
+
+BodyReadResult readBoundedBody(HTTPClient& http, String& body, size_t maxBytes) {
+    const int expected = http.getSize();
+    if (expected > 0 && static_cast<size_t>(expected) > maxBytes)
+        return BodyReadResult::TooLarge;
+
+    body = "";
+    body.reserve(expected > 0 ? static_cast<size_t>(expected) : 512u);
+    WiFiClient* stream = http.getStreamPtr();
+    if (!stream) return BodyReadResult::Incomplete;
+
+    uint8_t chunk[256];
+    uint32_t lastProgress = millis();
+    while (http.connected() &&
+           (expected < 0 || body.length() < static_cast<size_t>(expected))) {
+        const size_t available = static_cast<size_t>(stream->available());
+        if (!available) {
+            if (millis() - lastProgress > 12000u) break;
+            delay(1);
+            continue;
+        }
+        size_t wanted = std::min(available, sizeof(chunk));
+        if (expected >= 0) {
+            const size_t remaining = static_cast<size_t>(expected) - body.length();
+            wanted = std::min(wanted, remaining);
+        }
+        if (body.length() + wanted > maxBytes) return BodyReadResult::TooLarge;
+        const int count = stream->readBytes(chunk, wanted);
+        if (count <= 0) break;
+        body.concat(reinterpret_cast<const char*>(chunk), static_cast<unsigned int>(count));
+        lastProgress = millis();
+    }
+
+    if (body.length() > maxBytes) return BodyReadResult::TooLarge;
+    if (expected >= 0 && body.length() != static_cast<size_t>(expected))
+        return BodyReadResult::Incomplete;
+    return BodyReadResult::Ok;
+}
+
 void fieldOnline() { Sys.hostOnline = true; }
 
 }  // namespace
@@ -91,7 +134,7 @@ Reply talkTextContext(const std::string& session, const std::string& text,
     if (session.empty() || text.empty()) { out.error = "context ask missing input"; return out; }
     JsonDocument req;
     req["session_id"] = session;
-    req["route"] = Cfg.talkRoute == 0 ? "local" : (Cfg.talkRoute == 2 ? "cloud" : "auto");
+    req["route"] = talkRouteApiName(Cfg.talkRoute);
     req["text"] = text;
     req["context"] = context.size() > 700 ? context.substr(0, 700) : context;
     String payload;
@@ -220,6 +263,139 @@ SystemStatus systemStatus() {
             out.ollamaVramMb = ollama["vram_mb"] | 0;
             out.ollamaContext = ollama["context"] | 0;
         }
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
+}
+
+WorkSummary workSummary() {
+    constexpr size_t MAX_WORK_PAYLOAD_BYTES = 4096;
+    WorkSummary out;
+    for (const auto& base : fieldBases()) {
+        HTTPClient http;
+        if (!beginField(http, base.first, "/work/cardputer", base.second)) continue;
+        const int status = http.GET();
+        String body;
+        const BodyReadResult read = status > 0
+                                        ? readBoundedBody(http, body, MAX_WORK_PAYLOAD_BYTES)
+                                        : BodyReadResult::Incomplete;
+        http.end();
+        if (status <= 0) continue;
+        if (read == BodyReadResult::TooLarge) {
+            out.error = "work payload too large";
+            return out;
+        }
+        if (read != BodyReadResult::Ok) {
+            out.error = "incomplete work response";
+            return out;
+        }
+        JsonDocument doc;
+        if (deserializeJson(doc, body)) { out.error = "invalid work response"; return out; }
+        if (status < 200 || status >= 300) { out.error = jsonError(doc, "work unavailable"); return out; }
+
+        // Fail the whole snapshot if any required field is absent or malformed.
+        // finishWork() then retains the previous successful data instead of
+        // replacing unknown values with default zeroes.
+        if (!doc["ok"].is<bool>() || !doc["ok"].as<bool>() ||
+            !doc["tracks"].is<JsonArray>() || !doc["seven_day"].is<JsonArray>()) {
+            out.error = "malformed work response";
+            return out;
+        }
+        const char* nextAction = doc["next_action"] | "";
+        if (strlen(nextAction) > 80) { out.error = "work next action too long"; return out; }
+        out.nextAction = nextAction;
+        JsonArray tracks = doc["tracks"].as<JsonArray>();
+        if (tracks.size() > WORK_MAX_TRACKS) {
+            out.error = "too many work tracks";
+            return out;
+        }
+        int i = 0;
+        for (JsonObject t : tracks) {
+            const char* id = t["track_id"] | nullptr;
+            const char* label = t["short_label"] | nullptr;
+            const char* primary = t["primary_event_type_id"] | nullptr;
+            if (!id || !label || !id[0] || !label[0] || strlen(id) > 80 ||
+                strlen(label) > 16 || !primary || !primary[0] || strlen(primary) > 120 ||
+                !t["today_total"].is<float>()) {
+                out.error = "malformed work track";
+                return out;
+            }
+            const float today = t["today_total"].as<float>();
+            if (!std::isfinite(today)) { out.error = "invalid work total"; return out; }
+            out.tracks[i].id = id;
+            out.tracks[i].shortLabel = label;
+            out.tracks[i].primaryEventTypeId = primary;
+            out.tracks[i].todayTotal = today;
+            out.tracks[i].hasTarget = !t["target"].isNull();
+            if (out.tracks[i].hasTarget) {
+                if (!t["target"].is<float>()) { out.error = "invalid work target"; return out; }
+                out.tracks[i].target = t["target"].as<float>();
+                if (!std::isfinite(out.tracks[i].target)) {
+                    out.error = "invalid work target";
+                    return out;
+                }
+            }
+            ++i;
+        }
+        out.trackCount = i;
+        JsonArray seven = doc["seven_day"].as<JsonArray>();
+        if (seven.size() != WORK_HISTORY_DAYS) {
+            out.error = "invalid work history length";
+            return out;
+        }
+        int d = 0;
+        for (JsonVariant dayValue : seven) {
+            if (!dayValue.is<JsonObject>()) { out.error = "invalid work history"; return out; }
+            JsonObject day = dayValue.as<JsonObject>();
+            if (day.size() > WORK_MAX_TRACKS) { out.error = "work history too wide"; return out; }
+            float total = 0;
+            for (JsonPair kv : day) {
+                if (!kv.value().is<float>()) { out.error = "invalid work history total"; return out; }
+                const float value = kv.value().as<float>();
+                if (!std::isfinite(value)) { out.error = "invalid work history total"; return out; }
+                total += value;
+            }
+            out.sevenDay[d] = total;
+            ++d;
+        }
+        out.ok = true;
+        fieldOnline();
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
+}
+
+Reply workIncrement(const std::string& trackId, const std::string& eventTypeId) {
+    Reply out;
+    if (trackId.empty() || trackId.size() > 80 || eventTypeId.empty() || eventTypeId.size() > 120) {
+        out.error = "invalid work increment";
+        return out;
+    }
+    for (const auto& base : fieldBases()) {
+        HTTPClient http;
+        if (!beginField(http, base.first, "/work/cardputer/increment", base.second)) continue;
+        JsonDocument request;
+        request["event_id"] = "evt_cardputer_" + std::to_string(ESP.getEfuseMac()) + "_" + std::to_string(millis());
+        request["track_id"] = trackId;
+        request["event_type_id"] = eventTypeId;
+        String body;
+        serializeJson(request, body);
+        http.addHeader("Content-Type", "application/json");
+        const int status = http.POST(body);
+        const String response = status > 0 ? http.getString() : String();
+        http.end();
+        if (status <= 0) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, response)) { out.error = "invalid work increment response"; return out; }
+        if (status < 200 || status >= 300) { out.error = jsonError(doc, "work increment failed"); return out; }
+        out.ok = true;
+        out.text = "+1 saved";
+        out.provider = "work-local";
+        fieldOnline();
         return out;
     }
     Sys.hostOnline = false;

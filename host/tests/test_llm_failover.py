@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from mazhost.config import Settings
+from mazhost.errors import ErrorCode, RouteError
 from mazhost.llm import Models
 
 
@@ -63,19 +65,125 @@ def test_local_route_falls_back_without_cloud(monkeypatch):
     assert calls == ["primary:test", "backup:test"]
 
 
-def test_auto_uses_cloud_only_after_both_locals_fail(monkeypatch):
-    models = Models(settings(local_model_policy="auto", cloud_key="test"))
-    calls: list[str] = []
+def _unavailable(*_args, **_kwargs):
+    raise RouteError(ErrorCode.UPSTREAM_UNAVAILABLE, "test", retryable=True)
 
-    def local_one(model, _messages):
-        calls.append(model)
-        raise RuntimeError("offline")
 
-    monkeypatch.setattr(models, "_local_one", local_one)
-    monkeypatch.setattr(models, "_cloud", lambda _messages: ("cloud ok", "cloud"))
+def test_auto_prefers_mazlatest_when_healthy(monkeypatch):
+    models = Models(settings())
+    monkeypatch.setattr(models, "_mazlatest", lambda _messages, timeout=None: ("maz ok", "mazlatest:MazLatest"))
+    monkeypatch.setattr(models, "_cloud", _unavailable)
+    monkeypatch.setattr(models, "_local_stage", lambda *a, **k: (_ for _ in ()).throw(AssertionError("local used")))
+
+    assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("maz ok", "mazlatest:MazLatest")
+    assert models._last_route["active"] == "mazlatest"
+    assert models._last_route["fallback"] is False
+
+
+def test_auto_falls_back_to_cloud_when_mazlatest_down(monkeypatch):
+    models = Models(settings())
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", lambda _messages, timeout=None: ("cloud ok", "cloud"))
+    monkeypatch.setattr(models, "_local_stage", lambda *a, **k: (_ for _ in ()).throw(AssertionError("local used")))
 
     assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("cloud ok", "cloud")
-    assert calls == ["primary:test", "backup:test"]
+    assert models._last_route["active"] == "cloud"
+    assert models._last_route["fallback"] is True
+    assert models._last_route["fallback_reason"] == ErrorCode.UPSTREAM_UNAVAILABLE.value
+
+
+def test_auto_falls_back_to_local_fast_when_mazlatest_and_cloud_down(monkeypatch):
+    models = Models(settings(local_model_policy="auto"))
+    calls: list[str] = []
+
+    def local_stage(stage, _messages, timeout=None):
+        calls.append(stage)
+        if stage == "local_fast":
+            return "local fast ok", "local:primary:test"
+        raise RouteError(ErrorCode.LOCAL_UNAVAILABLE, stage, retryable=False)
+
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", _unavailable)
+    monkeypatch.setattr(models, "_local_stage", local_stage)
+
+    assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("local fast ok", "local:primary:test")
+    assert models._last_route["active"] == "local_fast"
+    assert calls == ["local_fast"]
+
+
+def test_auto_returns_explicit_degraded_when_every_stage_fails(monkeypatch):
+    models = Models(settings())
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", _unavailable)
+    monkeypatch.setattr(
+        models,
+        "_local_stage",
+        lambda stage, *a, **k: (_ for _ in ()).throw(RouteError(ErrorCode.LOCAL_UNAVAILABLE, stage, retryable=False)),
+    )
+
+    with pytest.raises(RouteError) as raised:
+        models.chat([{"role": "user", "content": "hi"}], "auto")
+    assert raised.value.route == "degraded"
+    assert raised.value.requested_route == "auto"
+    assert models._last_route["active"] == "degraded"
+    assert models._last_route["ok"] is False
+
+
+def test_auto_skips_cloud_when_it_shares_mazlatest_failure_domain(monkeypatch):
+    # CLOUD pointed at the exact same 9router loopback + key as MAZLATEST:
+    # a MAZLATEST outage takes CLOUD down with it. AUTO must not waste a
+    # second network round-trip proving that live.
+    models = Models(
+        settings(
+            local_model_policy="auto",
+            cloud_url="http://localhost:20128/v1",
+            cloud_key="",
+            cloud_model="MazLatest",
+            mazlatest_url="http://localhost:20128/v1",
+            mazlatest_key="",
+        )
+    )
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cloud must be skipped")))
+    monkeypatch.setattr(
+        models,
+        "_local_stage",
+        lambda stage, _messages, timeout=None: ("local fast ok", "local:primary:test")
+        if stage == "local_fast"
+        else (_ for _ in ()).throw(RouteError(ErrorCode.LOCAL_UNAVAILABLE, stage, retryable=False)),
+    )
+
+    assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("local fast ok", "local:primary:test")
+    assert models._last_route["active"] == "local_fast"
+    assert "cloud" not in models._effective_auto_chain()
+
+
+def test_auto_still_tries_cloud_when_genuinely_independent(monkeypatch):
+    models = Models(
+        settings(
+            cloud_url="https://openrouter.ai/api/v1",
+            cloud_key="real-separate-key",
+            mazlatest_url="http://localhost:20128/v1",
+            mazlatest_key="",
+        )
+    )
+    assert "cloud" in models._effective_auto_chain()
+
+    monkeypatch.setattr(models, "_mazlatest", _unavailable)
+    monkeypatch.setattr(models, "_cloud", lambda _messages, timeout=None: ("cloud ok", "cloud"))
+    monkeypatch.setattr(models, "_local_stage", lambda *a, **k: (_ for _ in ()).throw(AssertionError("local used")))
+
+    assert models.chat([{"role": "user", "content": "hi"}], "auto") == ("cloud ok", "cloud")
+    assert models._last_route["active"] == "cloud"
+
+
+def test_auto_chain_has_no_recursive_auto_stage():
+    # AUTO_CHAIN must only name concrete routes. If "auto" ever appears here,
+    # AUTO could call itself and loop forever instead of terminating.
+    from mazhost.llm import AUTO_CHAIN
+
+    assert "auto" not in AUTO_CHAIN
+    assert set(AUTO_CHAIN) <= {"mazlatest", "cloud", "local_fast", "local_smart"}
 
 
 def test_llamacpp_engine_uses_its_own_model_chain():
@@ -200,3 +308,52 @@ def test_cloud_request_explicitly_disables_streaming_for_9router_compatibility()
 
     assert models.chat([{"role": "user", "content": "hi"}], "cloud") == ("cloud ready", "cloud")
     assert seen["stream"] is False
+
+
+def test_mazlatest_uses_explicit_loopback_route_and_exact_model_without_credentials():
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://localhost:20128/v1/chat/completions"
+        assert "authorization" not in request.headers
+        seen.update(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "MazLatest ready"}}]},
+        )
+
+    models = Models(
+        settings(),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert models.chat([{"role": "user", "content": "hi"}], "mazlatest") == (
+        "MazLatest ready",
+        "mazlatest:MazLatest",
+    )
+    assert seen["model"] == "MazLatest"
+    assert seen["stream"] is False
+    assert seen["max_tokens"] == 160
+
+
+def test_explicit_mazlatest_failure_is_loud_and_never_falls_back(monkeypatch):
+    models = Models(settings())
+    monkeypatch.setattr(
+        models,
+        "_mazlatest",
+        lambda _messages: (_ for _ in ()).throw(httpx.ConnectError("offline")),
+    )
+    monkeypatch.setattr(
+        models,
+        "_cloud",
+        lambda _messages: (_ for _ in ()).throw(AssertionError("cloud fallback used")),
+    )
+    monkeypatch.setattr(
+        models,
+        "_local",
+        lambda _messages: (_ for _ in ()).throw(AssertionError("local fallback used")),
+    )
+
+    with pytest.raises(RouteError) as raised:
+        models.chat([{"role": "user", "content": "hi"}], "mazlatest")
+    assert raised.value.code == ErrorCode.UPSTREAM_UNAVAILABLE

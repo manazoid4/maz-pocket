@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,15 +31,24 @@ class Settings(BaseSettings):
     llamacpp_backup_url: str = ""
     llamacpp_backup_model: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "lfm2.5-8b-a1b-gpu:latest"
-    ollama_backup_model: str = "qwen3.5:4b"
+    # LOCAL_FAST: the reliability-critical default. Small enough to stay fully
+    # resident on a 6 GB card and answer in single-digit seconds once warm.
+    ollama_model: str = "qwen3.5:4b"
+    # LOCAL_SMART: optional, larger/slower. Never the AUTO reliability default.
+    ollama_backup_model: str = "lfm2.5-8b-a1b-gpu:latest"
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
     cloud_model: str = "anthropic/claude-3.5-haiku"
-    default_route: Literal["local", "auto", "cloud"] = "local"
+    # Explicit 9router route. Keeping this loopback-only ensures the Cardputer
+    # never receives gateway credentials or contacts the model router itself.
+    mazlatest_url: str = Field(default="http://localhost:20128/v1", max_length=200)
+    mazlatest_key: str = ""
+    mazlatest_model: str = Field(default="MazLatest", min_length=1, max_length=120)
+    default_route: Literal["local", "auto", "cloud", "mazlatest"] = "local"
+    build_id: str = Field(default="dev", min_length=1, max_length=120)
 
     max_upload_mb: int = Field(default=12, ge=1, le=64)
     max_audio_seconds: int = Field(default=900, ge=1, le=3600)
@@ -80,6 +91,10 @@ class Settings(BaseSettings):
     control_command_timeout_seconds: int = Field(default=300, ge=5, le=3600)
     control_max_output_chars: int = Field(default=40_000, ge=2_000, le=500_000)
 
+    # WORK Consistency: JOB HUNT / MAZ WORKS / custom tracks. Same authenticated
+    # phone-control session boundary as the rest of /control; own SQLite store.
+    work_dir: str = "~/.maz-pocket/work"
+
     # Claude/Codex/Hermes jobs are subprocesses on the PC. Their own CLI
     # permission bypasses are only used after the external MAZ phone broker has
     # approved PROJECT FULL or broader authority.
@@ -111,6 +126,23 @@ class Settings(BaseSettings):
     def migrate_legacy_shipped_defaults(self):
         if self.ollama_model == "gemma3:1b":
             self.ollama_model = "lfm2.5-8b-a1b-gpu:latest"
+        parsed = None
+        try:
+            parsed = urlsplit(self.mazlatest_url)
+            host = parsed.hostname or ""
+            loopback = host.lower() == "localhost" or ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = False
+        if (
+            parsed is None
+            or parsed.scheme != "http"
+            or not loopback
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("mazlatest_url must be a loopback HTTP URL without embedded credentials")
         return self
 
     @property

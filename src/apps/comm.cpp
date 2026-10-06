@@ -118,6 +118,7 @@ public:
             return true;
         }
         if (!e.down && e.code == KEY_SPACE) {
+            Serial.printf("[call] space up state=%d\n", static_cast<int>(voice::state()));
             if (voice::state() == voice::State::Listening) endTake();
             return true;
         }
@@ -140,7 +141,7 @@ public:
             return true;
         }
         if (e.code == KEY_A && !host_worker::busy()) {
-            Cfg.talkRoute = (Cfg.talkRoute + 1) % 3;
+            Cfg.talkRoute = (Cfg.talkRoute + 1) % TALK_ROUTE_COUNT;
             Cfg.save();
             notify::post(Note::Info, "AI route", routeName());
             invalidate();
@@ -216,7 +217,7 @@ private:
         const uint32_t s = seconds % 60;
         return s < 10 ? "0" + std::to_string(s) : std::to_string(s);
     }
-    const char* routeName() const { return Cfg.talkRoute == 0 ? "LOCAL" : (Cfg.talkRoute == 2 ? "CLOUD" : "AUTO"); }
+    const char* routeName() const { return talkRouteLabel(Cfg.talkRoute); }
 
     void retroPhone(M5Canvas& g, const char* status, uint16_t colour) {
         ui::panel(g, 76, BODY_Y + 17, 88, 55);
@@ -282,6 +283,7 @@ private:
     }
 
     void endTake() {
+        Serial.printf("[call] endTake listening=%d sink=%d\n", voice::state() == voice::State::Listening, _sink != nullptr);
         if (!_sink || !voice::stop()) {
             notify::post(Note::Error, "Recording failed", voice::lastError());
             delete _sink;
@@ -299,16 +301,23 @@ private:
     }
 
     void startWorker() {
+        Serial.printf("[call] startWorker have=%d path=%s busy=%d\n", _haveTake, _takePath.c_str(), host_worker::busy());
         _sendAt = 0;
         if (!_haveTake || _takePath.empty()) { _sending = false; return; }
         std::string speechPath;
         if (Cfg.ttsEnabled && store::ready()) speechPath = store::newPath("cache", "wav");
         const std::string context = field::context();
         if (!host_worker::submitTalkAudio(gCommSession, _takePath, speechPath, context)) {
+            // A background poll may hold the worker for a moment: wait up to 8 s
+            // instead of failing the call outright.
+            if (!_waitSince) _waitSince = millis();
+            if (millis() - _waitSince < 30000) { _sendAt = millis() + 200; return; }
+            _waitSince = 0;
             _sending = false;
             notify::post(Note::Error, "Call busy", host_worker::stateName());
             return;
         }
+        _waitSince = 0;
         _sendContext = context;
         field::clearContext();
         _takePath.clear();
@@ -319,7 +328,9 @@ private:
 
     void consumeWorkerResult() {
         if (host_worker::state() != host_worker::State::Done) {
-            _sending = host_worker::busy();
+            // A recording still waiting for the worker keeps us sending; clearing
+            // it here silently dropped the call whenever a background job ran.
+            _sending = host_worker::busy() || _haveTake;
             return;
         }
         if (host_worker::jobKind() == host_worker::JobKind::PcAction) {
@@ -344,6 +355,8 @@ private:
         _sendContext.clear();
         if (!result.session.empty()) gCommSession = result.session;
 
+        Serial.printf("[call] ok=%d status=%d err=%s wav=%s\n", result.reply.ok, result.reply.status,
+                      result.reply.error.c_str(), result.wavPath.c_str());
         if (!result.reply.ok) {
             queueRaw(result.wavPath, result.reply.error.empty() ? "PC unavailable" : result.reply.error, result.context);
             notify::post(Note::Warn, "MAZ unavailable", "voice call kept in outbox");
@@ -413,6 +426,7 @@ private:
     bool _haveTake = false;
     bool _sending = false;
     uint32_t _sendAt = 0;
+    uint32_t _waitSince = 0;
     uint32_t _lastWorkerPaint = 0;
 };
 

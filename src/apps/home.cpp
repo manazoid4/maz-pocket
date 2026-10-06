@@ -145,7 +145,7 @@ private:
         if (!strcmp(d.id, "agents")) return 'A';
         if (!strcmp(d.id, "desk")) return '#';
         if (!strcmp(d.id, "recall")) return 'M';
-        if (!strcmp(d.id, "flow")) return 'F';
+        if (!strcmp(d.id, "flow")) return 'W';
         return '*';
     }
 

@@ -35,7 +35,9 @@ void Settings::load() {
     hostPort         = prefs.getUShort("hostport", hostPort);
     hostRemoteUrl    = prefs.getString("hremote", "").c_str();
     hostToken        = prefs.getString("htoken", "").c_str();
-    talkRoute        = prefs.getUChar("route", talkRoute);
+    const uint8_t legacyTalkRoute = normalizedTalkRoute(prefs.getUChar("route", talkRoute));
+    const std::string savedTalkRoute = prefs.getString("route_id", "").c_str();
+    talkRoute        = talkRouteFromApiName(savedTalkRoute, legacyTalkRoute);
     ttsEnabled       = prefs.getBool("tts", ttsEnabled);
     nudgePollMinutes = prefs.getUChar("npoll", nudgePollMinutes);
     firstRunComplete = prefs.getBool("firstrun", firstRunComplete);
@@ -69,6 +71,9 @@ void Settings::save() const {
     prefs.putUShort("hostport", hostPort);
     prefs.putString("hremote", hostRemoteUrl.c_str());
     prefs.putString("htoken", hostToken.c_str());
+    // Symbolic identity is authoritative. Keep the byte during the migration
+    // window so older firmware can still read the last compatible selection.
+    prefs.putString("route_id", talkRouteApiName(talkRoute));
     prefs.putUChar("route", talkRoute);
     prefs.putBool("tts", ttsEnabled);
     prefs.putUChar("npoll", nudgePollMinutes);

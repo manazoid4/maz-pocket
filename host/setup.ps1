@@ -34,8 +34,15 @@ if (-not $Address) {
     } | Select-Object -First 1 -ExpandProperty IPAddress
 }
 $ConfiguredToken = (Select-String -Path $EnvPath -Pattern '^MAZ_TOKEN=(.+)$').Matches.Groups[1].Value
+$Sha = [Security.Cryptography.SHA256]::Create()
+try {
+    $Digest = $Sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($ConfiguredToken))
+    $TokenId = -join ($Digest[0..5] | ForEach-Object { $_.ToString("x2") })
+} finally {
+    $Sha.Dispose()
+}
 Write-Host "MAZ Core v$Version base setup is ready."
 Write-Host "Cardputer pairing if needed:"
 Write-Host "  Address: ${Address}:8787"
-Write-Host "  Token:   $ConfiguredToken"
+Write-Host "  Token ID: $TokenId (secret remains in .env and on the paired Cardputer)"
 Write-Host "Run install-core.ps1 for the full setup. With v0.6 open over USB, pair.ps1 updates Core details without asking for Wi-Fi credentials."

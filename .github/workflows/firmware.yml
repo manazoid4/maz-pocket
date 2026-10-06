@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: maz-pocket-${{ github.head_ref || github.ref_name }}
+  group: maz-pocket-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -40,9 +40,10 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install platformio pytest
+          pip install platformio pytest playwright
           pip install -r host/requirements.txt
           pip install "click>=8.0.4,<8.4"
+          python -m playwright install chromium
 
       - name: Test MAZ Core + Host
         run: python -m pytest host/tests -q

@@ -9,4 +9,5 @@ host/.venv/
 host/.pytest_cache/
 host/**/__pycache__/
 host/.env
+host/.env.*
 *.pyc

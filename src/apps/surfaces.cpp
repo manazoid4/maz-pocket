@@ -3,8 +3,13 @@
 #include <string>
 
 #include "../audio/sfx.h"
+#include "../core/field.h"
+#include "../core/notify.h"
+#include "../core/settings.h"
 #include "../core/shell.h"
+#include "../core/sys.h"
 #include "../input/keyboard.h"
+#include "../net/mazhost.h"
 #include "apps.h"
 #include "common.h"
 
@@ -129,6 +134,134 @@ constexpr HubItem FLOW_ITEMS[] = {
     {"TASKS", "next actions", "tasks"},
     {"REMINDERS", "don't forget", "reminders"},
     {"SHIFT CLOCK", "field work", "shift"},
+    {"RETRO", "learn from work", "retro"},
+};
+
+// Reuse LaptopApp's established Host-worker cadence: 10s normally, 20s in
+// FIELD mode. WORK does not introduce a tighter network loop. Stale is 3x the
+// actual interval while last-known values remain on screen.
+uint32_t workPollIntervalMs() { return Cfg.fieldMode ? 20000u : 10000u; }
+
+class WorkGlanceApp : public App {
+public:
+    const char* id() const override { return "flow"; }
+    const char* title() const override { return "WORK"; }
+    const char* hints() const override { return "UP/DOWN track  ENTER +1  P tools"; }
+
+    void onEnter() override { poll(); }
+
+    void update() override {
+        const uint32_t pollInterval = workPollIntervalMs();
+        if (millis() - _lastPollMs >= pollInterval) poll();
+        if (_selected >= Sys.workTrackCount) _selected = std::max(0, Sys.workTrackCount - 1);
+        const bool nowStale = Sys.workLoaded &&
+                              (millis() - Sys.workReceivedAt > pollInterval * 3u);
+        if (nowStale != _lastStale) { _lastStale = nowStale; invalidate(); }
+    }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down) return false;
+        if (e.code == KEY_UP && Sys.workTrackCount > 0) {
+            _selected = (_selected + Sys.workTrackCount - 1) % Sys.workTrackCount;
+            sfx::select(); invalidate(); return true;
+        }
+        if (e.code == KEY_DOWN && Sys.workTrackCount > 0) {
+            _selected = (_selected + 1) % Sys.workTrackCount;
+            sfx::select(); invalidate(); return true;
+        }
+        if (e.code == KEY_P) {
+            sfx::confirm();
+            shell::pushById("flowtools");
+            return true;
+        }
+        if (e.code == KEY_ENTER && _selected < Sys.workTrackCount) {
+            if (field::requestWorkIncrement(
+                    Sys.workTrackId[_selected], Sys.workTrackPrimaryEventTypeId[_selected])) {
+                notify::post(Note::Info, "+1 queued", Sys.workTrackLabel[_selected].c_str());
+            } else {
+                notify::post(Note::Warn, "WORK busy", "try again in a moment");
+            }
+            invalidate();
+            return true;
+        }
+        return false;
+    }
+
+    std::string contextSnapshot() const override {
+        if (!Sys.workLoaded) return "WORK glance loading";
+        std::string out = "WORK today:";
+        for (int i = 0; i < Sys.workTrackCount; ++i) {
+            out += " " + Sys.workTrackLabel[i] + "=" + std::to_string(static_cast<int>(Sys.workTrackToday[i]));
+        }
+        if (!Sys.workNextAction.empty()) out += " next=" + Sys.workNextAction;
+        if (_lastStale) out += " (STALE)";
+        return out;
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+        ui::header(g, "WORK", _lastStale ? "STALE" : "TODAY");
+
+        if (!Sys.workLoaded) {
+            g.setTextDatum(top_left);
+            g.setFont(&fonts::Font0);
+            g.setTextColor(DIM, BG);
+            g.drawString("Loading...", PAD, BODY_Y + 15);
+            return;
+        }
+
+        constexpr int pitch = 22;
+        for (int i = 0; i < Sys.workTrackCount; ++i) {
+            const int y = BODY_Y + 6 + i * pitch;
+            g.fillRoundRect(PAD, y, SCREEN_W - PAD * 2, 19, 4, PANEL);
+            g.drawRoundRect(PAD, y, SCREEN_W - PAD * 2, 19, 4, i == _selected ? ACCENT : LINE);
+            g.setTextDatum(top_left);
+            g.setFont(&fonts::Font0);
+            g.setTextColor(TEXT, PANEL);
+            g.drawString(Sys.workTrackLabel[i].c_str(), PAD + 6, y + 5);
+            std::string value = std::to_string(static_cast<int>(Sys.workTrackToday[i]));
+            if (Sys.workTrackHasTarget[i])
+                value += "/" + std::to_string(static_cast<int>(Sys.workTrackTarget[i]));
+            g.setTextDatum(top_right);
+            g.setTextColor(_lastStale ? DIM : ACCENT, PANEL);
+            g.drawString(value.c_str(), SCREEN_W - PAD - 6, y + 5);
+        }
+
+        const int actionY = BODY_Y + 6 + Sys.workTrackCount * pitch + 4;
+        int stripY = actionY;
+        if (!Sys.workNextAction.empty() && actionY + 27 < SCREEN_H) {
+            g.setTextDatum(top_left);
+            g.setFont(&fonts::Font0);
+            g.setTextColor(ACCENT2, BG);
+            g.drawString("NEXT", PAD, actionY);
+            g.setTextColor(TEXT, BG);
+            g.drawString(ui::ellipsis(Sys.workNextAction, 34).c_str(), PAD, actionY + 11);
+            stripY += 27;
+        }
+        // Compact 7-day strip: fixed-length bars, tallest day sets the scale.
+        constexpr int barW = 6, barGap = 4, barMaxH = 18;
+        if (stripY + barMaxH <= SCREEN_H) {
+            float maxDay = 0.001f;
+            for (float v : Sys.workSeven) maxDay = std::max(maxDay, v);
+            int x = PAD;
+            for (float v : Sys.workSeven) {
+                const int h = std::max(2, static_cast<int>(barMaxH * (v / maxDay)));
+                g.fillRoundRect(x, stripY + (barMaxH - h), barW, h, 2, _lastStale ? LINE : ACCENT);
+                x += barW + barGap;
+            }
+        }
+        g.setTextDatum(top_left);
+    }
+
+private:
+    uint32_t _lastPollMs = 0;
+    bool _lastStale = false;
+    int _selected = 0;
+
+    void poll() {
+        _lastPollMs = millis();
+        field::requestWorkSummary();
+    }
 };
 
 }  // namespace
@@ -148,8 +281,10 @@ App* makeRecall() {
                           RECALL_ITEMS, sizeof(RECALL_ITEMS) / sizeof(RECALL_ITEMS[0]));
 }
 
-App* makeFlow() {
-    return new SurfaceHub("flow", "FOCUS", "TIME + ACTION",
+App* makeFlow() { return new WorkGlanceApp(); }
+
+App* makeFlowTools() {
+    return new SurfaceHub("flowtools", "WORK TOOLS", "TIME + ACTION",
                           FLOW_ITEMS, sizeof(FLOW_ITEMS) / sizeof(FLOW_ITEMS[0]));
 }
 

@@ -10,7 +10,7 @@ namespace maz {
 namespace host_worker {
 
 enum class State : uint8_t { Idle, Queued, Running, Done, FailedToStart };
-enum class JobKind : uint8_t { None, TalkAudio, PcAction, OutboxAudio, OutboxBeam, BeamPull, SystemStatus, Workflow, Teach };
+enum class JobKind : uint8_t { None, TalkAudio, PcAction, OutboxAudio, OutboxBeam, BeamPull, SystemStatus, WorkSummary, WorkIncrement, Workflow, Teach };
 enum class WorkflowKind : uint8_t { Plan, Crew, Retro, Prompt };
 enum class TeachKind : uint8_t { Displays, Start, Mark, Stop, Status };
 
@@ -25,6 +25,7 @@ struct TalkResult {
 struct PcActionResult { std::string action; host::Reply reply; };
 struct OutboxAudioResult { std::string recordId; std::string wavPath; std::string context; host::Reply reply; };
 struct OutboxBeamResult { std::string recordId; host::Reply reply; };
+struct WorkIncrementResult { std::string trackId; host::Reply reply; };
 struct WorkflowResult {
     WorkflowKind kind = WorkflowKind::Plan;
     std::string task;
@@ -46,6 +47,8 @@ bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
 bool submitOutboxBeam(const std::string& recordId, const std::string& text);
 bool submitBeamPull();
 bool submitSystemStatus();
+bool submitWorkSummary();
+bool submitWorkIncrement(const std::string& trackId, const std::string& eventTypeId);
 bool submitWorkflow(WorkflowKind kind, const std::string& task,
                     const std::string& project = "", const std::string& templateId = "");
 bool submitTeach(TeachKind kind, const std::string& sessionId = "",
@@ -57,6 +60,8 @@ bool takeOutboxAudioResult(OutboxAudioResult& result);
 bool takeOutboxBeamResult(OutboxBeamResult& result);
 bool takeBeamPullResult(host::BeamMessage& result);
 bool takeSystemStatusResult(host::SystemStatus& result);
+bool takeWorkSummaryResult(host::WorkSummary& result);
+bool takeWorkIncrementResult(WorkIncrementResult& result);
 bool takeWorkflowResult(WorkflowResult& result);
 bool takeTeachResult(TeachResult& result);
 

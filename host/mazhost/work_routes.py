@@ -1,0 +1,361 @@
+"""WORK Consistency API routes.
+
+Mounted onto the same authenticated phone-control app as AUTHORITY (spec
+Section 4 lists these paths as `/work/...`; they are reachable here as
+`/control/work/...` because the session cookie set by phone_control.py is
+scoped to path=/control — mounting elsewhere would silently drop the cookie).
+Same session boundary, no new auth mechanism."""
+
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Annotated, Literal
+
+from fastapi import Cookie, FastAPI, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .work_schema import PIPELINE_STAGES, PROOF_STAGES
+from .work_service import WorkService
+from .work_store import WorkStore, WorkStoreError
+
+
+class CreateTrackBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    short_label: str = Field(min_length=1, max_length=20)
+    mode: Literal["count", "time", "checkin"]
+    unit: str = Field(min_length=1, max_length=30)
+    cadence: Literal["daily", "weekly", "none"] = "daily"
+    target: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    event_types: list[Annotated[str, Field(min_length=1, max_length=60)]] = Field(
+        min_length=1, max_length=12
+    )
+    primary_event_type_index: int = Field(default=0, ge=0)
+    pinned: bool = False
+    sort_order: int = Field(default=0, ge=0, le=10_000)
+
+    @field_validator("name", "short_label", "unit")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        clean = " ".join(value.replace("\x00", "").splitlines()).strip()
+        if not clean:
+            raise ValueError("value must not be blank")
+        return clean
+
+    @field_validator("event_types")
+    @classmethod
+    def normalize_event_types(cls, values: list[str]) -> list[str]:
+        normalized = [
+            " ".join(value.replace("\x00", "").splitlines()).strip()
+            for value in values
+        ]
+        if any(not value for value in normalized):
+            raise ValueError("event types must not be blank")
+        if len({value.casefold() for value in normalized}) != len(normalized):
+            raise ValueError("event type labels must be unique")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_primary_index(self):
+        if self.primary_event_type_index >= len(self.event_types):
+            raise ValueError("primary_event_type_index_out_of_range")
+        return self
+
+
+class EventTypeUpdateBody(BaseModel):
+    id: str | None = Field(default=None, min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=60)
+    # Updates are whole event-type records. Requiring these fields prevents a
+    # partial rename request from silently resetting ordering/headline flags.
+    sort_order: int = Field(ge=0, le=10_000)
+    contributes_to_headline: bool
+    active: bool
+
+    @field_validator("label")
+    @classmethod
+    def normalize_label(cls, value: str) -> str:
+        clean = " ".join(value.replace("\x00", "").splitlines()).strip()
+        if not clean:
+            raise ValueError("event type label must not be blank")
+        return clean
+
+
+class UpdateTrackBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    short_label: str | None = Field(default=None, min_length=1, max_length=20)
+    target: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cadence: Literal["daily", "weekly", "none"] | None = None
+    pinned: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=10_000)
+    state: Literal["active", "paused", "archived"] | None = None
+    primary_event_type_id: str | None = Field(default=None, min_length=1, max_length=120)
+    primary_event_type_index: int | None = Field(default=None, ge=0)
+    event_types: list[EventTypeUpdateBody] | None = Field(default=None, min_length=1, max_length=12)
+
+    @field_validator("name", "short_label")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = " ".join(value.replace("\x00", "").splitlines()).strip()
+        if not clean:
+            raise ValueError("value must not be blank")
+        return clean
+
+    @model_validator(mode="after")
+    def validate_primary_event_type_index(self):
+        if self.primary_event_type_index is None:
+            return self
+        if self.event_types is None or self.primary_event_type_index >= len(self.event_types):
+            raise ValueError("primary_event_type_index_out_of_range")
+        if not self.event_types[self.primary_event_type_index].active:
+            raise ValueError("primary_event_type_must_be_active")
+        return self
+
+
+class CreateEventBody(BaseModel):
+    event_id: str | None = Field(default=None, min_length=1, max_length=80)
+    event_type_id: str = Field(min_length=1, max_length=120)
+    value: float = Field(default=1, gt=0, le=100_000, allow_inf_nan=False)
+    occurred_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    source: Literal["phone_manual", "cardputer_manual", "import"] = "phone_manual"
+    note: str = Field(default="", max_length=500)
+
+
+class PipelineItemBody(BaseModel):
+    item_id: str | None = Field(default=None, min_length=1, max_length=100)
+    pipeline: Literal["client"]
+    title: str = Field(min_length=1, max_length=160)
+    organisation: str = Field(default="", max_length=160)
+    stage: str = Field(min_length=1, max_length=40)
+    score: int | None = Field(default=None, ge=0, le=100)
+    source_url: str = Field(default="", max_length=1000)
+    evidence: str = Field(default="", max_length=4000)
+    friction: str = Field(default="", max_length=4000)
+    rationale: str = Field(default="", max_length=4000)
+    solution: str = Field(default="", max_length=4000)
+    contact_role: str = Field(default="", max_length=240)
+    outreach_draft: str = Field(default="", max_length=8000)
+    outreach_status: str = Field(default="NOT_READY", max_length=80)
+    proof_status: str = Field(default="NOT_STARTED", max_length=40)
+    next_action: str = Field(default="", max_length=500)
+    due_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    last_contact_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_pipeline_state(self):
+        self.stage = self.stage.strip().upper()
+        self.proof_status = self.proof_status.strip().upper()
+        if self.stage not in PIPELINE_STAGES[self.pipeline]:
+            raise ValueError("invalid_pipeline_stage")
+        if self.proof_status not in PROOF_STAGES:
+            raise ValueError("invalid_proof_status")
+        self.title = " ".join(self.title.replace("\x00", "").splitlines()).strip()
+        if not self.title:
+            raise ValueError("title_must_not_be_blank")
+        return self
+
+
+class PipelineUpdateBody(BaseModel):
+    stage: str | None = Field(default=None, min_length=1, max_length=40)
+    score: int | None = Field(default=None, ge=0, le=100)
+    evidence: str | None = Field(default=None, max_length=4000)
+    friction: str | None = Field(default=None, max_length=4000)
+    rationale: str | None = Field(default=None, max_length=4000)
+    solution: str | None = Field(default=None, max_length=4000)
+    contact_role: str | None = Field(default=None, max_length=240)
+    outreach_draft: str | None = Field(default=None, max_length=8000)
+    outreach_status: str | None = Field(default=None, max_length=80)
+    proof_status: str | None = Field(default=None, min_length=1, max_length=40)
+    next_action: str | None = Field(default=None, max_length=500)
+    due_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    last_contact_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+def install_work_routes(
+    app: FastAPI,
+    *,
+    service: WorkService,
+    store: WorkStore,
+    require_session,
+    session_identity,
+) -> None:
+    @app.get("/work/summary")
+    def work_summary(
+        request: Request,
+        window: Literal["today"] = "today",
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        return service.summary(window=window)
+
+    @app.get("/work/tracks")
+    def work_tracks(request: Request, maz_control_session: Annotated[str | None, Cookie()] = None):
+        require_session(request, maz_control_session)
+        return {"ok": True, "tracks": store.list_tracks(include_archived=True)}
+
+    @app.post("/work/tracks")
+    def work_create_track(
+        body: CreateTrackBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        track_id = "custom_" + uuid.uuid4().hex[:12]
+        event_types = [
+            (f"{track_id}.{i}", label, i == body.primary_event_type_index)
+            for i, label in enumerate(body.event_types)
+        ]
+        try:
+            track = store.create_track(
+                track_id=track_id,
+                name=body.name,
+                short_label=body.short_label,
+                mode=body.mode,
+                unit=body.unit,
+                cadence=body.cadence,
+                target=body.target,
+                event_types=event_types,
+                primary_event_type_id=event_types[body.primary_event_type_index][0],
+                pinned=body.pinned,
+                sort_order=body.sort_order,
+            )
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "track": track}
+
+    @app.patch("/work/tracks/{track_id}")
+    def work_update_track(
+        track_id: str,
+        body: UpdateTrackBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        raw = body.model_dump(exclude={"event_types", "primary_event_type_index"})
+        fields = {
+            key: value for key, value in raw.items()
+            if key in body.model_fields_set
+            and (value is not None or key == "target")
+        }
+        event_type_updates = None
+        if body.event_types is not None:
+            event_type_updates = []
+            for event_type in body.event_types:
+                update = event_type.model_dump()
+                update["id"] = update["id"] or f"{track_id}.{uuid.uuid4().hex[:12]}"
+                event_type_updates.append(update)
+            if body.primary_event_type_index is not None:
+                fields["primary_event_type_id"] = event_type_updates[body.primary_event_type_index]["id"]
+        try:
+            track = store.update_track(
+                track_id,
+                fields,
+                event_type_updates=event_type_updates,
+            )
+        except WorkStoreError as error:
+            raise HTTPException(404, str(error)) from error
+        return {"ok": True, "track": track}
+
+    @app.post("/work/tracks/{track_id}/events")
+    def work_create_event(
+        track_id: str,
+        body: CreateEventBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        session_id = session_identity(request, maz_control_session)
+        event_id = body.event_id or ("evt_" + uuid.uuid4().hex)
+        try:
+            event, created = store.create_event(
+                event_id=event_id,
+                track_id=track_id,
+                event_type_id=body.event_type_id,
+                value=body.value,
+                occurred_at=body.occurred_at if body.occurred_at is not None else time.time(),
+                source=body.source,
+                note=body.note,
+                session_id=session_id,
+            )
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "event": event, "created": created}
+
+    @app.post("/work/events/{event_id}/undo")
+    def work_undo(
+        event_id: str,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        session_id = session_identity(request, maz_control_session)
+        try:
+            reversal = store.undo_last(session_id=session_id, expected_event_id=event_id)
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "reversal": reversal}
+
+    @app.get("/work/history")
+    def work_history(
+        request: Request,
+        days: Annotated[int, Query(ge=1, le=31)] = 7,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        return service.history(days=days)
+
+    @app.get("/work/pipeline")
+    def work_pipeline(
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        return {"ok": True, "items": store.list_pipeline_items("client")}
+
+    @app.post("/work/pipeline")
+    def work_put_pipeline_item(
+        body: PipelineItemBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        item = body.model_dump()
+        item["item_id"] = item["item_id"] or f"{body.pipeline}_{uuid.uuid4().hex[:16]}"
+        try:
+            saved, created = store.put_pipeline_item(item)
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "item": saved, "created": created}
+
+    @app.patch("/work/pipeline/{item_id}")
+    def work_update_pipeline_item(
+        item_id: str,
+        body: PipelineUpdateBody,
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        existing = store.get_pipeline_item(item_id)
+        if not existing or existing["pipeline"] != "client":
+            raise HTTPException(404, "pipeline_item_not_found")
+        fields = body.model_dump(exclude_unset=True)
+        if fields.get("stage") is not None:
+            fields["stage"] = fields["stage"].strip().upper()
+            if fields["stage"] not in PIPELINE_STAGES[existing["pipeline"]]:
+                raise HTTPException(422, "invalid_pipeline_stage")
+        if fields.get("proof_status") is not None:
+            fields["proof_status"] = fields["proof_status"].strip().upper()
+            if fields["proof_status"] not in PROOF_STAGES:
+                raise HTTPException(422, "invalid_proof_status")
+        try:
+            saved = store.update_pipeline_item(item_id, fields)
+        except WorkStoreError as error:
+            raise HTTPException(400, str(error)) from error
+        return {"ok": True, "item": saved}
+
+    @app.get("/work/today")
+    def work_today(
+        request: Request,
+        maz_control_session: Annotated[str | None, Cookie()] = None,
+    ):
+        require_session(request, maz_control_session)
+        return service.today()

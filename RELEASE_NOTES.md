@@ -1,10 +1,31 @@
-# MAZ Pocket v0.8.0 — CONTROL
+# MAZ Pocket v1.0.0 — WORK CONSISTENCY
 
-v0.8.0 turns MAZ Pocket from a capable FIELD remote into a clearer physical interface for **voice AI, PC workflows, coding agents and phone-approved PC control**.
+v1.0.0 adds a durable WORK consistency layer to the proven CONTROL foundation without turning the Cardputer into an app drawer.
 
-The release keeps the six-tile Home design and renames features around what they actually do:
+Home remains exactly six surfaces, with the stable internal `flow` identifier preserved:
 
-**CALL / CAPTURE / AGENTS / CONTROL / MEMORY / FOCUS**
+**CALL / CAPTURE / AGENTS / CONTROL / MEMORY / WORK**
+
+## WORK on phone and Cardputer
+
+- The authenticated phone centre is now `WORK | AUTHORITY`, with WORK open by default and AUTHORITY preserved.
+- Application is a literal one-tap action. A 600 ms client debounce improves feel; unique event IDs and transactional server idempotency are the real retry/double-count protection.
+- Undo Last reverses only the current authenticated session's latest event, never another phone/device's work.
+- Today/current cards show targets and raw event counts. MAZ WORKS never invents close-rate or productivity metrics.
+- Manage Tracks creates/edits/reorders/pins/pauses/archives custom count, time or check-in tracks. Event-type IDs stay stable across renames, so history remains attributable.
+- Daily and weekly targets use host-local calendar boundaries, including DST transitions. Seven-day history is bounded.
+- Cardputer WORK opens directly to the glance dashboard for JOB HUNT, MAZ WORKS and pinned custom tracks. Focus, Sprint, Tasks, Reminders, Shift and Retro remain under WORK TOOLS.
+- Existing Host polling is reused: 10 seconds normally, 20 seconds in FIELD. At roughly three missed polls, last-known values remain visible and are labelled STALE.
+- Firmware accepts at most four pinned tracks, exactly seven daily history entries and no response above 4096 bytes. Malformed/oversized/offline data never becomes a fake zero.
+
+## Storage and upgrade safety
+
+- WORK uses a versioned SQLite database under the existing MAZ Core data root, with WAL, foreign keys, ordered transactional migrations and idempotent template seeding that never overwrites user edits.
+- Event writes and reversals use immediate transactions; fresh/repeated/concurrent bootstrap, retry, interruption, corruption and timezone cases have dedicated tests.
+- The Windows updater integration test proves a v0.8 installation keeps `.env`, authority/pairing state and WORK events through upgrade.
+- Release packaging remains app-only for M5Launcher and preserves non-destructive launcher hand-back.
+
+## Preserved CONTROL foundation
 
 ## CALL MAZ
 
@@ -13,8 +34,9 @@ The release keeps the six-tile Home design and renames features around what they
 - Spoken MAZ reply playback is enabled on fresh installs.
 - **P** replays the last reply.
 - **V** toggles voice replies.
-- **A** changes CLOUD / LOCAL / AUTO directly on the Cardputer.
-- Fresh v0.8 installs prefer CLOUD; existing devices keep their persisted route.
+- **A** changes LOCAL / AUTO / CLOUD / MAZLATEST directly on the Cardputer.
+- **MAZLATEST** routes through authenticated MAZ Core to PC-local 9router model `MazLatest`; it fails explicitly rather than misreporting fallback provenance.
+- Fresh v1 installs prefer CLOUD; existing devices keep their persisted route.
 - Context Ask remains available and informational only.
 
 ## CAPTURE + Teach-by-Demonstration
@@ -129,19 +151,17 @@ MAZ Core can persist a bounded, redacted debugging snapshot containing project/G
 - asks before opening the browser;
 - does not format media or directly write Cardputer flash.
 
-## Validation gate
+## Physical validation gate
 
-CI can prove host tests, packaging and firmware compilation, but it cannot prove physical Cardputer/M5Launcher behavior. Before calling v0.8 field-proven, validate on the actual Cardputer ADV:
+CI proves host tests, browser behavior, packaging and firmware compilation, but not physical Cardputer/M5Launcher behavior. On the actual Cardputer ADV:
 
-- CALL: 10+ voice turns, spoken playback, P replay, V toggle, A route persistence;
-- CAPTURE → TEACH DEMO: display selection, screen recording, microphone, MARK, stop/process;
-- PLAN / CREW / RETRO / Prompt Deck against a disposable project;
-- phone authority request → approve → execute → revoke;
-- Debug Capsule redaction with test-secret fixtures;
-- `mazpocket.local` on phone and desktop;
-- stage a release .bin from the portal;
-- enter M5Launcher and confirm MAZ Pocket **remains installed/launchable** without re-copying it from SD;
-- v0.7.x rollback through M5Launcher;
-- 30+ minute normal soak with no reset/watchdog.
+1. Confirm Home is CALL / CAPTURE / AGENTS / CONTROL / MEMORY / WORK.
+2. Open WORK and confirm the JOB HUNT + MAZ WORKS glance appears directly.
+3. Log Application and one MAZ WORKS event from the phone; confirm the next-poll update.
+4. Undo Last; confirm the reversal on Cardputer.
+5. Disconnect Core; confirm last-known values remain and show STALE, never blank/zero.
+6. Confirm WORK TOOLS reaches Focus/Sprint/Tasks/Reminders/Shift/Retro.
+7. Recheck CALL, CAPTURE → Teach Demo, AGENTS → Plan/Crew/Retro, authority approve/deny/revoke, pairing token reveal, `mazpocket.local` OPEN WORK and Ctrl+L M5Launcher return.
+8. Upgrade from a fresh v0.8 install using the v1.0.0 M5Launcher artifact; confirm `.env`, pairing and WORK data persist.
 
-The M5Launcher persistence change is intentionally covered by source/CI regression tests, but the final proof is the physical ADV.
+The source/build gates are complete only when accompanied by this physical evidence; no automated result substitutes for it.

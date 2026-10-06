@@ -18,6 +18,13 @@ struct Reply {
     uint32_t    reminderDelay = 0;
 };
 
+struct PairCode {
+    bool ok = false;
+    std::string code;
+    int expiresInSeconds = 0;
+    std::string error;
+};
+
 struct Agent {
     std::string id;
     std::string name;
@@ -94,6 +101,30 @@ struct SystemStatus {
     std::string error;
 };
 
+// WORK Consistency glance payload. Server-side hard cap (spec): at most 4
+// pinned tracks, a fixed 7-length day array — mirrored here as fixed-size,
+// bounded fields so a malformed/oversized response cannot overflow anything.
+constexpr int WORK_MAX_TRACKS = 4;
+constexpr int WORK_HISTORY_DAYS = 7;
+
+struct WorkTrack {
+    std::string id;
+    std::string shortLabel;
+    std::string primaryEventTypeId;
+    float todayTotal = 0;
+    bool hasTarget = false;
+    float target = 0;
+};
+
+struct WorkSummary {
+    bool ok = false;
+    int trackCount = 0;
+    WorkTrack tracks[WORK_MAX_TRACKS];
+    float sevenDay[WORK_HISTORY_DAYS] = {};
+    std::string nextAction;
+    std::string error;
+};
+
 struct TeachDisplay {
     std::string id;
     std::string name;
@@ -116,6 +147,7 @@ bool configured();
 bool health();
 const char* linkName();
 std::string startSession();
+PairCode startPairing();
 Reply talkText(const std::string& session, const std::string& text);
 Reply talkTextContext(const std::string& session, const std::string& text,
                       const std::string& context);
@@ -149,6 +181,8 @@ TeachStatus teachStatus(const std::string& sessionId);
 Reply beamSend(const std::string& text);
 BeamMessage beamPull();
 SystemStatus systemStatus();
+WorkSummary workSummary();
+Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 
 CoreStatus coreStatus();
 std::vector<CoreProject> coreProjects(std::string& error);

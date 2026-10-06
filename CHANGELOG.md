@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.0 — WORK CONSISTENCY
+
+- Home remains exactly six surfaces and now reads CALL / CAPTURE / AGENTS / CONTROL / MEMORY / WORK; the stable internal `flow` ID is unchanged.
+- WORK opens directly to a Cardputer glance for JOB HUNT, MAZ WORKS and pinned custom tracks, with current/target values, a fixed seven-day strip, and last-known data labelled STALE after three missed Host polls.
+- Existing Focus, Sprint, Tasks, Reminders, Shift and Retro remain available one level deeper under WORK TOOLS.
+- The authenticated phone control centre is now `WORK | AUTHORITY`, with WORK as the default tab, one-tap Application logging, raw event breakdowns, Undo Last, seven-day history and Manage Tracks.
+- Added a versioned WAL/foreign-key SQLite store with idempotent template seeding, stable event IDs, retry-safe writes, session-scoped reversals, archive-safe history, daily/weekly local-time aggregation and crash/interruption coverage.
+- Added bounded Cardputer JSON and streaming firmware parsing: at most four pinned tracks, exactly seven history entries, 4096-byte ceiling, and no fake zero replacement on malformed/offline data.
+- Added custom track creation/edit/reorder/pin/pause/archive, stable event-type renames, bounded input validation, mobile 360–430 px coverage and server-source-of-truth refresh.
+- Added v0.8-to-v1 upgrade verification proving `.env`, authority/pairing state and WORK data survive the shipped installer/update path.
+- Release packaging excludes machine-local runtime logs in addition to tests, caches, bytecode and `.env` state.
+- Added an explicit fourth MAZLATEST route from Cardputer to MAZ Core, using loopback-only 9router model `MazLatest` with no silent fallback or device-side credentials.
+- Preserved CALL, CAPTURE, AGENTS, CONTROL/AUTHORITY, MEMORY, pairing, Beam, screen mirror, firmware staging, M5Launcher hand-back, AI routing and installer behavior.
+
 ## v0.8.0 — CONTROL
 
 - CALL MAZ: renamed COMM experience, spoken reply playback on fresh installs, P replay, V voice toggle, A cloud/local/auto route.
