@@ -185,6 +185,8 @@ WorkSummary workSummary();
 Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 
 CoreStatus coreStatus();
+// Core /health "version"; empty string when unreachable.
+std::string coreVersion();
 std::vector<CoreProject> coreProjects(std::string& error);
 Reply coreAction(const std::string& action, const std::string& project);
 CoreJob coreStartJob(const std::string& action, const std::string& project);

@@ -50,6 +50,17 @@ CoreJob decodeJob(const String& body, int status) {
 
 }  // namespace
 
+std::string coreVersion() {
+    HTTPClient http;
+    if (!coreBegin(http, "/health")) return "";
+    const int status = http.GET();
+    const String body = status > 0 ? http.getString() : String();
+    http.end();
+    JsonDocument doc;
+    if (status != 200 || deserializeJson(doc, body)) return "";
+    return doc["version"] | "";
+}
+
 CoreStatus coreStatus() {
     CoreStatus out;
     HTTPClient http;

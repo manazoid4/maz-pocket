@@ -17,6 +17,7 @@
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
+#include "../net/mazhost.h"
 #include "../net/net.h"
 #include "../storage/store.h"
 #include "apps.h"
@@ -163,16 +164,18 @@ private:
                          ui::humanSize(store::totalBytes()).c_str());
                 _detail = buf;
                 break;
-            case 7:
+            case 7: {
+                const std::string cv = host::coreVersion();
                 snprintf(buf, sizeof(buf),
-                         "MAZ Pocket v%s\nBoard    Cardputer ADV\nChip     %s "
+                         "nod v" NOD_FW_VERSION " (" NOD_FW_SHA ")\nCore %s\nChip     %s "
                          "rev%d\nCores    %d\nKeyboard %s\nUptime   %s",
-                         MAZ_POCKET_VERSION, ESP.getChipModel(),
+                         cv.empty() ? "offline" : ("v" + cv).c_str(), ESP.getChipModel(),
                          (int)ESP.getChipRevision(), (int)ESP.getChipCores(),
                          KB.ok() ? "TCA8418 ok" : "NOT DETECTED",
                          ui::hhmmss(Sys.uptimeSeconds()).c_str());
                 _detail = buf;
                 break;
+            }
             case 8:
                 notify::post(Note::Info, "Rebooting", "back to M5Launcher");
                 delay(600);

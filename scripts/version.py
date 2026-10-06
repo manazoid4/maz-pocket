@@ -1,6 +1,6 @@
 Import("env")
 
-import re
+import re, subprocess
 from pathlib import Path
 
 root = Path(env["PROJECT_DIR"])
@@ -13,3 +13,11 @@ if not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", version):
 # a hard-coded define in platformio.ini and every packaging script.
 env.Append(CPPDEFINES=[("MAZ_POCKET_VERSION", f'\\"{version}\\"')])
 print(f"MAZ Pocket version: {version}")
+
+try:
+    sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=root,
+                                  stderr=subprocess.DEVNULL, text=True).strip()
+except Exception:
+    sha = ""
+env.Append(CPPDEFINES=[("NOD_FW_VERSION", f'\\"{version}\\"'),
+                       ("NOD_FW_SHA", f'\\"{sha or "nogit"}\\"')])

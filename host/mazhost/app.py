@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import json
 import tempfile
 import time
@@ -136,6 +137,7 @@ def create_app(
 
     @api.on_event("startup")
     def start_bridge() -> None:
+        logging.getLogger("uvicorn.error").info("nod Core v%s starting", CORE_VERSION)
         bridge_worker.start()
 
     @api.on_event("shutdown")
@@ -256,6 +258,7 @@ def create_app(
         core_status = versioned_core_status() if cfg.core_enabled else {"ok": False, "disabled": True}
         return {
             "ok": True,
+            "name": "nod Core",
             "version": CORE_VERSION,
             "stt": speech.available(),
             "llm": model_router.status(),
