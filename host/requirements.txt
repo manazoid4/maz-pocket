@@ -18,3 +18,5 @@ esptool==4.8.1
 
 # Optional local text-to-speech (MAZ_TTS_ENABLED=true). Windows SAPI, offline.
 pyttsx3==2.98
+pyperclip>=1.8
+sounddevice>=0.4

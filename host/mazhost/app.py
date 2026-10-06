@@ -34,6 +34,8 @@ from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
 from .security import Security
 from .sessions import SessionStore
+from starlette.concurrency import run_in_threadpool
+from .flow import Flow, paste as paste_text
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
 from .tts import SpeechOut
@@ -546,6 +548,29 @@ def create_app(
         finally:
             path.unlink(missing_ok=True)
 
+    flow_service = Flow(cfg, speech, model_router)
+
+    @api.post("/dictate")
+    async def dictate(request: Request, target: str = "text"):
+        """wav in -> cleaned text out. target=pc-paste also pastes on the PC."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > cfg.max_upload_mb * 1024 * 1024:
+                    Path(tmp.name).unlink(missing_ok=True)
+                    raise HTTPException(413, "audio_too_large")
+                tmp.write(chunk)
+            path = Path(tmp.name)
+        try:
+            security.validate_upload(path, size)
+            result = await run_in_threadpool(flow_service.dictate, path)
+            if target == "pc-paste" and result["intent"] in ("paste", "claude") and result["text"]:
+                await run_in_threadpool(paste_text, result["text"], result["intent"] == "claude")
+            return result
+        finally:
+            path.unlink(missing_ok=True)
+
     # ---------------------------------------------------------- extraction
     @api.post("/extract")
     def extract(body: ExtractRequest):
@@ -679,3 +704,6 @@ def create_app(
 
 
 app = create_app()
+
+
+
