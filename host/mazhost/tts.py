@@ -46,7 +46,14 @@ class SpeechOut:
         )
         if resp.status_code != 200 or len(resp.content) <= 44:
             raise RuntimeError(f"fish_http_{resp.status_code}:{resp.text[:120]}")
-        path.write_bytes(resp.content)
+        data = resp.content
+        # Fish streams WAV with a bogus length header; rewrite sizes from real byte count.
+        i = data.find(b"data")
+        if data[:4] == b"RIFF" and i > 0:
+            import struct
+            data = (data[:4] + struct.pack("<I", len(data) - 8) + data[8:i + 4]
+                    + struct.pack("<I", len(data) - i - 8) + data[i + 8:])
+        path.write_bytes(data)
 
     def synthesize(self, text: str) -> Path:
         if not self.settings.tts_enabled:
