@@ -120,6 +120,10 @@ public:
         }
         const std::string now = field::nowText();
         lvui::renderHome(g, cells.data(), _primary.size(), _sel, "NOW", now.c_str(), 0, 1);
+        g.setFont(&fonts::Font0);
+        g.setTextDatum(bottom_right);
+        g.setTextColor(DIM);
+        g.drawString(host::updateReady() ? "v" NOD_FW_VERSION "  update ready" : "v" NOD_FW_VERSION, SCREEN_W - 2, SCREEN_H - 1);
     }
 
 private:

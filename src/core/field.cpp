@@ -36,6 +36,7 @@ uint32_t gLastCountsAt = 0;
 uint32_t gNextOutboxTry = 0;
 uint32_t gOutboxBackoffMs = 15000;
 uint32_t gNextBeamPoll = 0;
+uint32_t gNextCoreInfo = 0;
 bool gSystemRequested = false;
 bool gWorkRequested = false;
 bool gReminderDue = false;
@@ -284,6 +285,11 @@ void update() {
                 if (host_worker::takeBeamPullResult(r)) finishBeamPull(r);
                 break;
             }
+            case host_worker::JobKind::CoreInfo: {
+                host::CoreInfo r;
+                if (host_worker::takeCoreInfoResult(r)) host::setCoreInfo(r);
+                break;
+            }
             case host_worker::JobKind::SystemStatus: {
                 host::SystemStatus r;
                 if (host_worker::takeSystemStatusResult(r)) finishSystem(r);
@@ -323,6 +329,11 @@ void update() {
 
     if (Sys.outboxQueued && static_cast<int32_t>(millis() - gNextOutboxTry) >= 0) {
         if (submitNextOutbox()) return;
+    }
+
+    if (static_cast<int32_t>(millis() - gNextCoreInfo) >= 0) {
+        gNextCoreInfo = millis() + 30000u;
+        if (host_worker::submitCoreInfo()) return;
     }
 
     if (static_cast<int32_t>(millis() - gNextBeamPoll) >= 0) {

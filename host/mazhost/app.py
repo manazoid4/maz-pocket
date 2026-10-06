@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import logging
 import json
 import tempfile
 import time
@@ -25,6 +26,7 @@ from .control_routes import install_control_routes
 from .core import CoreError, MazCore
 from .debug_capsule import DebugCapsules
 from .device import DeviceMonitor
+from . import fw
 from .errors import ErrorCode, RouteError
 from .executor import ElevatedExecutor
 from .jobs import CoreJobs
@@ -139,6 +141,7 @@ def create_app(
 
     @api.on_event("startup")
     def start_bridge() -> None:
+        logging.getLogger("uvicorn.error").info("nod Core v%s starting", CORE_VERSION)
         bridge_worker.start()
 
     @api.on_event("shutdown")
@@ -276,7 +279,9 @@ def create_app(
         core_status = versioned_core_status() if cfg.core_enabled else {"ok": False, "disabled": True}
         return {
             "ok": True,
+            "name": "nod Core",
             "version": CORE_VERSION,
+            "fw_latest": (lambda m: m and {"version": m["version"], "sha": m.get("sha", "")})(fw.manifest()),
             "stt": speech.available(),
             "llm": model_router.status(),
             "nudge": nudge_client.status(),

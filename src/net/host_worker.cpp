@@ -29,6 +29,7 @@ PcActionResult gPcResult;
 OutboxAudioResult gOutboxAudioResult;
 OutboxBeamResult gOutboxBeamResult;
 host::BeamMessage gBeamPullResult;
+host::CoreInfo gCoreInfoResult;
 host::SystemStatus gSystemResult;
 host::WorkSummary gWorkResult;
 WorkIncrementResult gWorkIncrementResult;
@@ -126,6 +127,8 @@ void worker(void*) {
             gOutboxBeamResult.reply = host::beamSend(gText);
         } else if (kind == JobKind::BeamPull) {
             gBeamPullResult = host::beamPull();
+        } else if (kind == JobKind::CoreInfo) {
+            gCoreInfoResult = host::fetchCoreInfo();
         } else if (kind == JobKind::SystemStatus) {
             gSystemResult = host::systemStatus();
         } else if (kind == JobKind::WorkSummary) {
@@ -205,6 +208,7 @@ bool submitOutboxBeam(const std::string& recordId, const std::string& text) {
     gRecordId = recordId; gText = text; clearResults(); publish(JobKind::OutboxBeam); return true;
 }
 bool submitBeamPull() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::BeamPull); return true; }
+bool submitCoreInfo() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::CoreInfo); return true; }
 bool submitSystemStatus() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::SystemStatus); return true; }
 bool submitWorkSummary() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::WorkSummary); return true; }
 bool submitWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
@@ -231,6 +235,7 @@ bool takePcActionResult(PcActionResult& result) { if (state()!=State::Done||jobK
 bool takeOutboxAudioResult(OutboxAudioResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxAudio)return false; result=std::move(gOutboxAudioResult); resetToIdle(); return true; }
 bool takeOutboxBeamResult(OutboxBeamResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxBeam)return false; result=std::move(gOutboxBeamResult); resetToIdle(); return true; }
 bool takeBeamPullResult(host::BeamMessage& result) { if (state()!=State::Done||jobKind()!=JobKind::BeamPull)return false; result=std::move(gBeamPullResult); resetToIdle(); return true; }
+bool takeCoreInfoResult(host::CoreInfo& result) { if (state()!=State::Done||jobKind()!=JobKind::CoreInfo)return false; result=std::move(gCoreInfoResult); resetToIdle(); return true; }
 bool takeSystemStatusResult(host::SystemStatus& result) { if (state()!=State::Done||jobKind()!=JobKind::SystemStatus)return false; result=std::move(gSystemResult); resetToIdle(); return true; }
 bool takeWorkSummaryResult(host::WorkSummary& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkSummary)return false; result=std::move(gWorkResult); resetToIdle(); return true; }
 bool takeWorkIncrementResult(WorkIncrementResult& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkIncrement)return false; result=std::move(gWorkIncrementResult); resetToIdle(); return true; }

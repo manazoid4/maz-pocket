@@ -10,7 +10,7 @@ namespace maz {
 namespace host_worker {
 
 enum class State : uint8_t { Idle, Queued, Running, Done, FailedToStart };
-enum class JobKind : uint8_t { None, TalkAudio, PcAction, OutboxAudio, OutboxBeam, BeamPull, SystemStatus, WorkSummary, WorkIncrement, Workflow, Teach };
+enum class JobKind : uint8_t { None, TalkAudio, PcAction, OutboxAudio, OutboxBeam, BeamPull, SystemStatus, WorkSummary, WorkIncrement, Workflow, Teach, CoreInfo };
 enum class WorkflowKind : uint8_t { Plan, Crew, Retro, Prompt };
 enum class TeachKind : uint8_t { Displays, Start, Mark, Stop, Status };
 
@@ -46,6 +46,7 @@ bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
                        const std::string& context = "");
 bool submitOutboxBeam(const std::string& recordId, const std::string& text);
 bool submitBeamPull();
+bool submitCoreInfo();
 bool submitSystemStatus();
 bool submitWorkSummary();
 bool submitWorkIncrement(const std::string& trackId, const std::string& eventTypeId);
@@ -59,6 +60,7 @@ bool takePcActionResult(PcActionResult& result);
 bool takeOutboxAudioResult(OutboxAudioResult& result);
 bool takeOutboxBeamResult(OutboxBeamResult& result);
 bool takeBeamPullResult(host::BeamMessage& result);
+bool takeCoreInfoResult(host::CoreInfo& result);
 bool takeSystemStatusResult(host::SystemStatus& result);
 bool takeWorkSummaryResult(host::WorkSummary& result);
 bool takeWorkIncrementResult(WorkIncrementResult& result);

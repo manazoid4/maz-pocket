@@ -185,6 +185,12 @@ WorkSummary workSummary();
 Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 
 CoreStatus coreStatus();
+// Core /health: its version plus the firmware it holds (fw_latest). Polled in the background.
+struct CoreInfo { bool ok = false; std::string version, fwVersion, fwSha; };
+CoreInfo fetchCoreInfo();
+const CoreInfo& coreInfo();          // last poll result (cached)
+void setCoreInfo(const CoreInfo& info);
+bool updateReady();                  // Core holds a different build than this one
 std::vector<CoreProject> coreProjects(std::string& error);
 Reply coreAction(const std::string& action, const std::string& project);
 CoreJob coreStartJob(const std::string& action, const std::string& project);
