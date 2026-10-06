@@ -127,6 +127,7 @@ Reply upload(const char* path, const std::string& wavPath,
     }
     File file = store::fs()->open(wavPath.c_str(), FILE_READ);
     if (!file) {
+        Serial.printf("[upload] cannot open %s\n", wavPath.c_str());
         out.error = "recording missing";
         return out;
     }
@@ -139,6 +140,8 @@ Reply upload(const char* path, const std::string& wavPath,
         for (const auto& header : headers)
             http.addHeader(header.first.c_str(), header.second.c_str());
         const int status = http.sendRequest("POST", &file, file.size());
+        Serial.printf("[upload] %s%s size=%u status=%d\n", base.first.c_str(), path,
+                      static_cast<unsigned>(file.size()), status);
         if (status <= 0) {
             http.end();
             continue;

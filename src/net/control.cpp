@@ -5,6 +5,7 @@
 
 #include "../audio/voice.h"
 #include "../core/launcher.h"
+#include <esp_ota_ops.h>
 #include "../core/settings.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
@@ -95,6 +96,42 @@ String handleLine(const String& raw, bool trusted) {
     String line = raw;
     line.trim();
     if (line.isEmpty()) return "";
+
+    // USB self-update: write the image to the spare MAZ OTA slot and boot it.
+    // Handing back to M5Launcher cannot work here (Launcher is a TEST app, so
+    // the bootloader falls back to the first OTA slot), so updates stay in-app.
+    // Protocol: "MAZOTA\t<size>" -> "READY"; host sends 4096-byte chunks, each
+    // answered "ACK"; final "MAZOTA OK" then reboot.
+    if (trusted && line.startsWith("MAZOTA\t")) {
+        const size_t size = static_cast<size_t>(line.substring(7).toInt());
+        const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+        if (!target || size < 65536 || size > target->size) return "MAZOTA ERR size/slot";
+        esp_ota_handle_t ota = 0;
+        if (esp_ota_begin(target, size, &ota) != ESP_OK) return "MAZOTA ERR begin";
+        Serial.println("READY");
+        static uint8_t buf[4096];
+        size_t done = 0, inChunk = 0;
+        uint32_t last = millis();
+        while (done < size) {
+            const int n = Serial.read(buf, min(sizeof(buf) - inChunk, size - done));
+            if (n <= 0) {
+                if (millis() - last > 10000) { esp_ota_abort(ota); return "MAZOTA ERR timeout"; }
+                delay(1);
+                continue;
+            }
+            last = millis();
+            if (esp_ota_write(ota, buf, n) != ESP_OK) { esp_ota_abort(ota); return "MAZOTA ERR write"; }
+            done += n;
+            inChunk += n;
+            if (inChunk >= sizeof(buf) || done == size) { inChunk = 0; Serial.println("ACK"); }
+        }
+        if (esp_ota_end(ota) != ESP_OK) return "MAZOTA ERR verify";
+        if (esp_ota_set_boot_partition(target) != ESP_OK) return "MAZOTA ERR boot";
+        Serial.printf("MAZOTA OK %s\n", target->label);
+        Serial.flush();
+        delay(300);
+        ESP.restart();
+    }
 
     if (line == "MAZPING")
         return String("MAZPING OK version=" MAZ_POCKET_VERSION " ip=") +
