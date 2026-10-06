@@ -476,7 +476,8 @@ def create_app(
         except RuntimeError as error:
             raise HTTPException(503, str(error)) from error
         background_tasks.add_task(path.unlink, missing_ok=True)
-        return FileResponse(path, media_type="audio/wav", filename="maz-reply.wav")
+        return FileResponse(path, media_type="audio/wav", filename="maz-reply.wav",
+                            headers={"X-TTS-Provider": speech_out.last_provider})
 
     @api.post("/turn")
     async def turn_audio(

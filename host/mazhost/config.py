@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     max_turns: int = Field(default=12, ge=1, le=100)
     tts_enabled: bool = False
     tts_rate: int = Field(default=180, ge=80, le=300)
+    fish_api_key: str = ""
+    tts_voice: str = "bf322df2096a46f18c579d0baa36f41d"  # Fish "Adrian"
+    tts_model: str = "s2.1-pro-free"
     nudge_url: str = "http://127.0.0.1:47831"
     nudge_token: str = ""
     nudge_token_file: str = "~/.agent-nudge/control-plane.key"
