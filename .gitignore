@@ -11,3 +11,4 @@ host/**/__pycache__/
 host/.env
 host/.env.*
 *.pyc
+host/fw/

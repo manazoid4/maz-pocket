@@ -73,6 +73,7 @@ public:
             return true;
         }
 
+        if (e.code == KEY_U && host::updateReady()) { host::fwUpdate(); invalidate(); return true; }
         if (e.code == KEY_SPACE) { _spaceArmed = true; return true; }
         if (e.code == KEY_ENTER) { open(_sel); return true; }
         if (e.code == KEY_RIGHT) { move(+1); return true; }
@@ -123,7 +124,7 @@ public:
         g.setFont(&fonts::Font0);
         g.setTextDatum(bottom_right);
         g.setTextColor(DIM);
-        g.drawString(host::updateReady() ? "v" NOD_FW_VERSION "  update ready" : "v" NOD_FW_VERSION, SCREEN_W - 2, SCREEN_H - 1);
+        g.drawString(host::updateReady() ? "v" NOD_FW_VERSION "  U: update" : "v" NOD_FW_VERSION, SCREEN_W - 2, SCREEN_H - 1);
     }
 
 private:

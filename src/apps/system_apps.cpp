@@ -47,6 +47,12 @@ public:
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;
         if (!_detail.empty()) {
+            if ((e.code == KEY_ENTER || e.code == KEY_U) && host::updateReady() &&
+                _detail.rfind("nod v", 0) == 0) {
+                host::fwUpdate();
+                invalidate();
+                return true;
+            }
             if (e.code == KEY_ESC) {
                 _detail.clear();
                 _kbTest = false;
