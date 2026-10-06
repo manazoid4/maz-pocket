@@ -118,6 +118,7 @@ public:
             return true;
         }
         if (!e.down && e.code == KEY_SPACE) {
+            Serial.printf("[call] space up state=%d\n", static_cast<int>(voice::state()));
             if (voice::state() == voice::State::Listening) endTake();
             return true;
         }
@@ -282,6 +283,7 @@ private:
     }
 
     void endTake() {
+        Serial.printf("[call] endTake listening=%d sink=%d\n", voice::state() == voice::State::Listening, _sink != nullptr);
         if (!_sink || !voice::stop()) {
             notify::post(Note::Error, "Recording failed", voice::lastError());
             delete _sink;
@@ -299,6 +301,7 @@ private:
     }
 
     void startWorker() {
+        Serial.printf("[call] startWorker have=%d path=%s busy=%d\n", _haveTake, _takePath.c_str(), host_worker::busy());
         _sendAt = 0;
         if (!_haveTake || _takePath.empty()) { _sending = false; return; }
         std::string speechPath;

@@ -99,6 +99,7 @@ void worker(void*) {
             host::Reply reply;
             bool speechReady = false;
             if (session.empty()) session = host::startSession();
+            Serial.printf("[worker] talk session=%s path=%s\n", session.c_str(), path.c_str());
             if (session.empty()) reply.error = "PC unreachable";
             else reply = contextAudio(session, path, context);
             if (reply.ok && !speechPath.empty() && !reply.text.empty()) speechReady = host::speak(reply.text, speechPath);
