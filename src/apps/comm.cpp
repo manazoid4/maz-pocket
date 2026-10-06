@@ -305,10 +305,16 @@ private:
         if (Cfg.ttsEnabled && store::ready()) speechPath = store::newPath("cache", "wav");
         const std::string context = field::context();
         if (!host_worker::submitTalkAudio(gCommSession, _takePath, speechPath, context)) {
+            // A background poll may hold the worker for a moment: wait up to 8 s
+            // instead of failing the call outright.
+            if (!_waitSince) _waitSince = millis();
+            if (millis() - _waitSince < 8000) { _sendAt = millis() + 200; return; }
+            _waitSince = 0;
             _sending = false;
             notify::post(Note::Error, "Call busy", host_worker::stateName());
             return;
         }
+        _waitSince = 0;
         _sendContext = context;
         field::clearContext();
         _takePath.clear();
@@ -413,6 +419,7 @@ private:
     bool _haveTake = false;
     bool _sending = false;
     uint32_t _sendAt = 0;
+    uint32_t _waitSince = 0;
     uint32_t _lastWorkerPaint = 0;
 };
 

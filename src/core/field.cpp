@@ -326,8 +326,10 @@ void update() {
     }
 
     if (static_cast<int32_t>(millis() - gNextBeamPoll) >= 0) {
-        if (host_worker::submitBeamPull()) return;
+        // Schedule before submitting: returning first re-polled every tick and
+        // kept the single worker busy, so Call reported "busy".
         gNextBeamPoll = millis() + (Cfg.fieldMode ? 45000u : 15000u);
+        host_worker::submitBeamPull();
     }
 }
 
