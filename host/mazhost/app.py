@@ -24,6 +24,7 @@ from .core import CoreError, MazCore
 from .debug_capsule import DebugCapsules
 from .device import DeviceMonitor
 from .errors import ErrorCode, RouteError
+from .focus import Focus, install_focus_routes
 from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
@@ -107,6 +108,7 @@ def create_app(
     bridge_worker = bridge or BridgeWorker(cfg, core_service)
     beam_store = beam or BeamStore()
     system_telemetry = telemetry or SystemTelemetry(cfg)
+    focus = Focus()
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
     authority = AuthorityBroker(cfg)
     elevated_executor = ElevatedExecutor(cfg, authority)
@@ -648,6 +650,8 @@ def create_app(
 
     @api.post("/nudge/{session_id}/nudge")
     def send_nudge(session_id: str):
+        if focus.muted:
+            return {"ok": False, "muted": True, "reason": "focus_sprint"}
         try:
             return nudge_client.nudge(session_id)
         except (RuntimeError, httpx.HTTPError) as error:
@@ -658,6 +662,8 @@ def create_app(
     # intentionally reachable with no token, since exchanging a short-lived
     # code for the real credential is the whole point.
     api.mount("/pair", build_pairing_app(cfg, security))
+
+    install_focus_routes(api, focus)
 
     if cfg.control_enabled:
         install_control_routes(
