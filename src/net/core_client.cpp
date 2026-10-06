@@ -50,15 +50,28 @@ CoreJob decodeJob(const String& body, int status) {
 
 }  // namespace
 
-std::string coreVersion() {
+static CoreInfo gCoreInfo;
+const CoreInfo& coreInfo() { return gCoreInfo; }
+void setCoreInfo(const CoreInfo& info) { gCoreInfo = info; }
+bool updateReady() {
+    return gCoreInfo.ok && !gCoreInfo.fwVersion.empty() &&
+           (gCoreInfo.fwVersion != NOD_FW_VERSION || gCoreInfo.fwSha != NOD_FW_SHA);
+}
+
+CoreInfo fetchCoreInfo() {
+    CoreInfo out;
     HTTPClient http;
-    if (!coreBegin(http, "/health")) return "";
+    if (!coreBegin(http, "/health")) return out;
     const int status = http.GET();
     const String body = status > 0 ? http.getString() : String();
     http.end();
     JsonDocument doc;
-    if (status != 200 || deserializeJson(doc, body)) return "";
-    return doc["version"] | "";
+    if (status != 200 || deserializeJson(doc, body)) return out;
+    out.ok = true;
+    out.version = doc["version"] | "";
+    out.fwVersion = doc["fw_latest"]["version"] | "";
+    out.fwSha = doc["fw_latest"]["sha"] | "";
+    return out;
 }
 
 CoreStatus coreStatus() {

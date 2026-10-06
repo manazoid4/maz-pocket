@@ -165,11 +165,12 @@ private:
                 _detail = buf;
                 break;
             case 7: {
-                const std::string cv = host::coreVersion();
+                const std::string cv = host::coreInfo().version;
+                const std::string upd = host::updateReady() ? "\nUPDATE READY v" + host::coreInfo().fwVersion : "";
                 snprintf(buf, sizeof(buf),
-                         "nod v" NOD_FW_VERSION " (" NOD_FW_SHA ")\nCore %s\nChip     %s "
+                         "nod v" NOD_FW_VERSION " (" NOD_FW_SHA ")\nCore %s%s\nChip     %s "
                          "rev%d\nCores    %d\nKeyboard %s\nUptime   %s",
-                         cv.empty() ? "offline" : ("v" + cv).c_str(), ESP.getChipModel(),
+                         cv.empty() ? "offline" : ("v" + cv).c_str(), upd.c_str(), ESP.getChipModel(),
                          (int)ESP.getChipRevision(), (int)ESP.getChipCores(),
                          KB.ok() ? "TCA8418 ok" : "NOT DETECTED",
                          ui::hhmmss(Sys.uptimeSeconds()).c_str());
