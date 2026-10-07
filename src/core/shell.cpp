@@ -293,11 +293,7 @@ bool handleGlobalKey(const KeyEvent& e) {
     }
     // Ctrl+U: install the available firmware update from any screen (Ctrl never types text).
     if ((e.mods & MOD_CTRL) && e.code == KEY_U) {
-        if (host::updateReady()) {
-            gFwConfirm = true;
-        } else {
-            notify::post(Note::Info, "No update", "firmware is current");
-        }
+        confirmFwUpdate();
         return true;
     }
     if ((e.mods & MOD_CTRL) && e.code == KEY_K) {
@@ -333,6 +329,15 @@ bool handleGlobalKey(const KeyEvent& e) {
 M5Canvas& canvas() { return gCanvas; }
 int depth() { return static_cast<int>(gStack.size()); }
 const char* currentId() { return gStack.empty() ? "none" : gStack.back()->id(); }
+
+void confirmFwUpdate() {
+    if (host::updateReady()) {
+        gFwConfirm = true;
+        invalidate();
+    } else {
+        notify::post(Note::Info, "No update", "firmware is current");
+    }
+}
 
 void invalidate() {
     if (!gStack.empty()) gStack.back()->invalidate();

@@ -32,6 +32,15 @@ void progress(M5Canvas& g, int x, int y, int w, int h, float pct, uint16_t colou
 void mark(M5Canvas& g, int cx, int cy, int r, uint16_t colour, float energy = 0.f);
 void wordmark(M5Canvas& g, int cx, int y, uint16_t colour);
 
+// --- state words ----------------------------------------------------------
+// One word set and one colour per state, shared by Home and Call.
+enum class Phase : uint8_t { Ready, Listening, Thinking, Speaking, NeedsYou, Offline, Error, Update };
+struct StatusWord { const char* text; uint16_t colour; };
+StatusWord statusWord(Phase p);
+// Small face drawn from primitives: s px square at (x, y). Thinking and
+// NeedsYou animate with a 2-frame loop driven by millis().
+void glyph(M5Canvas& g, int x, int y, int s, Phase p);
+
 // --- text -----------------------------------------------------------------
 std::string ellipsis(const std::string& s, size_t maxChars);
 std::string hhmmss(uint32_t seconds);
