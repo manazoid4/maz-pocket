@@ -22,6 +22,7 @@ from .authority import AuthorityBroker
 from .beam import BeamStore
 from .braindump import structure_braindump
 from .bridge import BridgeWorker
+from .buddy import install_buddy_routes
 from .commands import parse_command
 from .config import Settings
 from .control_routes import install_control_routes
@@ -793,6 +794,8 @@ def create_app(
     # intentionally reachable with no token, since exchanging a short-lived
     # code for the real credential is the whole point.
     api.mount("/pair", build_pairing_app(cfg, security))
+
+    install_buddy_routes(api)
 
     if cfg.control_enabled:
         install_control_routes(
