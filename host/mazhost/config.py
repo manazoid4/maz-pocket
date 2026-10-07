@@ -39,14 +39,19 @@ class Settings(BaseSettings):
     local_model_policy: Literal["auto", "primary", "backup"] = "auto"
     ai_profile: Literal["smart", "save", "fast"] = "smart"
 
-    # Free fast brain for conversation: Groq first (key from env/.env), models in
-    # quality order; each is one AUTO stage. Empty key = stages skipped.
+    # Free fast brain for conversation: Groq first (key from env/.env). Each model has its
+    # own Groq rate-limit bucket (8000 tokens/min), so a 429 hops to the next model;
+    # llama-3.3-70b was removed from this account (404). Each model is one AUTO stage. Empty key = stages skipped.
     groq_url: str = "https://api.groq.com/openai/v1"
     groq_key: str = ""
-    groq_models: str = "llama-3.3-70b-versatile,openai/gpt-oss-120b"
+    groq_models: str = "openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b"
     # Conversational turns on LOCAL/AUTO use the full free chain (local last).
     smart_voice: bool = True
     now_path: str = "~/Desktop/Maz Works Knowledge Vault/NOW.md"
+
+    # Last free cloud hop before local (key: MAZ_OPENROUTER_API_KEY; ~3 s, still beats local 7-14 s).
+    openrouter_api_key: str = ""
+    openrouter_free_model: str = "openrouter/free"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
