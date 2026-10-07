@@ -700,6 +700,7 @@ const char* HELP_LINES[] = {
     "D twice     delete",
     "#ABOUT",
     "nod v" NOD_FW_VERSION " on Cardputer ADV",
+    "by Maz Works  mazworks.uk",
     "Bruce and Nemo stay available",
     "through M5Launcher.",
 };
