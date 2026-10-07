@@ -596,7 +596,7 @@ def create_app(
     install_voice_routes(api, speech_out.voices)
 
     @api.get("/speak")
-    def speak_part(id: str, part: int = 0):
+    def speak_part(background_tasks: BackgroundTasks, id: str, part: int = 0):
         """One part of a planned reply (first sentence = part 0); blocks until it is synthesised."""
         try:
             path = speak_planner.part(id, part)
@@ -604,6 +604,7 @@ def create_app(
             raise HTTPException(404, "speak_part_not_found") from error
         except Exception as error:  # synth failed or timed out
             raise HTTPException(503, "tts_unavailable") from error
+        background_tasks.add_task(path.unlink, missing_ok=True)  # each part is fetched once
         return FileResponse(path, media_type="audio/wav", filename="maz-part.wav",
                             headers={"X-TTS-Provider": speech_out.last_provider})
 
