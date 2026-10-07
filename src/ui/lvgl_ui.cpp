@@ -52,20 +52,22 @@ void drawTile(M5Canvas& g, const Cell& cell, int index, bool selected) {
     const int boxH = 18;
     const int boxX = x + 6;
     const int boxY = y + 5;
-    g.fillRoundRect(boxX, boxY, boxW, boxH, 3, BG);
-    g.drawRoundRect(boxX, boxY, boxW, boxH, 3, selected ? BG : DIM);
-
-    char icon[2] = {cell.badge, '\0'};
-    g.setFont(&fonts::Font2);
-    g.setTextDatum(middle_center);
-    g.setTextColor(ACCENT, BG);
-    g.drawString(icon, boxX + boxW / 2, boxY + boxH / 2);
+    const bool keyed = cell.badge != ' ';  // no key, no badge
+    if (keyed) {
+        g.fillRoundRect(boxX, boxY, boxW, boxH, 3, BG);
+        g.drawRoundRect(boxX, boxY, boxW, boxH, 3, selected ? BG : DIM);
+        char icon[2] = {cell.badge, 0};
+        g.setFont(&fonts::Font2);
+        g.setTextDatum(middle_center);
+        g.setTextColor(ACCENT, BG);
+        g.drawString(icon, boxX + boxW / 2, boxY + boxH / 2);
+    }
 
     g.setFont(&fonts::Font2);
     g.setTextDatum(middle_left);
     g.setTextColor(titleColour, tileFill);
     std::string title = cell.title ? cell.title : "";
-    const int titleX = boxX + boxW + 5;
+    const int titleX = keyed ? boxX + boxW + 5 : boxX;
     const int room = x + w - 4 - titleX;
     while (title.size() > 1 && g.textWidth(title.c_str()) > room) {
         title.resize(title.size() - 2);
