@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import httpx
+from mazhost import netpool
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -53,7 +54,7 @@ def calls(monkeypatch):
             {"_id": "bad", "type": "tts", "title": "BadId", "visibility": "public"},
         ]})
 
-    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(netpool.client, "post", post)
     monkeypatch.setattr(httpx, "get", get)
     return log
 
@@ -156,7 +157,7 @@ def test_say_uses_free_model_and_validates(tmp_path, monkeypatch):
         seen.append((headers["model"], json["text"], json["reference_id"]))
         return Resp(200, WAV)
 
-    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(netpool.client, "post", post)
     c, s = mk(tmp_path)
     r = c.post("/say", json={"text": "  hello   there "}, headers=AUTH)
     assert r.status_code == 200 and r.content[:4] == b"RIFF"

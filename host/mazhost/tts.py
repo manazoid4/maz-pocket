@@ -16,6 +16,8 @@ from pathlib import Path
 import httpx
 import pyttsx3
 
+from . import netpool
+
 from .config import Settings
 from .voices import ADRIAN_ID, VoiceService
 
@@ -80,7 +82,7 @@ class SpeechOut:
             raise RuntimeError("no_fish_key")
         model = self.settings.tts_model
         voice = voice or self.voices.current()
-        resp = httpx.post(
+        resp = netpool.client.post(
             "https://api.fish.audio/v1/tts",
             headers={"Authorization": f"Bearer {key}", "model": model},
             json={

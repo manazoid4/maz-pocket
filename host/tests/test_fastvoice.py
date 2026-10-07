@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import httpx
+from mazhost import netpool
 import pytest
 from fastapi.testclient import TestClient
 
@@ -36,7 +37,7 @@ def fish(monkeypatch):
         sent.append(json["text"])
         return Resp()
 
-    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(netpool.client, "post", post)
     return sent
 
 

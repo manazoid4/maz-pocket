@@ -49,6 +49,7 @@ from starlette.concurrency import run_in_threadpool
 from .flow import Flow, paste as paste_text
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
+from . import netpool
 from .speakplan import SpeakPlanner, TimingLog
 from .tts import SpeechOut
 from .voices import install_voice_routes
@@ -340,6 +341,9 @@ def create_app(
             "timings": {"llm_ms": llm_ms},
         }
 
+    def turn_stt(path: Path) -> str:
+        return getattr(speech, "transcribe_turn", speech.transcribe)(path)
+
     def finish_turn(result: dict, upload_ms: int, stt_ms: int, speak: str) -> dict:
         """Attach per-stage timing_ms, log one line, and (if the device asked) start TTS now."""
         timings = result.get("timings", {})
@@ -568,6 +572,9 @@ def create_app(
     # ------------------------------------------------------------- sessions
     @api.post("/session/start")
     def session_start():
+        if cfg.fish_api_key or cfg.groq_api_key or cfg.groq_key:  # open TLS to Groq/Fish while the user speaks
+            netpool.warm(*(["https://api.groq.com"] if cfg.groq_api_key or cfg.groq_key else []),
+                         *(["https://api.fish.audio"] if cfg.fish_api_key else []))
         return {"session_id": sessions.start()}
 
     @api.post("/session/end")
@@ -645,7 +652,7 @@ def create_app(
             security.validate_upload(path, size)
             upload_ms = round((time.perf_counter() - upload_started) * 1000)
             stt_started = time.perf_counter()
-            text = speech.transcribe(path)
+            text = turn_stt(path)
             stt_ms = round((time.perf_counter() - stt_started) * 1000)
             result = answer(session_id, text, route, context)
             result["timings"].update({"upload_ms": upload_ms, "stt_ms": stt_ms})
@@ -675,7 +682,7 @@ def create_app(
             security.validate_upload(path, size)
             upload_ms = round((time.perf_counter() - upload_started) * 1000)
             stt_started = time.perf_counter()
-            text = speech.transcribe(path)
+            text = turn_stt(path)
             stt_ms = round((time.perf_counter() - stt_started) * 1000)
             result = answer(x_maz_session, text, x_maz_route, x_maz_context)
             result["timings"].update({"upload_ms": upload_ms, "stt_ms": stt_ms})
@@ -697,7 +704,7 @@ def create_app(
         try:
             security.validate_upload(path, size)
             started = time.perf_counter()
-            text = speech.transcribe(path)
+            text = turn_stt(path)
             return {"transcript": text, "stt_ms": round((time.perf_counter() - started) * 1000)}
         finally:
             path.unlink(missing_ok=True)

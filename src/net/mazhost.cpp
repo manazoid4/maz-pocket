@@ -5,6 +5,7 @@
 #include "remote_tls.h"
 #include <WiFi.h>
 
+#include <string.h>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,7 @@ namespace host {
 namespace {
 
 bool gRemote = false;
+uint32_t gFastLinkAt = 0;  // millis() of the last host request that kept WiFi modem sleep off
 
 
 std::vector<std::pair<std::string, bool>> bases() {
@@ -40,6 +42,15 @@ const char* route() {
 
 bool beginRequest(NodHttp& http, const std::string& base, const char* path,
                   bool remote) {
+    // Modem sleep (the ESP32 default) parks every TCP ACK/reply until the next AP beacon
+    // (~100-300 ms each), which throttles uploads and delays Core's reply. Stay awake while
+    // talking; linkIdle() restores power saving.
+    // Only the voice path: background polls (/nudge, /health) must not hold the radio awake.
+    if (!strncmp(path, "/turn", 5) || !strncmp(path, "/speak", 6) || !strncmp(path, "/say", 4) ||
+        !strncmp(path, "/session", 8)) {
+        WiFi.setSleep(false);
+        gFastLinkAt = millis();
+    }
     http.setConnectTimeout(remote ? 6500 : 1800);
     http.setTimeout(60000);
     const String url = (base + path).c_str();
@@ -149,6 +160,13 @@ Reply jsonPost(const char* path, const std::string& json) {
 }  // namespace
 
 bool onRemoteLink() { return Sys.hostOnline && gRemote; }
+
+void linkIdle(bool force) {
+    if (gFastLinkAt && (force || millis() - gFastLinkAt > 20000)) {
+        WiFi.setSleep(true);
+        gFastLinkAt = 0;
+    }
+}
 
 bool configured() {
     return !Cfg.hostToken.empty() && (!Cfg.hostAddr.empty() || !Cfg.hostRemoteUrl.empty());
