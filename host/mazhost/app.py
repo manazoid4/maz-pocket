@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from .authority import AuthorityBroker
 from .beam import BeamStore
 from .braindump import structure_braindump
+from .dump_routes import build_dump_router, save_safely
 from .bridge import BridgeWorker
 from .buddy import install_buddy_routes
 from .commands import parse_command
@@ -766,6 +767,31 @@ def create_app(
         except (RuntimeError, json.JSONDecodeError) as error:
             raise HTTPException(503, f"extraction_failed: {error}") from error
 
+    def braindump_reply(transcript: str, highlights_raw: str, source: str) -> dict:
+        """Structure a transcript and save it to the dump inbox. The transcript is
+        saved even when structuring fails (the 503 to the device is unchanged)."""
+        try:
+            marks = json.loads(highlights_raw)
+            prompt = EXTRACT_PROMPTS["braindump"] + f" Highlights: {marks}. Return JSON only."
+            reply, provider = model_router.chat(
+                [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
+                cfg.default_route,
+            )
+        except (json.JSONDecodeError, RuntimeError):
+            save_safely(cfg, None, transcript, structure_braindump("", transcript)[0], source)
+            raise
+        structured, fallback = structure_braindump(reply, transcript)
+        if fallback:
+            provider += "+deterministic"
+        saved = save_safely(cfg, model_router, transcript, structured, source)
+        return {
+            "transcript": transcript,
+            "provider": provider,
+            **structured,
+            "highlights": marks,
+            **saved,
+        }
+
     @api.post("/braindump")
     async def braindump(
         audio: Annotated[UploadFile, File()],
@@ -778,21 +804,7 @@ def create_app(
         try:
             security.validate_upload(path, len(data))
             transcript = speech.transcribe(path)
-            marks = json.loads(highlights)
-            prompt = EXTRACT_PROMPTS["braindump"] + f" Highlights: {marks}. Return JSON only."
-            reply, provider = model_router.chat(
-                [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
-                cfg.default_route,
-            )
-            structured, fallback = structure_braindump(reply, transcript)
-            if fallback:
-                provider += "+deterministic"
-            return {
-                "transcript": transcript,
-                "provider": provider,
-                **structured,
-                "highlights": marks,
-            }
+            return braindump_reply(transcript, highlights, "device")
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
@@ -815,21 +827,7 @@ def create_app(
         try:
             security.validate_upload(path, size)
             transcript = speech.transcribe(path)
-            marks = json.loads(x_maz_highlights)
-            prompt = EXTRACT_PROMPTS["braindump"] + f" Highlights: {marks}. Return JSON only."
-            reply, provider = model_router.chat(
-                [{"role": "system", "content": prompt}, {"role": "user", "content": transcript}],
-                cfg.default_route,
-            )
-            structured, fallback = structure_braindump(reply, transcript)
-            if fallback:
-                provider += "+deterministic"
-            return {
-                "transcript": transcript,
-                "provider": provider,
-                **structured,
-                "highlights": marks,
-            }
+            return braindump_reply(transcript, x_maz_highlights, "device")
         except (json.JSONDecodeError, RuntimeError) as error:
             raise HTTPException(503, f"processing_failed: {error}") from error
         finally:
@@ -865,6 +863,7 @@ def create_app(
     # code for the real credential is the whole point.
     api.mount("/pair", build_pairing_app(cfg, security))
 
+    api.include_router(build_dump_router(cfg, model_router))
     install_buddy_routes(api)
     install_focus_routes(api, focus)
 

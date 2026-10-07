@@ -121,6 +121,8 @@ class Settings(BaseSettings):
     # WORK Consistency: JOB HUNT / MAZ WORKS / custom tracks. Same authenticated
     # phone-control session boundary as the rest of /control; own SQLite store.
     work_dir: str = "~/.maz-pocket/work"
+    # Brain dump inbox any agent can read (MAZ_DUMPS_DIR). Not ~/nod: that is a public git clone.
+    dumps_dir: str = "~/nod-inbox"
 
     # Claude/Codex/Hermes jobs are subprocesses on the PC. Their own CLI
     # permission bypasses are only used after the external MAZ phone broker has
