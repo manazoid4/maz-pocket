@@ -147,6 +147,7 @@ struct TeachStatus {
 
 bool configured();
 bool health();
+void linkIdle(bool force = false);  // re-enable WiFi modem sleep (20 s after the last request, or now if force)
 bool onRemoteLink();   // true while the active Core link is the remote HTTPS URL
 const char* linkName();
 std::string startSession();

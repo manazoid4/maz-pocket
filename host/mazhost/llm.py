@@ -36,7 +36,7 @@ MAX_OUTPUT_TOKENS = 160
 class Models:
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
-        self.client = client or httpx.Client(timeout=90)
+        self.client = client or httpx.Client(timeout=90, limits=httpx.Limits(keepalive_expiry=300))
         self._last_usage: dict[str, int | float | str] = {}
         self._last_route: dict[str, str | int | bool | None] = {}
 

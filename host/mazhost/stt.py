@@ -56,11 +56,11 @@ class SpeechToText:
             pass
 
     def _groq(self, path: Path, prompt: str) -> str:
-        import httpx
+        from . import netpool
         # Accept both MAZ_GROQ_API_KEY and MAZ_GROQ_KEY for compatibility
         groq_key = self.settings.groq_api_key or self.settings.groq_key
         with path.open("rb") as f:
-            r = httpx.post(
+            r = netpool.client.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {groq_key}"},
                 data={"model": "whisper-large-v3-turbo", "language": "en", "temperature": "0",
@@ -80,6 +80,10 @@ class SpeechToText:
             except Exception:  # noqa: BLE001 - fall back to local
                 pass
         return self.transcribe(path)
+
+    def transcribe_turn(self, path: Path) -> str:
+        """Voice-call STT: Groq whisper-large-v3-turbo when keyed (~0.3 s), local CPU Whisper otherwise or on error."""
+        return self.transcribe_prompted(path, "")
 
     def transcribe(self, path: Path) -> str:
         return self._transcribe_with(

@@ -98,6 +98,7 @@ public:
     }
 
     void onExit() override {
+        host::linkIdle(true);
         voice::stopPlayback();
         if (_sink) {
             const bool stopped = voice::state() == voice::State::Listening ? voice::stop() : true;
@@ -184,6 +185,7 @@ public:
     }
 
     void update() override {
+        if (!host_worker::busy()) host::linkIdle();
         if (_sending && _sendAt && millis() >= _sendAt) startWorker();
         if (host_worker::busy()) queueSpeechParts(host_worker::speechPartsReady(), host_worker::speechPartsExpected());
         consumeWorkerResult();
