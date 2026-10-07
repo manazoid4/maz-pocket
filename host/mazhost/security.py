@@ -51,7 +51,7 @@ class Security:
 
 # --- remote exposure (Tailscale Funnel etc.) --------------------------------
 
-PUBLIC_PATHS = frozenset({"/health"})
+PUBLIC_PATHS = frozenset({"/health", "/ui"})  # /ui: static page only, holds no data
 _DOC_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/pair/docs", "/pair/redoc", "/pair/openapi.json")
 FUNNEL_HEADER = "tailscale-funnel-request"
 
