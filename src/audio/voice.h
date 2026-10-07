@@ -75,6 +75,11 @@ bool play(const std::string& wavPath);
 void stopPlayback();
 bool isPlaying();
 
+// Speaker self-test: 1 s of 440 Hz, a gap, then a 300..2400 Hz sweep, generated
+// as PCM and sent through the same queue as replies. wait=true blocks until done
+// (~2 s) and prints "[spk] test done". Refused while recording.
+bool speakerTest(bool wait);
+
 // Duration of a MAZ-written wav without loading it, for list screens.
 uint32_t wavSeconds(const std::string& wavPath);
 

@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 
 #include "../core/settings.h"
+#include "voice.h"
 
 namespace maz {
 namespace sfx {
@@ -12,6 +13,10 @@ namespace {
 // with UI sounds muted — muting chirps is not the same as muting alarms.
 void beep(float hz, uint32_t ms, bool force = false) {
     if (!Cfg.uiSounds && !force) return;
+    // tone() auto-starts the speaker; while the mic owns the shared codec that
+    // would fight the capture. Silence beats corrupting a recording.
+    const auto st = voice::state();
+    if (st == voice::State::Listening || st == voice::State::Paused) return;
     M5.Speaker.tone(hz, ms);
 }
 void pair(float a, float b, uint32_t ms, bool force = false) {
