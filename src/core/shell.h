@@ -19,6 +19,8 @@ void loop();
 // Navigation. push() takes ownership.
 void push(App* app);
 bool pushById(const char* id);
+// Open the "Update firmware?" confirm (same modal as Ctrl+U) when an update is ready.
+void confirmFwUpdate();
 void pop();
 void goHome();
 int  depth();

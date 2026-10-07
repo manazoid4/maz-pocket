@@ -17,11 +17,14 @@ bool active = false;
 void drawStatus(M5Canvas& g, const Status& st) {
     g.fillRect(0, BODY_Y, SCREEN_W, HOME_STATUS_H, BG);
     g.setTextDatum(top_left);
+    constexpr int GLYPH = 22;
+    constexpr int TEXT_X = PAD + GLYPH + 6;
+    ui::glyph(g, PAD, BODY_Y + 3, GLYPH, st.phase);
     g.setFont(&fonts::Font4);
     // Long agent/outbox phrases drop to the smaller font instead of clipping.
-    if (g.textWidth(st.line) > SCREEN_W - PAD * 2) g.setFont(&fonts::Font2);
+    if (g.textWidth(st.line) > SCREEN_W - TEXT_X - PAD) g.setFont(&fonts::Font2);
     g.setTextColor(st.colour, BG);
-    g.drawString(st.line, PAD, BODY_Y + 3);
+    g.drawString(st.line, TEXT_X, BODY_Y + 3);
 
     g.setFont(&fonts::Font0);
     g.setTextColor(DIM, BG);
@@ -58,16 +61,17 @@ void drawTile(M5Canvas& g, const Cell& cell, int index, bool selected) {
     g.setTextColor(ACCENT, BG);
     g.drawString(icon, boxX + boxW / 2, boxY + boxH / 2);
 
-    g.setFont(&fonts::Font0);
+    g.setFont(&fonts::Font2);
     g.setTextDatum(middle_left);
     g.setTextColor(titleColour, tileFill);
     std::string title = cell.title ? cell.title : "";
-    constexpr size_t maxTitle = 10;
-    if (title.size() > maxTitle) {
-        title.resize(maxTitle - 1);
+    const int titleX = boxX + boxW + 5;
+    const int room = x + w - 4 - titleX;
+    while (title.size() > 1 && g.textWidth(title.c_str()) > room) {
+        title.resize(title.size() - 2);
         title += '~';
     }
-    g.drawString(title.c_str(), boxX + boxW + 5, y + h / 2);
+    g.drawString(title.c_str(), titleX, y + h / 2);
     g.setTextDatum(top_left);
 }
 }  // namespace

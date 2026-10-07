@@ -9,6 +9,7 @@
 #include "../core/field.h"
 #include "../core/notify.h"
 #include "../core/settings.h"
+#include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../net/host_worker.h"
@@ -21,6 +22,7 @@ namespace maz {
 namespace apps {
 
 using namespace theme;
+using ui::Phase;
 
 namespace {
 
@@ -82,15 +84,18 @@ public:
         if (_controlMode) return "</> choose  ENTER send  C back";
         if (voice::state() == voice::State::Listening)
             return field::contextArmed() ? "SPACE release to ask" : "SPACE release to send";
-        if (host_worker::busy()) return "ESC leave, MAZ keeps going";
+        if (working()) return canCancel() ? "ESC cancel" : "ESC leave, MAZ keeps going";
         if (voice::isPlaying()) return "SPACE stop  P replay";
-        if (!_reply.empty()) return "SPACE talk  P replay  N new";
-        return "SPACE hold to talk  V voice";
+        if (!_err.empty()) return "SPACE retry  W wifi";
+        if (!_reply.empty()) return "SPACE talk  P replay  ENTER say";
+        if (linkSentence(true)) return "SPACE record  W wifi";
+        return "SPACE hold to talk  ENTER say";
     }
 
     void onEnter() override {
         _scroll = 0;
         _controlMode = false;
+        _discard = false;
         _sending = host_worker::busy();
         consumeWorkerResult();
         if (KB.held(KEY_SPACE) && !host_worker::busy()) beginTake();
@@ -133,8 +138,8 @@ public:
             _speechCancelled = true;  // late parts must not restart a reply the user just cut
             if (voice::isPlaying()) voice::stopPlayback();
             consumeWorkerResult();
-            if (host_worker::busy()) {
-                notify::post(Note::Info, "MAZ still thinking", "result will wait for you");
+            if (working()) {
+                notify::post(Note::Info, "MAZ is thinking", canCancel() ? "ESC cancels" : "result will wait for you");
                 return true;
             }
             if (voice::state() != voice::State::Listening) beginTake();
@@ -146,6 +151,26 @@ public:
             return true;
         }
         if (!e.down) return false;
+
+        // ESC while MAZ thinks: stop waiting, drop the reply, stay on this screen.
+        if (e.code == KEY_ESC && canCancel() && voice::state() != voice::State::Listening) {
+            _discard = true;
+            _speechCancelled = true;  // parts of the cancelled reply may still land: never play them
+            _sending = false;
+            voice::stopPlayback();
+            sfx::select();
+            notify::post(Note::Info, "Cancelled", "SPACE to ask again");
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_ENTER && !working() && voice::state() != voice::State::Listening) {
+            shell::pushById("say");
+            return true;
+        }
+        if (e.code == KEY_W && !working() && voice::state() != voice::State::Listening) {
+            shell::pushById("network");
+            return true;
+        }
 
         if (e.code == KEY_C && !host_worker::busy() && voice::state() != voice::State::Listening) {
             _controlMode = true;
@@ -206,28 +231,31 @@ public:
         g.fillScreen(BG);
         if (_controlMode) { renderControl(g); return; }
 
-        // One huge state word, one short reason, then the reply text.
+        // One state word, one short reason, then the reply text.
         std::string early;
+        const bool busy = working() || _sending;
         if (voice::state() == voice::State::Listening) {
             const std::string t = "00:" + two(voice::elapsedSeconds());
-            state(g, "LISTENING", field::contextArmed() ? WARN : ACCENT2,
+            state(g, Phase::Listening,
                   (t + (field::contextArmed() ? "  asking about screen" : "  release to send")).c_str());
-        } else if (host_worker::peekTalkText(early)) {
-            state(g, "THINKING", WARN, "voice loading...");
+        } else if (working() && host_worker::peekTalkText(early)) {
+            state(g, Phase::Thinking, "voice loading...");
             drawCommWrapped(g, early, REPLY_Y, 0);
-        } else if (host_worker::busy() || _sending) {
-            state(g, "THINKING", WARN,
+        } else if (busy) {
+            state(g, Phase::Thinking,
                   host_worker::state() == host_worker::State::Queued ? "waiting for PC" : "MAZ is working on it");
         } else if (voice::isPlaying()) {
-            state(g, "SPEAKING", OK, "SPACE stops the voice");
+            state(g, Phase::Speaking, "SPACE stops the voice");
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
         } else if (!_err.empty()) {
-            state(g, "ERROR", ERR, ui::ellipsis(_err, 30).c_str());
+            state(g, Phase::Error, _err.c_str());
         } else if (!_reply.empty()) {
-            state(g, "READY", ACCENT, (std::string(routeName()) + (Cfg.ttsEnabled ? " / voice on" : " / text only")).c_str());
+            state(g, Phase::Ready, (std::string(routeName()) + (Cfg.ttsEnabled ? " / voice on" : " / text only")).c_str());
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
+        } else if (const char* link = linkSentence(true)) {
+            state(g, Phase::Offline, link);
         } else {
-            state(g, "READY", ACCENT, gCommSession.empty() ? "hold SPACE and speak" : "hold SPACE for next turn");
+            state(g, Phase::Ready, gCommSession.empty() ? "hold SPACE and speak" : "hold SPACE for next turn");
         }
     }
 
@@ -238,13 +266,22 @@ private:
     }
     const char* routeName() const { return talkRouteLabel(Cfg.talkRoute); }
 
-    void state(M5Canvas& g, const char* word, uint16_t colour, const char* reason) {
+    // Whether a talk job is in flight that the user has not cancelled.
+    bool working() const { return host_worker::busy() && !_discard; }
+    bool canCancel() const { return working() && host_worker::jobKind() == host_worker::JobKind::TalkAudio; }
+
+    void state(M5Canvas& g, Phase p, const char* reason) {
+        const ui::StatusWord sw = ui::statusWord(p);
+        const char* word = sw.text;
+        constexpr int GLYPH = 20;
+        constexpr int SIDE = PAD + GLYPH + 6;  // word stays centred with room for the glyph
+        ui::glyph(g, PAD, STATE_Y + 4, GLYPH, p);
         g.setFont(&fonts::Font4);
         float scale = STATE_SCALE;  // shrink until the word fits the screen
         g.setTextSize(scale);
-        while (scale > 1.f && g.textWidth(word) > SCREEN_W - PAD * 2) { scale -= 0.25f; g.setTextSize(scale); }
+        while (scale > 1.f && g.textWidth(word) > SCREEN_W - SIDE * 2) { scale -= 0.25f; g.setTextSize(scale); }
         g.setTextDatum(top_center);
-        g.setTextColor(colour, BG);
+        g.setTextColor(sw.colour, BG);
         g.drawString(word, SCREEN_W / 2, STATE_Y);
         g.setTextSize(1);
         g.setFont(&fonts::Font2);
@@ -288,7 +325,7 @@ private:
     }
 
     void beginTake() {
-        if (host_worker::busy()) return;
+        if (working()) return;
         _err.clear();
         discardTake();
         _sink = new voice::WavFileSink("outbox");
@@ -321,6 +358,7 @@ private:
     }
 
     void startWorker() {
+        if (_discard && host_worker::busy()) { _sendAt = millis() + 200; return; }  // cancelled job still finishing
         Serial.printf("[call] startWorker have=%d path=%s busy=%d\n", _haveTake, _takePath.c_str(), host_worker::busy());
         _sendAt = 0;
         if (!_haveTake || _takePath.empty()) { _sending = false; return; }
@@ -342,6 +380,7 @@ private:
             return;
         }
         _waitSince = 0;
+        _discard = false;
         _sendContext = context;
         field::clearContext();
         _takePath.clear();
@@ -354,7 +393,7 @@ private:
         if (host_worker::state() != host_worker::State::Done) {
             // A recording still waiting for the worker keeps us sending; clearing
             // it here silently dropped the call whenever a background job ran.
-            _sending = host_worker::busy() || _haveTake;
+            _sending = working() || _haveTake;
             return;
         }
         if (host_worker::jobKind() == host_worker::JobKind::PcAction) {
@@ -377,6 +416,15 @@ private:
         if (!host_worker::takeTalkResult(result)) return;
         _sending = false;
         _sendContext.clear();
+        if (_discard) {  // cancelled with ESC: drop the reply and its files
+            _discard = false;
+            if (!result.wavPath.empty()) store::remove(result.wavPath);
+            _speechPath = result.speechPath;
+            _speechParts = std::max<uint8_t>(result.speechParts, _partsQueued);
+            removeSpeechFiles();
+            invalidate();
+            return;
+        }
         if (!result.session.empty()) gCommSession = result.session;
 
         Serial.printf("[call] ok=%d status=%d err=%s wav=%s\n", result.reply.ok, result.reply.status,
@@ -468,17 +516,20 @@ private:
         _speechParts = 0;
     }
 
-    // Short on-screen reason for a failed turn (never idle silently).
+    // On-screen reason for a failed turn: always names what to do (max 30 chars).
     static std::string failReason(const host::Reply& r) {
         const std::string& e = r.error;
         auto has = [&](const char* k) { return e.find(k) != std::string::npos; };
-        if (r.status <= 0 || has("unreachable") || has("offline") || has("Core")) return "No Core";
+        if (r.status <= 0 || has("unreachable") || has("offline") || has("Core")) {
+            const char* link = linkSentence(false);
+            return link ? link : "Core not answering. Retry.";
+        }
         if (r.status == 429 || r.status == 502 || r.status == 503 || r.status == 504 ||
             has("busy") || has("LLM") || has("brain") || has("model"))
-            return "AI busy, retry";
+            return "AI busy. SPACE to retry.";
         if (has("transcri") || has("STT") || has("audio") || has("speech") || r.status == 400 || r.status == 415 || r.status == 422)
-            return "Voice failed";
-        return "Call failed, retry";
+            return "Not heard. SPACE to retry.";
+        return "Call failed. SPACE: retry.";
     }
 
     void queueRaw(const std::string& path, const std::string& reason,
@@ -515,6 +566,7 @@ private:
     bool _controlMode = false;
     bool _haveTake = false;
     bool _sending = false;
+    bool _discard = false;        // ESC cancelled the in-flight talk job; drop its result
     uint32_t _sendAt = 0;
     uint32_t _waitSince = 0;
     uint32_t _lastWorkerPaint = 0;

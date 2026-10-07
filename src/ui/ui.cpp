@@ -231,6 +231,37 @@ void progress(M5Canvas& g, int x, int y, int w, int h, float pct,
 }
 
 // -------------------------------------------------------------------- text
+StatusWord statusWord(Phase p) {
+    using namespace theme;
+    static const StatusWord W[] = {
+        {"READY", TEXT},       {"LISTENING", ACCENT}, {"THINKING", WARN},       {"SPEAKING", ACCENT},
+        {"NEEDS YOU", WARN},   {"OFFLINE", DIM},      {"ERROR", ERR},           {"UPDATE READY", ACCENT},
+    };
+    return W[static_cast<int>(p)];
+}
+
+void glyph(M5Canvas& g, int x, int y, int s, Phase p) {
+    using namespace theme;
+    const uint16_t c = statusWord(p).colour;
+    const bool beat = (millis() / 500) & 1;
+    const bool anim = p == Phase::Thinking || p == Phase::NeedsYou;
+    const int cx = x + s / 2, cy = y + s / 2;
+    g.fillRect(x, y, s, s, BG);
+    g.drawCircle(cx, cy, s / 2 - 1, p == Phase::Ready ? DIM : c);
+    const int dx = s / 5, er = (p == Phase::NeedsYou && beat) ? s / 6 : s / 10;
+    const int ey = cy - s / 8 + (p == Phase::Thinking && anim && beat ? s / 8 : 0);
+    if (p == Phase::Offline) {
+        g.fillRect(cx - dx - er, ey, 2 * er + 1, 2, c);
+        g.fillRect(cx + dx - er, ey, 2 * er + 1, 2, c);
+    } else {
+        g.fillCircle(cx - dx, ey, er > 0 ? er : 1, c);
+        g.fillCircle(cx + dx, ey, er > 0 ? er : 1, c);
+    }
+    if (p == Phase::Listening || p == Phase::Speaking) g.fillCircle(cx, cy + s / 4, s / 10 + 1, c);
+    else g.fillRect(cx - s / 6, cy + s / 4, s / 3, 2, c);
+    if (p == Phase::Ready) g.fillCircle(x + s - s / 6, y + s - s / 6, s / 8 + 1, OK);
+}
+
 std::string ellipsis(const std::string& s, size_t maxChars) {
     if (s.size() <= maxChars) return s;
     if (maxChars <= 1) return std::string(maxChars, '.');

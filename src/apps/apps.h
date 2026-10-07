@@ -21,6 +21,11 @@ struct Descriptor {
 };
 
 const Descriptor* table(size_t& count);
+
+// One plain sentence saying what is wrong with the link and what to press, or
+// nullptr when Wi-Fi, pairing and Core are fine. `quiet` waits for boot to
+// settle and stays silent in field mode (Home); Call passes false after a fail.
+const char* linkSentence(bool quiet);
 const Descriptor* find(const char* id);
 App*              create(const char* id);
 
@@ -46,6 +51,7 @@ App* makeTasks();
 App* makeRecorder();
 App* makeTools();
 App* makeSettings();
+App* makeSay();
 App* makeVoice();
 App* makeConnections();
 App* makeSnippets();
@@ -61,8 +67,6 @@ App* makeSprint();
 App* makeNudge();
 App* makeAgentsV3();
 App* makeReminders();
-App* makeSnake();
-App* makeHyperdrive();
 
 App* makePlan();
 App* makePromptDeck();

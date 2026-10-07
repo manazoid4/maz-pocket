@@ -32,8 +32,7 @@ namespace {
 
 const char* TOOL_NAMES[] = {"Microphone test", "Speaker test", "Keyboard test",
                             "Wi-Fi scan",      "Battery",      "Memory",
-                            "Storage",         "Device info",  "Reboot",
-                            "Say"};
+                            "Storage",         "Device info",  "Reboot"};
 constexpr int TOOL_COUNT = sizeof(TOOL_NAMES) / sizeof(TOOL_NAMES[0]);
 
 // ------------------------------------------------------------------ Tools
@@ -57,11 +56,9 @@ public:
             if (e.code == KEY_ESC) {
                 _detail.clear();
                 _kbTest = false;
-                _say    = false;
                 invalidate();
                 return true;
             }
-            if (_say) return sayKey(e);
             if (_kbTest) {
                 // Keyboard test: echo whatever arrives, including modifiers.
                 char line[72];
@@ -116,45 +113,9 @@ public:
     }
 
 private:
-    // Say: type text, ENTER sends it to Core /say and plays the WAV
-    // (same download + voice::play path as reply speech).
-    bool sayKey(const KeyEvent& e) {
-        if (e.code == KEY_ENTER) {
-            if (_sayText.empty() || !store::ready()) return true;
-            _detail = "Speaking...";
-            invalidate();
-            if (!_path.empty()) store::remove(_path);
-            _path = store::newPath("cache", "wav");
-            if (host::say(_sayText, _path)) voice::play(_path);
-            else _path.clear();
-            sayDraw(_path.empty() ? "Say failed (Core/Fish)" : "");
-            return true;
-        }
-        if (e.code == KEY_BACKSPACE) {
-            if (!_sayText.empty()) _sayText.pop_back();
-        } else if (e.ch >= 32 && e.ch < 127 && _sayText.size() < 300) {
-            _sayText.push_back(e.ch);
-        } else {
-            return false;
-        }
-        sayDraw("");
-        return true;
-    }
-
-    void sayDraw(const char* note) {
-        const std::string tail = _sayText.size() > 36 ? _sayText.substr(_sayText.size() - 36) : _sayText;
-        _detail = "Type text, ENTER speaks\n\n" + tail + "_\n\n" + note;
-        invalidate();
-    }
-
     void run(int idx) {
         char buf[360];
         switch (idx) {
-            case 9:
-                _say = true;
-                _sayText.clear();
-                sayDraw("");
-                return;
             case 0:
                 micTest();
                 return;
@@ -271,9 +232,62 @@ private:
     ListCursor  _cursor;
     std::string _detail;
     bool        _kbTest = false;
-    bool        _say    = false;
-    std::string _sayText;
-    std::string _path;
+};
+
+// ------------------------------------------------------------------ Say
+// Type text, ENTER sends it to Core /say and plays the WAV (same download +
+// voice::play path as reply speech).
+class SayApp : public App {
+public:
+    const char* id() const override { return "say"; }
+    const char* title() const override { return "Say"; }
+    const char* hints() const override { return "ENTER speak  ESC back"; }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down || e.code == KEY_ESC) return false;
+        if (e.code == KEY_ENTER) {
+            if (_text.empty() || !store::ready()) return true;
+            if (!_path.empty()) store::remove(_path);
+            _path = store::newPath("cache", "wav");
+            if (host::say(_text, _path)) voice::play(_path);
+            else _path.clear();
+            _note = _path.empty() ? "Say failed. Is Core on?" : "Playing. ENTER repeats.";
+        } else if (e.code == KEY_BACKSPACE) {
+            if (!_text.empty()) _text.pop_back();
+            _note.clear();
+        } else if (e.ch >= 32 && e.ch < 127 && _text.size() < 300) {
+            _text.push_back(e.ch);
+            _note.clear();
+        } else {
+            return false;
+        }
+        invalidate();
+        return true;
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+        ui::header(g, "Say");
+        g.setFont(&fonts::Font0);
+        g.setTextDatum(top_left);
+        if (_text.empty()) {
+            g.setTextColor(DIM, BG);
+            g.drawString("Type what MAZ should say", PAD, BODY_Y + 22);
+        } else {
+            // Last two lines of 38 chars; the cursor sits on the newest one.
+            const size_t n = _text.size();
+            const size_t start = n > 76 ? n - 76 : 0;
+            const size_t split = start + ((n - start) > 38 ? 38 : 0);
+            g.setTextColor(TEXT, BG);
+            g.drawString(_text.substr(start, split - start).c_str(), PAD, BODY_Y + 22);
+            g.drawString((_text.substr(split) + "_").c_str(), PAD, BODY_Y + 34);
+        }
+        g.setTextColor(_path.empty() ? ERR : OK, BG);
+        g.drawString(_note.c_str(), PAD, BODY_Y + 54);
+    }
+
+private:
+    std::string _text, _path, _note;
 };
 
 // --------------------------------------------------------------- Settings
@@ -790,6 +804,7 @@ private:
 }  // namespace
 
 App* makeTools() { return new ToolsApp(); }
+App* makeSay() { return new SayApp(); }
 App* makeSettings() { return new SettingsApp(); }
 App* makeVoice() { return new VoiceApp(); }
 App* makeConnections() { return new ConnectionsApp(); }

@@ -8,6 +8,8 @@
 
 #include <stddef.h>
 
+#include "ui.h"
+
 namespace maz {
 namespace lvui {
 
@@ -27,6 +29,7 @@ void tick();
 // is a plain sentence saying what is wrong and what to press, `version` is the
 // small firmware text. `selected` indexes `cells`.
 struct Status {
+    ui::Phase   phase    = ui::Phase::Ready;
     const char* line     = "READY";
     uint16_t    colour   = 0xFFFF;
     const char* sentence = nullptr;
