@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import asyncio
 import logging
 import json
 import tempfile
@@ -38,6 +39,7 @@ from .brain import maths_line, priorities_line, weather_line
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
 from .security import RemoteGuardMiddleware, Security
+from .selfupdate import SelfUpdater
 from .sessions import SessionStore
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
@@ -98,6 +100,7 @@ def create_app(
     bridge: BridgeWorker | None = None,
     beam: BeamStore | None = None,
     telemetry: SystemTelemetry | None = None,
+    updater: SelfUpdater | None = None,
 ) -> FastAPI:
     cfg = settings or Settings()
     security = Security(cfg)
@@ -119,6 +122,13 @@ def create_app(
     work_store = WorkStore(cfg.work_dir)
     work_store.bootstrap()
     work_service = WorkService(work_store)
+    inflight = {"n": 0}  # live turns/jobs: self-update never restarts Core under one
+    updates = updater or SelfUpdater(
+        enabled=cfg.autoupdate, interval_s=cfg.update_interval_s, repo_dir=cfg.repo_dir,
+        github_token=cfg.github_token, port=cfg.port,
+        busy=lambda: inflight["n"] > 0 or any(
+            j.get("state") == "running" for j in core_jobs.recent(50)),
+    )
 
     api = FastAPI(
         title="MAZ Core",
@@ -139,6 +149,25 @@ def create_app(
     @api.exception_handler(RouteError)
     async def route_error_handler(_request: Request, error: RouteError) -> JSONResponse:
         return JSONResponse(status_code=error.http_status, content=error.payload())
+
+    @api.middleware("http")
+    async def track_inflight(request: Request, call_next):
+        busy = request.url.path.startswith(("/turn", "/braindump", "/transcribe", "/extract", "/speak"))
+        if busy:
+            inflight["n"] += 1
+        try:
+            return await call_next(request)
+        finally:
+            if busy:
+                inflight["n"] -= 1
+
+    @api.on_event("startup")
+    async def start_selfupdate() -> None:
+        updates.start()
+
+    @api.on_event("shutdown")
+    def stop_selfupdate() -> None:
+        updates.stop()
 
     @api.on_event("startup")
     def start_bridge() -> None:
@@ -285,6 +314,8 @@ def create_app(
             "ok": True,
             "name": "nod Core",
             "version": CORE_VERSION,
+            "git_sha": updates.running_sha,
+            "update": updates.brief(),
             "fw_latest": (lambda m: m and {"version": m["version"], "sha": m.get("sha", "")})(fw.manifest()),
             "stt": speech.available(),
             "llm": model_router.status(),
@@ -301,6 +332,14 @@ def create_app(
                 "phone_url": "/control/",
             },
         }
+
+    @api.get("/core/update")
+    def core_update_status():
+        return updates.status()
+
+    @api.post("/core/update/check")
+    async def core_update_check():
+        return await asyncio.to_thread(updates.check)
 
     @api.get("/fw/manifest")
     def fw_manifest():

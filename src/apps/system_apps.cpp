@@ -119,13 +119,20 @@ private:
             case 0:
                 micTest();
                 return;
-            case 1:
-                sfx::boot();
-                delay(120);
-                sfx::timerDone();
-                _detail =
-                    "Played boot + alarm tones.\nHeard nothing? check Volume.";
+            case 1: {
+                // Same playRaw path as AI replies: if this is silent the speaker
+                // or volume is the problem, not the reply download.
+                if (!voice::speakerTest(true)) {
+                    _detail = "Cannot test while recording";
+                } else {
+                    snprintf(buf, sizeof(buf),
+                             "Played 1s 440Hz tone + sweep.\nVolume %d%% (min 25%% used)\n"
+                             "Heard nothing? raise Volume\nor the speaker is dead.",
+                             Cfg.volume * 100 / 255);
+                    _detail = buf;
+                }
                 break;
+            }
             case 2:
                 _kbTest = true;
                 _detail = "Press keys - ESC exits";

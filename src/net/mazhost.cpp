@@ -310,6 +310,7 @@ bool speak(const std::string& text, const std::string& wavPath) {
             return false;
         }
         const int written = http.writeToStream(&out);
+        Serial.printf("[speak] path=%s status=%d bytes=%d\n", wavPath.c_str(), status, written);
         out.close();
         http.end();
         if (written > 44) {
