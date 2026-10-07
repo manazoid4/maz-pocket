@@ -145,6 +145,7 @@ struct TeachStatus {
 
 bool configured();
 bool health();
+bool onRemoteLink();   // true while the active Core link is the remote HTTPS URL
 const char* linkName();
 std::string startSession();
 PairCode startPairing();

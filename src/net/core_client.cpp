@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include "remote_tls.h"
 #include <WiFi.h>
 
 #include "../core/settings.h"
@@ -11,14 +12,24 @@ namespace maz {
 namespace host {
 namespace {
 
-bool coreBegin(HTTPClient& http, const std::string& path) {
-    if (Cfg.hostAddr.empty() || Cfg.hostToken.empty() || WiFi.status() != WL_CONNECTED)
+// Follows the link chosen by host::health(): LAN is always tried first (short
+// timeout) there, and the remote HTTPS URL is used only while LAN is down.
+bool coreBegin(NodHttp& http, const std::string& path, bool allowRemote = true) {
+    if (Cfg.hostToken.empty() || WiFi.status() != WL_CONNECTED) return false;
+    bool remote = false;
+    std::string base;
+    if (allowRemote && onRemoteLink() && Cfg.hostRemoteUrl.rfind("https://", 0) == 0) {
+        base = Cfg.hostRemoteUrl;
+        while (!base.empty() && base.back() == '/') base.pop_back();
+        remote = true;
+    } else if (!Cfg.hostAddr.empty()) {
+        base = "http://" + Cfg.hostAddr + ":" + std::to_string(Cfg.hostPort);
+    } else {
         return false;
-    const std::string url = "http://" + Cfg.hostAddr + ":" +
-                            std::to_string(Cfg.hostPort) + path;
-    http.setConnectTimeout(1800);
+    }
+    http.setConnectTimeout(remote ? 6500 : 1800);
     http.setTimeout(12000);
-    if (!http.begin(url.c_str())) return false;
+    if (!http.open((base + path).c_str(), remote)) return false;
     http.addHeader("Authorization", ("Bearer " + Cfg.hostToken).c_str());
     return true;
 }
@@ -60,7 +71,7 @@ bool updateReady() {
 
 CoreInfo fetchCoreInfo() {
     CoreInfo out;
-    HTTPClient http;
+    NodHttp http;
     if (!coreBegin(http, "/health")) return out;
     const int status = http.GET();
     const String body = status > 0 ? http.getString() : String();
@@ -76,7 +87,7 @@ CoreInfo fetchCoreInfo() {
 
 CoreStatus coreStatus() {
     CoreStatus out;
-    HTTPClient http;
+    NodHttp http;
     if (!coreBegin(http, "/core/status")) {
         out.error = "MAZ Core not paired / Wi-Fi offline";
         return out;
@@ -106,7 +117,7 @@ CoreStatus coreStatus() {
 std::vector<CoreProject> coreProjects(std::string& error) {
     std::vector<CoreProject> out;
     error.clear();
-    HTTPClient http;
+    NodHttp http;
     if (!coreBegin(http, "/core/projects")) {
         error = "MAZ Core not paired / Wi-Fi offline";
         return out;
@@ -139,7 +150,7 @@ std::vector<CoreProject> coreProjects(std::string& error) {
 
 Reply coreAction(const std::string& action, const std::string& project) {
     Reply out;
-    HTTPClient http;
+    NodHttp http;
     if (!coreBegin(http, "/core/action")) {
         out.error = "MAZ Core not paired / Wi-Fi offline";
         return out;
@@ -178,7 +189,7 @@ Reply coreAction(const std::string& action, const std::string& project) {
 
 CoreJob coreStartJob(const std::string& action, const std::string& project) {
     CoreJob out;
-    HTTPClient http;
+    NodHttp http;
     if (!coreBegin(http, "/core/job")) {
         out.error = "MAZ Core not paired / Wi-Fi offline";
         return out;
@@ -204,7 +215,7 @@ CoreJob coreStartJob(const std::string& action, const std::string& project) {
 CoreJob coreJob(const std::string& id) {
     CoreJob out;
     if (id.empty()) { out.error = "job id missing"; return out; }
-    HTTPClient http;
+    NodHttp http;
     if (!coreBegin(http, "/core/job/" + id)) {
         out.error = "MAZ Core not paired / Wi-Fi offline";
         return out;
@@ -254,8 +265,8 @@ bool fwFail(const char* why) {
 }  // namespace
 
 bool fwUpdate() {
-    HTTPClient m;
-    if (!coreBegin(m, "/fw/manifest")) return fwFail("Core offline");
+    NodHttp m;
+    if (!coreBegin(m, "/fw/manifest", false)) return fwFail("Update needs home Wi-Fi");
     const int ms = m.GET();
     const String mb = ms > 0 ? m.getString() : String();
     m.end();
@@ -266,8 +277,8 @@ bool fwUpdate() {
     const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
     if (!target || size < 65536 || size > target->size || want.length() != 64) return fwFail("bad manifest");
 
-    HTTPClient http;
-    if (!coreBegin(http, "/fw/latest.bin")) return fwFail("Core offline");
+    NodHttp http;
+    if (!coreBegin(http, "/fw/latest.bin", false)) return fwFail("Update needs home Wi-Fi");
     http.setTimeout(20000);
     if (http.GET() != 200) { http.end(); return fwFail("download refused"); }
     esp_ota_handle_t ota = 0;
