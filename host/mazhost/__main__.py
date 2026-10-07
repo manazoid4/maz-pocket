@@ -8,7 +8,8 @@ class _Quiet(logging.Filter):
     """Drop the device's constant polling from the access log."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return "/beam/pull" not in record.getMessage()
+        msg = record.getMessage()
+        return "/beam/pull" not in msg and "/buddy/summary" not in msg
 
 
 def main() -> None:

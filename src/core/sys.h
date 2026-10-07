@@ -31,6 +31,7 @@ struct SysState {
     uint16_t    hostPort   = 0;
     bool        hostOnline = false;
 
+    uint8_t     buddy         = 0;  // Claude Code via Core: 0 idle, 1 working, 2 needs you
     uint8_t     agentsWorking = 0;
     uint8_t     agentsWaiting = 0;
     uint8_t     agentsStale   = 0;

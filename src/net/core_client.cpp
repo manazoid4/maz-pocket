@@ -106,6 +106,51 @@ CoreInfo fetchCoreInfo() {
     return out;
 }
 
+BuddyPoll buddyPoll() {
+    BuddyPoll out;
+    NodHttp http;
+    if (!coreBegin(http, "/buddy/summary")) return out;
+    const int status = http.GET();
+    const String body = status > 0 ? http.getString() : String();
+    http.end();
+    JsonDocument doc;
+    if (status != 200 || deserializeJson(doc, body)) return out;
+    out.ok = true;
+    out.agent = doc["agent"] | "idle";
+    out.count = doc["count"] | 0;
+    for (JsonObject it : doc["items"].as<JsonArray>()) {
+        BuddyItem b;
+        b.id = it["id"] | "";
+        b.tool = it["tool"] | "?";
+        b.summary = it["summary"] | "";
+        b.project = it["project"] | "";
+        b.session = it["session_id"] | "";
+        b.left = it["left"] | 0;
+        if (!b.id.empty()) out.items.push_back(std::move(b));
+    }
+    return out;
+}
+
+bool buddyDecide(const std::string& id, const std::string& decision, std::string& applied) {
+    applied.clear();
+    NodHttp http;
+    if (!coreBegin(http, "/buddy/decide")) return false;
+    http.addHeader("Content-Type", "application/json");
+    JsonDocument req;
+    req["id"] = id;
+    req["decision"] = decision;
+    String payload;
+    serializeJson(req, payload);
+    const int status = http.POST(payload);
+    const String body = status > 0 ? http.getString() : String();
+    http.end();
+    if (status == 404) { applied = "gone"; return true; }  // expired or cancelled at the terminal
+    JsonDocument doc;
+    if (status != 200 || deserializeJson(doc, body)) return false;
+    applied = doc["decision"] | "";
+    return true;
+}
+
 CoreStatus coreStatus() {
     CoreStatus out;
     NodHttp http;

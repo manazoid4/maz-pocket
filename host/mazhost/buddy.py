@@ -10,12 +10,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 MAX_ITEMS = 50
+TIMEOUT_S = 60      # hook falls back to the terminal after this
+WORKING_S = 90      # agent counts as 'working' this long after the last request
 
 
 class BuddyRequest(BaseModel):
     tool: str = Field(min_length=1, max_length=120)
     summary: str = Field(default="", max_length=200)
     session_id: str = Field(default="", max_length=120)
+    project: str = Field(default="", max_length=60)
 
 
 class BuddyDecision(BaseModel):
@@ -34,12 +37,13 @@ class Buddy:
         self._items: dict[str, dict] = {}
         self._allow_all: set[str] = set()
 
-    def request(self, tool: str, summary: str, session_id: str = "") -> dict:
+    def request(self, tool: str, summary: str, session_id: str = "", project: str = "") -> dict:
         with self._cv:
             rid = uuid.uuid4().hex[:8]
             auto = "allow" if session_id and session_id in self._allow_all else None
             self._items[rid] = {"id": rid, "tool": tool, "summary": summary,
-                                "session_id": session_id, "t": time.time(), "decision": auto}
+                                "session_id": session_id, "project": project, "t": time.time(),
+                                "decision": auto}
             while len(self._items) > MAX_ITEMS:
                 self._items.pop(next(iter(self._items)))  # dicts keep insertion order
             return dict(self._items[rid])
@@ -58,6 +62,19 @@ class Buddy:
     def pending(self) -> list[dict]:
         with self._cv:
             return [dict(i) for i in self._items.values() if not i["decision"]]
+
+    def summary(self, limit: int = 3) -> dict:
+        """Cheap device poll: oldest-first live pending items + idle/working/needs_you."""
+        now = time.time()
+        with self._cv:
+            live = [i for i in self._items.values()
+                    if not i["decision"] and now - i["t"] < TIMEOUT_S + 5]
+            recent = any(now - i["t"] < WORKING_S for i in self._items.values())
+            items = [{"id": i["id"], "tool": i["tool"], "summary": i["summary"],
+                      "project": i.get("project", ""), "session_id": i["session_id"],
+                      "left": max(0, int(TIMEOUT_S - (now - i["t"])))} for i in live[:limit]]
+            return {"ok": True, "agent": "needs_you" if live else "working" if recent else "idle",
+                    "count": len(live), "items": items}
 
     def decide(self, rid: str, decision: str) -> dict:
         with self._cv:
@@ -87,11 +104,15 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
 
     @api.post("/buddy/request")
     def buddy_request(body: BuddyRequest):
-        return buddy.request(body.tool, body.summary, body.session_id)
+        return buddy.request(body.tool, body.summary, body.session_id, body.project)
 
     @api.get("/buddy/state")
     def buddy_state(id: str, wait: float = 0):
         return buddy.state(id, min(max(wait, 0), 30))
+
+    @api.get("/buddy/summary")
+    def buddy_summary():
+        return buddy.summary()
 
     @api.get("/buddy/pending")
     def buddy_pending():
