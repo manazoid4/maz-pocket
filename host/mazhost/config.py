@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     )
 
     token: str = "change-me-before-first-run"
+    autoupdate: bool = True  # MAZ_AUTOUPDATE=0 disables the GitHub Releases self-update loop
+    update_interval_s: int = 300
+    repo_dir: str = ""  # git checkout Core updates; default: the checkout containing mazhost
     bind: str = "0.0.0.0"
     port: int = 8787
     whisper_model: str = "base.en"

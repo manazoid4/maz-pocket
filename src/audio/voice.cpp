@@ -2,6 +2,8 @@
 
 #include <FS.h>
 #include <M5Unified.h>
+#include <math.h>
+#include <string.h>
 
 #include "../core/settings.h"
 #include "../core/sys.h"
@@ -49,10 +51,114 @@ const char* gErr      = "";
 
 // Playback streaming state: recordings are far bigger than free SRAM, so we
 // keep a file handle open and hand the speaker one block at a time.
-File    gPlayFile;
-bool    gPlaying = false;
-int16_t gPlayBuf[2][BLOCK];
-uint8_t gPlayIdx = 0;
+// Two blocks are queued at once; each is ~128 ms so a slow SD read or a brief
+// HTTP stall in the main loop does not starve the DMA. A block is only
+// refilled once the speaker reports it is no longer queued (playRaw keeps the
+// pointer, it does not copy), so a queued buffer is never overwritten.
+constexpr size_t  kPlayBlock  = 2048;  // samples per queued block
+constexpr uint8_t kPlayCh     = 0;     // dedicated channel: sfx tones use auto channels
+constexpr uint8_t kMinVolume  = 64;    // floor for a reply; tiny values are inaudible
+File     gPlayFile;
+bool     gPlaying = false;
+int16_t  gPlayBuf[2][kPlayBlock];
+bool     gPlayEof = false;
+size_t   gPlayBytes = 0;
+size_t   gPlayRemain = 0;    // bytes of PCM data left in the data chunk
+uint32_t gPlayRate = SAMPLE_RATE;
+bool     gPlayStereo = false;
+uint32_t gPlayStartMs = 0;
+uint32_t gPlayDeadlineMs = 0;
+uint8_t  gPlayIdx = 0;
+uint32_t gPlayBlocks = 0;
+
+// Generated audio (speaker self-test) goes through the exact same queue.
+bool     gGen = false;
+uint32_t gGenPos = 0;
+float    gGenPhase = 0.f;
+constexpr uint32_t kToneSamples  = SAMPLE_RATE;           // 1.0 s of 440 Hz
+constexpr uint32_t kGapSamples   = SAMPLE_RATE / 10;      // 0.1 s silence
+constexpr uint32_t kSweepSamples = SAMPLE_RATE * 8 / 10;  // 0.8 s sweep 300..2400 Hz
+constexpr uint32_t kGenTotal     = kToneSamples + kGapSamples + kSweepSamples;
+
+size_t genBlock(int16_t* out) {
+    size_t n = 0;
+    while (n < kPlayBlock && gGenPos < kGenTotal) {
+        float hz = 0.f;
+        if (gGenPos < kToneSamples) {
+            hz = 440.f;
+        } else if (gGenPos >= kToneSamples + kGapSamples) {
+            const float t = (gGenPos - kToneSamples - kGapSamples) / (float)kSweepSamples;
+            hz = 300.f + 2100.f * t;
+        }
+        gGenPhase += 2.f * (float)M_PI * hz / SAMPLE_RATE;
+        if (gGenPhase > 2.f * (float)M_PI) gGenPhase -= 2.f * (float)M_PI;
+        out[n++] = hz > 0.f ? (int16_t)(20000.f * sinf(gGenPhase)) : 0;
+        ++gGenPos;
+    }
+    return n;
+}
+
+// Mic and speaker share one ES8311 codec on the ADV: Mic.end() powers the
+// whole codec down (reg 0x00=0), and only Speaker.begin() runs the DAC
+// power-up sequence. So: mic off first, then a clean speaker restart (end() is
+// what makes begin() re-run the sequence if a stale task was still "running").
+void prepareSpeaker() {
+    M5.Mic.end();
+    M5.Speaker.end();
+    const bool ok = M5.Speaker.begin();
+    uint8_t vol = Cfg.volume;
+    if (vol < kMinVolume) {
+        Serial.printf("[voice] volume %u too low, raising to %u for playback\n", vol, kMinVolume);
+        vol = kMinVolume;
+    }
+    M5.Speaker.setVolume(vol);
+    M5.Speaker.setChannelVolume(kPlayCh, 255);
+    Serial.printf("[voice] speaker begin=%d enabled=%d vol=%u (cfg=%u)\n", ok,
+                  M5.Speaker.isEnabled(), vol, Cfg.volume);
+}
+
+// Walks RIFF chunks to the real fmt/data offsets (Core's WAV may carry LIST or
+// other chunks, so "data starts at 44" is not safe).
+struct WavInfo {
+    bool     ok = false;
+    uint16_t fmt = 0, ch = 0, bits = 0;
+    uint32_t rate = 0;
+    uint32_t dataOff = 0, dataLen = 0;
+};
+
+WavInfo parseWav(File& f) {
+    WavInfo w;
+    const size_t fsz = f.size();
+    uint8_t h[12];
+    f.seek(0);
+    if (f.read(h, 12) != 12 || memcmp(h, "RIFF", 4) != 0 || memcmp(h + 8, "WAVE", 4) != 0) return w;
+    size_t pos = 12;
+    bool haveFmt = false;
+    while (pos + 8 <= fsz) {
+        uint8_t c[8];
+        f.seek(pos);
+        if (f.read(c, 8) != 8) break;
+        const uint32_t len = c[4] | (c[5] << 8) | (c[6] << 16) | ((uint32_t)c[7] << 24);
+        if (memcmp(c, "fmt ", 4) == 0 && len >= 16) {
+            uint8_t b[16];
+            if (f.read(b, 16) != 16) break;
+            w.fmt = b[0] | (b[1] << 8);
+            w.ch = b[2] | (b[3] << 8);
+            w.rate = b[4] | (b[5] << 8) | (b[6] << 16) | ((uint32_t)b[7] << 24);
+            w.bits = b[14] | (b[15] << 8);
+            haveFmt = true;
+        } else if (memcmp(c, "data", 4) == 0) {
+            w.dataOff = pos + 8;
+            const size_t avail = fsz > w.dataOff ? fsz - w.dataOff : 0;
+            // Streamed WAVs may carry 0 / 0xFFFFFFFF as the size: trust the file.
+            w.dataLen = (len == 0 || len > avail) ? avail : len;
+            w.ok = haveFmt;
+            return w;
+        }
+        pos += 8 + (size_t)len + (len & 1);
+    }
+    return w;
+}
 
 void measure(const int16_t* s, size_t n) {
     int32_t peak = 0;
@@ -156,6 +262,8 @@ bool start(Sink* sink, uint32_t maxSeconds) {
     if (!M5.Mic.begin()) {
         gErr = "mic did not start";
         gSink->close();
+        M5.Speaker.begin();  // do not leave the codec dead for UI beeps
+        M5.Speaker.setVolume(Cfg.volume);
         gState = State::Error;
         return false;
     }
@@ -198,18 +306,42 @@ void update() {
     }
 
     if (gPlaying) {
-        // Keep at most one block queued so ESC stops playback promptly.
-        if (M5.Speaker.isPlaying() < 2) {
-            const size_t n =
-                gPlayFile.read(reinterpret_cast<uint8_t*>(gPlayBuf[gPlayIdx]),
-                               BLOCK * sizeof(int16_t)) /
-                sizeof(int16_t);
-            if (n == 0) {
-                stopPlayback();
-                return;
+        // isPlaying(ch) is the number of blocks queued on that channel (0..2);
+        // isPlaying() with no argument is a bool. Only refill a slot once the
+        // speaker has released it, because playRaw keeps our pointer.
+        if (!gPlayEof && M5.Speaker.isPlaying(kPlayCh) < 2) {
+            size_t n = 0;
+            if (gGen) {
+                n = genBlock(gPlayBuf[gPlayIdx]);
+            } else {
+                size_t want = kPlayBlock * sizeof(int16_t);
+                if (want > gPlayRemain) want = gPlayRemain;
+                want &= ~(size_t)1;
+                if (want) n = gPlayFile.read(reinterpret_cast<uint8_t*>(gPlayBuf[gPlayIdx]), want) / sizeof(int16_t);
+                gPlayRemain = gPlayRemain > n * 2 ? gPlayRemain - n * 2 : 0;
             }
-            M5.Speaker.playRaw(gPlayBuf[gPlayIdx], n, SAMPLE_RATE, false, 1, -1);
-            gPlayIdx = 1 - gPlayIdx;
+            if (n == 0) {
+                gPlayEof = true;
+            } else {
+                gPlayBytes += n * 2;
+                if (!M5.Speaker.playRaw(gPlayBuf[gPlayIdx], n, gPlayRate, gPlayStereo, 1, kPlayCh, false)) {
+                    Serial.printf("[voice] playRaw REFUSED block=%u q=%u\n", (unsigned)gPlayBlocks,
+                                  (unsigned)M5.Speaker.isPlaying(kPlayCh));
+                    gPlayEof = true;
+                } else {
+                    if (gPlayBlocks == 0) Serial.printf("[voice] first block queued n=%u\n", (unsigned)n);
+                    ++gPlayBlocks;
+                    gPlayIdx = 1 - gPlayIdx;
+                }
+            }
+        }
+        // Let the queued tail finish before closing, or the last words are cut.
+        const bool drained = gPlayEof && M5.Speaker.isPlaying(kPlayCh) == 0;
+        if (drained || (int32_t)(millis() - gPlayDeadlineMs) > 0) {
+            Serial.printf("[voice] play end bytes=%u blocks=%u ms=%u%s\n", (unsigned)gPlayBytes,
+                          (unsigned)gPlayBlocks, (unsigned)(millis() - gPlayStartMs),
+                          drained ? "" : " (deadline)");
+            stopPlayback();
         }
     }
 }
@@ -255,6 +387,7 @@ bool pause() {
 
 bool resume() {
     if (gState != State::Paused) return false;
+    M5.Speaker.end();  // a tone while paused may have restarted it
     if (!M5.Mic.begin()) {
         // Close the still-open WAV cleanly; a failed codec restart must not
         // strand a file handle or leave the UI claiming it is recording.
@@ -281,29 +414,79 @@ uint32_t elapsedSeconds() {
 }
 
 // ----------------------------------------------------------------- playback
+static void beginQueue(uint32_t rate, bool stereo, uint32_t durationMs) {
+    prepareSpeaker();
+    gPlayEof = false;
+    gPlayBytes = 0;
+    gPlayBlocks = 0;
+    gPlayRate = rate;
+    gPlayStereo = stereo;
+    gPlayStartMs = millis();
+    gPlayDeadlineMs = gPlayStartMs + durationMs + 3000;
+    gPlaying = true;
+    gState = State::Playing;
+    gPlayIdx = 0;
+}
+
 bool play(const std::string& wavPath) {
     if (!store::ready()) return false;
+    if (gState == State::Listening || gState == State::Paused) {
+        Serial.println("[voice] play refused: recording in progress");
+        return false;
+    }
     stopPlayback();
 
     gPlayFile = store::fs()->open(wavPath.c_str(), FILE_READ);
     if (!gPlayFile) {
         gErr = "cannot open recording";
+        Serial.printf("[voice] play open FAIL path=%s\n", wavPath.c_str());
         return false;
     }
-    gPlayFile.seek(sizeof(WavHeader));  // we only ever read our own headers
-    M5.Speaker.begin();
-    M5.Speaker.setVolume(Cfg.volume);
-    gPlaying = true;
-    gState   = State::Playing;
-    gPlayIdx = 0;
+    const WavInfo w = parseWav(gPlayFile);
+    Serial.printf("[voice] play path=%s size=%u ok=%d fmt=%u ch=%u bits=%u rate=%lu dataOff=%u dataLen=%u vol=%u\n",
+                  wavPath.c_str(), (unsigned)gPlayFile.size(), w.ok, w.fmt, w.ch, w.bits,
+                  (unsigned long)w.rate, (unsigned)w.dataOff, (unsigned)w.dataLen, Cfg.volume);
+    if (!w.ok || w.fmt != 1 || w.bits != 16 || (w.ch != 1 && w.ch != 2) || w.rate < 8000 ||
+        w.rate > 48000 || w.dataLen < 2) {
+        gErr = "unsupported wav";
+        Serial.println("[voice] play FAIL: not 16-bit PCM mono/stereo wav");
+        gPlayFile.close();
+        return false;
+    }
+    if (w.rate != SAMPLE_RATE)
+        Serial.printf("[voice] note: wav rate %lu != %lu, speaker resamples\n", (unsigned long)w.rate,
+                      (unsigned long)SAMPLE_RATE);
+    gPlayFile.seek(w.dataOff);
+    gGen = false;
+    gPlayRemain = w.dataLen;
+    const uint32_t ms = (uint32_t)((uint64_t)w.dataLen * 1000 / ((uint64_t)w.rate * w.ch * 2));
+    beginQueue(w.rate, w.ch == 2, ms);
+    return true;
+}
+
+bool speakerTest(bool wait) {
+    if (gState == State::Listening || gState == State::Paused) return false;
+    stopPlayback();
+    gGen = true;
+    gGenPos = 0;
+    gGenPhase = 0.f;
+    beginQueue(SAMPLE_RATE, false, kGenTotal * 1000 / SAMPLE_RATE);
+    if (wait) {
+        while (gPlaying) {
+            update();
+            delay(5);
+        }
+        Serial.printf("[spk] test done (blocks=%u vol=%u)\n", (unsigned)gPlayBlocks, (unsigned)Cfg.volume);
+    }
     return true;
 }
 
 void stopPlayback() {
     if (!gPlaying) return;
-    M5.Speaker.stop();
-    gPlayFile.close();
+    M5.Speaker.stop(kPlayCh);  // only our channel; a UI beep is not ours to cut
+    if (gPlayFile) gPlayFile.close();
     gPlaying = false;
+    gGen = false;
     if (gState == State::Playing) gState = State::Idle;
 }
 
@@ -313,10 +496,9 @@ uint32_t wavSeconds(const std::string& wavPath) {
     if (!store::ready()) return 0;
     File f = store::fs()->open(wavPath.c_str(), FILE_READ);
     if (!f) return 0;
-    const size_t bytes =
-        f.size() > sizeof(WavHeader) ? f.size() - sizeof(WavHeader) : 0;
+    const WavInfo w = parseWav(f);
     f.close();
-    return bytes / (SAMPLE_RATE * 2);
+    return w.ok && w.rate ? w.dataLen / (w.rate * w.ch * 2) : 0;
 }
 
 }  // namespace voice
