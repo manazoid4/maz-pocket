@@ -326,6 +326,7 @@ private:
         removeSpeechFiles();
         _speechCancelled = false;
         _partsQueued = 0;
+        _skipLogged = 0;
         if (Cfg.ttsEnabled && store::ready()) speechPath = store::newPath("cache", "wav");
         const std::string context = field::context();
         if (!host_worker::submitTalkAudio(gCommSession, _takePath, speechPath, context)) {
@@ -428,7 +429,9 @@ private:
     void queueSpeechParts(uint8_t ready, uint8_t expected) {
         if (_partsQueued >= ready) return;
         if (_speechCancelled || !Cfg.ttsEnabled) {
-            Serial.printf("[speak] skip: cancelled=%d tts=%d ready=%u\n", _speechCancelled, Cfg.ttsEnabled, ready);
+            if (_skipLogged != ready)  // called every frame while the worker is busy: log once per part
+                Serial.printf("[speak] skip: cancelled=%d tts=%d ready=%u\n", _speechCancelled, Cfg.ttsEnabled, ready);
+            _skipLogged = ready;
             return;
         }
         const std::string base = host_worker::speechBase();
@@ -500,6 +503,7 @@ private:
     std::string _speechPath;
     uint8_t _speechParts = 0;     // files on disk for the last reply (for replay / cleanup)
     uint8_t _partsQueued = 0;     // parts already handed to voice:: for this reply
+    uint8_t _skipLogged = 0;      // last 'ready' count a skip was logged for
     bool _speechCancelled = false;
     std::string _reply;
     std::string _err;
