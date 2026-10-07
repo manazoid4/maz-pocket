@@ -97,7 +97,7 @@ public:
         std::array<lvui::Cell, TABLE_PAGE> cells{};
         for (size_t i = 0; i < _primary.size() && i < cells.size(); ++i) {
             cells[i].title = _primary[i]->cellTitle();
-            cells[i].badge = _primary[i]->shortcut ? static_cast<char>('A' + (_primary[i]->shortcut - KEY_A)) : '-';
+            cells[i].badge = _primary[i]->shortcut ? static_cast<char>('A' + (_primary[i]->shortcut - KEY_A)) : ' ';
         }
         lvui::Status st;
         st.version = "v" NOD_FW_VERSION;
@@ -143,8 +143,10 @@ private:
     }
 
     void rebuildHints() {
-        _hints = host::updateReady() ? "SPACE call  ENTER open  U update"
-                                     : "SPACE call  ENTER open  1-4 quick";
+        // W opens Wi-Fi from Home (registry shortcut), so say so when Wi-Fi is down.
+        _hints = (linkSentence(true) && !Sys.wifiConnected) ? "SPACE call  ENTER open  W wifi"
+               : host::updateReady()                        ? "SPACE call  ENTER open  U update"
+                                                            : "SPACE call  ENTER open  1-4 quick";
     }
 
     void move(int delta) {

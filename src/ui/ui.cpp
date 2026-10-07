@@ -75,7 +75,8 @@ void statusBar(M5Canvas& g) {
     // Left zone ends before SB_BUDDY_X even with a 1h+ timer: see theme.h.
     int x = SB_UPD_X;
     if (host::updateReady()) {
-        g.setTextColor(ACCENT, PANEL);
+        g.fillRoundRect(x - 2, 2, 22, 11, 2, ACCENT);  // chip, same accent as Home's UPDATE READY
+        g.setTextColor(BG, ACCENT);
         g.drawString("UPD", x, 4);
         x = SB_ACT_X;
     }
