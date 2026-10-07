@@ -49,6 +49,7 @@ from starlette.concurrency import run_in_threadpool
 from .flow import Flow, paste as paste_text
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
+from .speakplan import SpeakPlanner, TimingLog
 from .tts import SpeechOut
 from .voices import install_voice_routes
 from .validation import install_validation_exception_handler
@@ -116,6 +117,8 @@ def create_app(
     security = Security(cfg)
     speech = stt or SpeechToText(cfg)
     speech_out = SpeechOut(cfg)
+    turn_timings = TimingLog(20)
+    speak_planner = SpeakPlanner(speech_out.synthesize, turn_timings)
     model_router = models or Models(cfg)
     nudge_client = nudge or NudgeClient(cfg)
     device_monitor = device or DeviceMonitor(cfg)
@@ -337,6 +340,22 @@ def create_app(
             "timings": {"llm_ms": llm_ms},
         }
 
+    def finish_turn(result: dict, upload_ms: int, stt_ms: int, speak: str) -> dict:
+        """Attach per-stage timing_ms, log one line, and (if the device asked) start TTS now."""
+        timings = result.get("timings", {})
+        row: dict = {"ts": round(time.time()), "provider": result.get("provider", ""),
+                     "upload": upload_ms, "stt": stt_ms, "llm": timings.get("llm_ms", 0)}
+        result["timing_ms"] = {"upload_ms": upload_ms, "stt_ms": stt_ms, "llm_ms": row["llm"]}
+        reply = str(result.get("reply") or "")
+        if speak.strip() == "1" and reply and speech_out.available():
+            pid, parts = speak_planner.start(reply, row)
+            if parts:
+                result["speak"] = {"id": pid, "parts": parts}
+        else:
+            logging.getLogger("uvicorn.error").info(TimingLog.line(row))
+        turn_timings.add(row)
+        return result
+
     @api.get("/health")
     def health(authorization: str | None = Header(default=None)):
         if not security.token_ok(authorization):
@@ -556,8 +575,8 @@ def create_app(
         return {"ended": sessions.end(session_id)}
 
     @api.post("/turn/text")
-    def turn_text(turn: TextTurn):
-        return answer(turn.session_id, turn.text, turn.route, turn.context)
+    def turn_text(turn: TextTurn, x_maz_speak: Annotated[str, Header()] = ""):
+        return finish_turn(answer(turn.session_id, turn.text, turn.route, turn.context), 0, 0, x_maz_speak)
 
     # ----------------------------------------------------------- PC control
     @api.post("/pc/action")
@@ -576,6 +595,23 @@ def create_app(
     # --------------------------------------------------------------- speech
     install_voice_routes(api, speech_out.voices)
 
+    @api.get("/speak")
+    def speak_part(background_tasks: BackgroundTasks, id: str, part: int = 0):
+        """One part of a planned reply (first sentence = part 0); blocks until it is synthesised."""
+        try:
+            path = speak_planner.part(id, part)
+        except KeyError as error:
+            raise HTTPException(404, "speak_part_not_found") from error
+        except Exception as error:  # synth failed or timed out
+            raise HTTPException(503, "tts_unavailable") from error
+        background_tasks.add_task(path.unlink, missing_ok=True)  # each part is fetched once
+        return FileResponse(path, media_type="audio/wav", filename="maz-part.wav",
+                            headers={"X-TTS-Provider": speech_out.last_provider})
+
+    @api.get("/core/timings")
+    def core_timings():
+        return {"turns": turn_timings.recent()}
+
     @api.post("/speak")
     def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
         try:
@@ -592,6 +628,7 @@ def create_app(
         session_id: Annotated[str, Form()],
         route: Annotated[Route, Form()] = "local",
         context: Annotated[str, Form()] = "",
+        x_maz_speak: Annotated[str, Header()] = "",
     ):
         upload_started = time.perf_counter()
         suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
@@ -612,7 +649,7 @@ def create_app(
             stt_ms = round((time.perf_counter() - stt_started) * 1000)
             result = answer(session_id, text, route, context)
             result["timings"].update({"upload_ms": upload_ms, "stt_ms": stt_ms})
-            return result
+            return finish_turn(result, upload_ms, stt_ms, x_maz_speak)
         finally:
             path.unlink(missing_ok=True)
 
@@ -622,6 +659,7 @@ def create_app(
         x_maz_session: Annotated[str, Header()],
         x_maz_route: Annotated[Route, Header()] = "local",
         x_maz_context: Annotated[str, Header()] = "",
+        x_maz_speak: Annotated[str, Header()] = "",
     ):
         upload_started = time.perf_counter()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as target:
@@ -641,7 +679,7 @@ def create_app(
             stt_ms = round((time.perf_counter() - stt_started) * 1000)
             result = answer(x_maz_session, text, x_maz_route, x_maz_context)
             result["timings"].update({"upload_ms": upload_ms, "stt_ms": stt_ms})
-            return result
+            return finish_turn(result, upload_ms, stt_ms, x_maz_speak)
         finally:
             path.unlink(missing_ok=True)
 

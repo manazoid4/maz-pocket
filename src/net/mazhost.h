@@ -16,6 +16,8 @@ struct Reply {
     std::string error;
     std::string reminderTitle;
     uint32_t    reminderDelay = 0;
+    std::string speakId;       // Core planned the voice: GET /speak?id=&part=N
+    uint8_t     speakParts = 0;
 };
 
 struct PairCode {
@@ -157,6 +159,8 @@ Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
 Reply pcAction(const std::string& action);
 bool speak(const std::string& text, const std::string& wavPath);
+// One part of a Core-planned reply (part 0 = first sentence). Blocks until Core has it.
+bool speakPart(const std::string& id, uint8_t part, const std::string& wavPath);
 
 // Reply voice (Core /voices). voiceSelect persists the choice on the PC;
 // voicePreview downloads a cached "Hi, I'm nod." wav in that voice.
