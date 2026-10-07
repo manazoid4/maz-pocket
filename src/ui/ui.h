@@ -24,6 +24,9 @@ void scrollBar(M5Canvas& g, int total, int firstVisible, int visible);
 void emptyState(M5Canvas& g, const char* line1, const char* line2 = nullptr);
 void bigValue(M5Canvas& g, const char* value, const char* caption,
               uint16_t colour = theme::TEXT);
+// Battery trend (power::Trend as a number): arrow up / flat bar / arrow down / dot.
+uint16_t trendColour(uint8_t trend);
+void     trendArrow(M5Canvas& g, int x, int y, int s, uint8_t trend, uint16_t colour);
 void progress(M5Canvas& g, int x, int y, int w, int h, float pct, uint16_t colour);
 
 // --- MAZ identity ---------------------------------------------------------

@@ -13,7 +13,9 @@ struct SysState {
     bool     timeValid  = false;
 
     int  batteryPct       = -1;
-    bool charging         = false;
+    bool charging         = false;  // true only while the voltage trend is rising
+    int  batteryMv        = 0;
+    uint8_t powerTrend    = 0;      // power::Trend
     bool lowBatteryWarned = false;
 
     Storage storage    = Storage::None;

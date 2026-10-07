@@ -8,6 +8,7 @@
 #include "core/field.h"
 #include "core/health.h"
 #include "core/notify.h"
+#include "core/power.h"
 #include "core/settings.h"
 #include "core/launcher.h"
 #include "core/shell.h"
@@ -101,5 +102,5 @@ void loop() {
 
     health::observeLoop(millis() - loopStarted);
     health::update();
-    delay(2);
+    delay(power::loopDelayMs());
 }
