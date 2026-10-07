@@ -154,6 +154,7 @@ public:
         // ESC while MAZ thinks: stop waiting, drop the reply, stay on this screen.
         if (e.code == KEY_ESC && canCancel() && voice::state() != voice::State::Listening) {
             _discard = true;
+            _speechCancelled = true;  // parts of the cancelled reply may still land: never play them
             _sending = false;
             voice::stopPlayback();
             sfx::select();
