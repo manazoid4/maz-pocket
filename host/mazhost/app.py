@@ -54,6 +54,7 @@ from . import netpool
 from .speakplan import SpeakPlanner, TimingLog
 from .tts import SpeechOut
 from .voices import install_voice_routes
+from .webui import router as webui_router
 from .validation import install_validation_exception_handler
 from .version import CORE_VERSION
 from .work_service import WorkService
@@ -864,6 +865,7 @@ def create_app(
     api.mount("/pair", build_pairing_app(cfg, security))
 
     api.include_router(build_dump_router(cfg, model_router))
+    api.include_router(webui_router)
     install_buddy_routes(api)
     install_focus_routes(api, focus)
 
