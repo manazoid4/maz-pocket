@@ -85,207 +85,6 @@ void drawShortText(M5Canvas& g, const std::string& text, int y, int lines = 4) {
     }
 }
 
-// ------------------------------------------------------------------- Call
-class CallApp : public App {
-public:
-    const char* id() const override { return "talk"; }
-    const char* title() const override { return "MAZ Talk"; }
-
-    const char* hints() const override {
-        if (voice::state() == voice::State::Listening)
-            return "release SPACE to stop";
-        if (_sending) return "sending to MAZ Host...";
-        if (!_reply.empty()) return "SPACE ask again   A route   I inbox";
-        if (_haveTake) return "ENTER send   P play   S save raw";
-        return "hold SPACE to talk   ESC back";
-    }
-
-    void onEnter() override {
-        _haveTake = false;
-        _sink     = nullptr;
-        _session.clear();
-        _reply.clear();
-        if (KB.held(KEY_SPACE)) beginTake();
-        invalidate();
-    }
-
-    void onExit() override {
-        voice::stopPlayback();
-        if (voice::state() == voice::State::Listening) voice::stop();
-        // Failed/offline turns stay in outbox; successful turns are removed.
-    }
-
-    bool onKey(const KeyEvent& e) override {
-        if (e.down && e.code == KEY_SPACE) {
-            if (voice::state() != voice::State::Listening) beginTake();
-            return true;
-        }
-        if (!e.down && e.code == KEY_SPACE) {
-            if (voice::state() == voice::State::Listening) endTake();
-            return true;
-        }
-        if (!e.down) return false;
-
-        if (e.code == KEY_A) {
-            Cfg.talkRoute = (Cfg.talkRoute + 1) % TALK_ROUTE_COUNT;
-            Cfg.save();
-            notify::post(Note::Info, "Talk route",
-                         talkRouteLabel(Cfg.talkRoute));
-            invalidate();
-            return true;
-        }
-        if (e.code == KEY_I && !_reply.empty()) { shell::pushById("inbox"); return true; }
-
-        if (_haveTake && e.code == KEY_P) {
-            voice::play(_takePath);
-            invalidate();
-            return true;
-        }
-        if (_haveTake && e.code == KEY_ENTER) { _sending = true; invalidate(); return true; }
-        if (_haveTake && e.code == KEY_S) {
-            keepTake();
-            return true;
-        }
-        if (_haveTake && e.code == KEY_D) {
-            discardTake();
-            notify::post(Note::Info, "Deleted", "take discarded");
-            invalidate();
-            return true;
-        }
-        return false;
-    }
-
-    void update() override {
-        if (_sending && millis() >= _sendAt) {
-            _sending = false;
-            if (_session.empty()) _session = host::startSession();
-            const auto result = _session.empty() ? host::Reply{} : host::talkAudio(_session, _takePath);
-            if (result.ok) {
-                _reply = result.text;
-                store::Record item;
-                item.kind = "inbox"; item.status = "open"; item.title = "MAZ answer";
-                item.body = _reply; item.source = result.provider; item.ref = _takePath;
-                store::addRecord(item);
-                if (!result.reminderTitle.empty() && result.reminderDelay) {
-                    store::Record reminder;
-                    reminder.kind = "reminder"; reminder.status = "open";
-                    reminder.title = result.reminderTitle; reminder.source = "voice";
-                    scheduleReminder(reminder, result.reminderDelay);
-                    store::addRecord(reminder);
-                }
-                store::remove(_takePath);
-                _takePath.clear(); _haveTake = false;
-                notify::post(Note::Success, "Answer ready", result.provider);
-            } else {
-                store::Record item;
-                item.kind = "outbox"; item.status = "queued"; item.title = "Talk turn";
-                item.body = result.error.empty() ? "host offline" : result.error;
-                item.source = "talk"; item.ref = _takePath;
-                store::addRecord(item);
-                notify::post(Note::Warn, "Queued offline", "raw audio kept");
-                _takePath.clear();
-                _haveTake = false;
-            }
-            invalidate();
-        }
-        if (voice::state() == voice::State::Listening || voice::isPlaying())
-            invalidate();
-    }
-
-    void render(M5Canvas& g) override {
-        g.fillScreen(BG);
-        ui::header(g, "MAZ Talk",
-                   Sys.hostOnline ? "MAZ HOST ONLINE" : "MAZ HOST OFFLINE");
-
-        if (!_reply.empty() && voice::state() != voice::State::Listening) {
-            g.setFont(&fonts::Font0);
-            g.setTextColor(ACCENT, BG);
-            g.drawString(talkRouteLabel(Cfg.talkRoute), PAD, BODY_Y + 20);
-            drawShortText(g, _reply, BODY_Y + 36);
-            return;
-        }
-
-        char cap[48] = "";
-        if (voice::state() == voice::State::Listening)
-            snprintf(cap, sizeof(cap), "%s",
-                     ui::hhmmss(voice::elapsedSeconds()).c_str());
-        else if (_sending)
-            snprintf(cap, sizeof(cap), "sending to laptop...");
-        else if (!_reply.empty())
-            snprintf(cap, sizeof(cap), "%s", ui::ellipsis(_reply, 34).c_str());
-        else if (_haveTake)
-            snprintf(cap, sizeof(cap), "take ready - ENTER sends");
-        else
-            snprintf(cap, sizeof(cap), "hold SPACE and speak");
-
-        drawVoiceFace(g, voice::state(), cap);
-    }
-
-private:
-    void beginTake() {
-        discardTake();
-        _sink = new voice::WavFileSink("outbox");
-        if (!voice::start(_sink, MAX_SECONDS)) {
-            notify::post(Note::Error, "Cannot record", voice::lastError());
-            delete _sink;
-            _sink = nullptr;
-            return;
-        }
-        sfx::recStart();
-        invalidate();
-    }
-
-    void endTake() {
-        if (!voice::stop()) {
-            notify::post(Note::Error, "Recording failed", voice::lastError());
-            delete _sink;
-            _sink = nullptr;
-            return;
-        }
-        sfx::recStop();
-        _takePath    = _sink->path();
-        _takeSeconds = _sink->samples() / voice::SAMPLE_RATE;
-        _haveTake    = true;
-        delete _sink;
-        _sink = nullptr;
-
-        _sending = true;
-        _sendAt = millis() + 180;  // paint SENDING before the blocking LAN turn
-        invalidate();
-    }
-
-    void keepTake() {
-        if (!_haveTake) return;
-        const std::string dest = store::newPath("recordings", "wav");
-        if (store::rename(_takePath, dest)) {
-            notify::post(Note::Success, "Saved", "in Recorder");
-            _haveTake = false;
-            _takePath.clear();
-        } else {
-            notify::post(Note::Error, "Save failed",
-                         "storage did not accept it");
-        }
-        invalidate();
-    }
-
-    void discardTake() {
-        if (!_takePath.empty()) store::remove(_takePath);
-        _takePath.clear();
-        _haveTake = false;
-    }
-
-    static constexpr uint32_t MAX_SECONDS = 60;  // a turn, not a lecture
-
-    voice::WavFileSink* _sink = nullptr;
-    std::string         _takePath;
-    uint32_t            _takeSeconds = 0;
-    bool                _haveTake    = false;
-    bool                _sending     = false;
-    uint32_t            _sendAt      = 0;
-    std::string         _session;
-    std::string         _reply;
-};
-
 // ---------------------------------------------------------------- Capture
 class CaptureApp : public App {
 public:
@@ -400,6 +199,7 @@ private:
             return;
         }
         sfx::recStart();
+        _queued = false;
         invalidate();
     }
 
@@ -428,6 +228,11 @@ private:
     void process() {
         _processing = false;
         const auto result = host::brainDump(_path, _highlights);
+        if (!result.ok && _queued) {  // retry while still offline: no second outbox record
+            notify::post(Note::Warn, "Still offline", "raw audio kept");
+            invalidate();
+            return;
+        }
         store::Record item;
         item.kind = result.ok ? "inbox" : "outbox";
         item.status = result.ok ? "open" : "queued";
@@ -435,6 +240,7 @@ private:
         item.body = result.ok ? result.text : result.error;
         item.source = "braindump"; item.ref = _path;
         store::addRecord(item);
+        _queued = !result.ok;
         _resultOk = result.ok;
         _result   = result.ok ? result.text : result.error;
         if (_result.empty())
@@ -454,6 +260,7 @@ private:
     size_t              _scroll = 0;
     bool                _ready = false;
     bool                _processing = false;
+    bool                _queued = false;
     uint32_t            _processAt = 0;
 };
 
@@ -605,7 +412,6 @@ private:
 
 }  // namespace
 
-App* makeCall() { return new CallApp(); }
 App* makeCapture() { return new CaptureApp(); }
 App* makeRecorder() { return new RecorderApp(); }
 

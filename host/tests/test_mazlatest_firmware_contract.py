@@ -14,8 +14,6 @@ def test_cardputer_route_cycle_and_host_payload_are_centrally_mapped():
 
     for relative in (
         "src/apps/comm.cpp",
-        "src/apps/v03.cpp",
-        "src/apps/voice_apps.cpp",
     ):
         source = (ROOT / relative).read_text(encoding="utf-8-sig")
         assert "% TALK_ROUTE_COUNT" in source
