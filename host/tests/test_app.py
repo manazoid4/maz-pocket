@@ -137,8 +137,10 @@ def client(pc=None, models=None, beam=None, telemetry=None, core=None, work_dir=
 
 
 def test_requires_bearer_token():
-    response = client().get("/health")
-    assert response.status_code == 401
+    assert client().get("/models").status_code == 401
+    # /health is public but minimal without the token (safe to expose remotely).
+    public = client().get("/health")
+    assert public.status_code == 200 and set(public.json()) == {"ok", "name", "version"}
 
 
 def test_text_turn_keeps_session_context_and_nudge_is_evidence_backed():
