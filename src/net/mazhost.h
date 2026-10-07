@@ -221,6 +221,11 @@ CoreStatus coreStatus();
 // Core /health: its version plus the firmware it holds (fw_latest). Polled in the background.
 struct CoreInfo { bool ok = false; std::string version, fwVersion, fwSha, remoteUrl; };
 CoreInfo fetchCoreInfo();
+// Core /buddy: Claude Code approvals waiting for a thumb (see docs/APPROVALS.md).
+struct BuddyItem { std::string id, tool, summary, project, session; int left = 0; };
+struct BuddyPoll { bool ok = false; std::string agent; int count = 0; std::vector<BuddyItem> items; };
+BuddyPoll buddyPoll();                                              // GET /buddy/summary (tiny)
+bool buddyDecide(const std::string& id, const std::string& decision, std::string& applied);  // allow|deny|allow_all
 const CoreInfo& coreInfo();          // last poll result (cached)
 void setCoreInfo(const CoreInfo& info);
 bool updateReady();
