@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import tempfile
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 import httpx
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -175,6 +177,14 @@ class VoiceService:
         return path
 
 
+SAY_MAX = 300
+
+
+class SayBody(BaseModel):
+    text: str
+    voice: str | None = None
+
+
 class SelectBody(BaseModel):
     reference_id: str
     name: str = ""
@@ -213,5 +223,27 @@ def install_voice_routes(app: FastAPI, svc: VoiceService, *, prefix: str = "", d
         except (RuntimeError, httpx.HTTPError) as error:
             raise HTTPException(503, str(error)[:120]) from error
         return FileResponse(path, media_type="audio/wav", filename="voice-preview.wav")
+
+    @router.post("/say")
+    def say(body: SayBody, background_tasks: BackgroundTasks):
+        text = " ".join(body.text.split())
+        if not text:
+            raise HTTPException(400, "text_empty")
+        if len(text) > SAY_MAX:
+            raise HTTPException(400, f"text_too_long_max_{SAY_MAX}")
+        voice = (body.voice or "").strip().lower() or svc.current()
+        if not ID_RE.match(voice):
+            raise HTTPException(400, "invalid_voice")
+        if svc._synth is None:
+            raise HTTPException(503, "tts_unavailable")
+        fd, name = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        path = Path(name)
+        background_tasks.add_task(path.unlink, missing_ok=True)
+        try:
+            svc._synth(text, path, voice)  # same single free-model Fish call as previews
+        except (RuntimeError, httpx.HTTPError) as error:
+            raise HTTPException(503, str(error)[:120]) from error
+        return FileResponse(path, media_type="audio/wav", filename="say.wav")
 
     app.include_router(router)

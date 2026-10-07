@@ -147,3 +147,35 @@ def test_phone_routes_need_session_and_work(tmp_path, calls):
     assert c.get("api/voices/search?q=sarah").json()["voices"][0]["reference_id"] == OTHER
     assert c.post("api/voices/preview", json={"reference_id": OTHER}).content[:4] == b"RIFF"
     assert "pane-voice" in c.get("").text
+
+
+def test_say_uses_free_model_and_validates(tmp_path, monkeypatch):
+    seen = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen.append((headers["model"], json["text"], json["reference_id"]))
+        return Resp(200, WAV)
+
+    monkeypatch.setattr(httpx, "post", post)
+    c, s = mk(tmp_path)
+    r = c.post("/say", json={"text": "  hello   there "}, headers=AUTH)
+    assert r.status_code == 200 and r.content[:4] == b"RIFF"
+    assert seen == [(s.tts_model, "hello there", ADRIAN_ID)]
+    assert s.tts_model == "s2.1-pro-free"  # free model only
+    assert c.post("/say", json={"text": "hi", "voice": OTHER}, headers=AUTH).status_code == 200
+    assert seen[-1][2] == OTHER and seen[-1][0] == "s2.1-pro-free"
+    for bad in ({"text": "   "}, {"text": "x" * 301}, {"text": "hi", "voice": "nope"}):
+        assert c.post("/say", json=bad, headers=AUTH).status_code == 400
+    assert c.post("/say", json={"text": "hi"}).status_code == 401
+    assert len(seen) == 2
+
+
+def test_say_on_phone_page(tmp_path, calls):
+    s = _settings(tmp_path, fish_api_key="k", tts_enabled=True)
+    root = FastAPI()
+    root.mount("/control", build_phone_app(s, AuthorityBroker(s), voices=SpeechOut(s).voices))
+    c = TestClient(root, base_url="http://testserver/control/", headers={"user-agent": "ph"})
+    c.post("session/login", data={"token": TOKEN})
+    c.headers.update({"X-MAZ-Control": "1"})
+    assert c.post("api/say", json={"text": "hello"}).content[:4] == b"RIFF"
+    assert 'id="sayText"' in c.get("").text

@@ -328,6 +328,15 @@ bool speak(const std::string& text, const std::string& wavPath) {
     return postWav("/speak", body.c_str(), wavPath);
 }
 
+bool say(const std::string& text, const std::string& wavPath) {
+    if (text.empty()) return false;
+    JsonDocument doc;
+    doc["text"] = text.size() > 300 ? text.substr(0, 300) : text;
+    String body;
+    serializeJson(doc, body);
+    return postWav("/say", body.c_str(), wavPath);
+}
+
 bool voiceList(std::vector<VoiceItem>& out, std::string& error) {
     out.clear();
     if (!configured() || WiFi.status() != WL_CONNECTED) {
