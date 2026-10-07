@@ -287,12 +287,10 @@ std::vector<std::string> wrap(const std::string& text, size_t cols) {
     std::string line;
     size_t i = 0;
     while (i <= text.size()) {
-        size_t e = text.find_first_of(" 
-", i);
+        size_t e = text.find_first_of(" \n", i);
         if (e == std::string::npos) e = text.size();
         std::string word = text.substr(i, e - i);
-        const bool nl = e < text.size() && text[e] == '
-';
+        const bool nl = e < text.size() && text[e] == '\n';
         i = e + 1;
         while (word.size() > cols) {
             if (!line.empty()) { lines.push_back(line); line.clear(); }
