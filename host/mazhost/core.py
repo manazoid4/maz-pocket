@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from .config import Settings
+from .security import is_lan_ip
 
 
 PROJECT_MARKERS = (
@@ -55,6 +56,7 @@ class MazCore:
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
         self.client = client or httpx.Client(timeout=12)
+        self.device_ip: str | None = None
         self._cache_lock = threading.Lock()
         self._summary_cache: list[dict[str, Any]] = []
         self._summary_cache_at = 0.0
@@ -432,31 +434,52 @@ class MazCore:
     def _cardputer_headers(self) -> dict[str, str]:
         return {"X-MAZ-Token": self.settings.token}
 
+    def note_device(self, ip: str) -> None:
+        """Remember the device's LAN address when it calls in, so the live view
+        works even where mazpocket.local (mDNS) does not resolve."""
+        if ip and is_lan_ip(ip) and not ip.startswith("127."):
+            self.device_ip = ip
+
+    def _cardputer_bases(self) -> list[str]:
+        bases = []
+        if getattr(self, "device_ip", None):
+            bases.append(f"http://{self.device_ip}")
+        configured = self.settings.cardputer_url.rstrip("/")
+        if configured not in bases:
+            bases.append(configured)
+        return bases
+
+    def _cardputer(self, method: str, path: str, timeout: float, **kwargs: Any) -> httpx.Response:
+        last: Exception | None = None
+        for base in self._cardputer_bases():
+            try:
+                response = self.client.request(method, f"{base}{path}", headers=self._cardputer_headers(),
+                                               timeout=timeout, **kwargs)
+                return response
+            except httpx.HTTPError as error:
+                last = error
+        raise CoreError(f"cardputer_unreachable:{last}")
+
     def cardputer_status(self) -> dict[str, Any]:
         try:
-            response = self.client.get(
-                f"{self.settings.cardputer_url.rstrip('/')}/api/status",
-                headers=self._cardputer_headers(),
-                timeout=3,
-            )
+            response = self._cardputer("GET", "/api/status", timeout=3)
             response.raise_for_status()
             return response.json()
-        except (httpx.HTTPError, ValueError) as error:
+        except (CoreError, httpx.HTTPError, ValueError) as error:
             return {"ok": False, "error": f"cardputer_unreachable:{error}"}
 
     def cardputer_screen(self) -> bytes:
-        try:
-            response = self.client.get(
-                f"{self.settings.cardputer_url.rstrip('/')}/api/screen",
-                headers=self._cardputer_headers(),
-                timeout=4,
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as error:
-            raise CoreError(f"cardputer_unreachable:{error}") from error
+        response = self._cardputer("GET", "/api/screen", timeout=4)
+        if response.status_code != 200:
+            raise CoreError(f"cardputer_http_{response.status_code}")
         if len(response.content) != 240 * 135 * 2:
             raise CoreError("invalid_cardputer_frame")
         return response.content
+
+    def cardputer_action(self, action: str) -> dict[str, Any]:
+        """Forward one portal action (update, key:..., open:...). Returns the device's own reply."""
+        response = self._cardputer("POST", "/api/action", timeout=4, data={"action": action})
+        return {"ok": response.status_code < 300, "status": response.status_code, "text": response.text[:300]}
 
     # --------------------------------------------------------------- grounding
     def context_for_prompt(self, text: str) -> str:

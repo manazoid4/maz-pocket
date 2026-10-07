@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import asyncio
 import logging
 import json
+import re
 import tempfile
 import threading
 import time
@@ -82,6 +83,14 @@ class TextTurn(BaseModel):
     session_id: str
     route: Route = "local"
     context: str = Field(default="", max_length=1_200)
+
+
+class DeviceAction(BaseModel):
+    action: str
+
+
+# What the web live view may ask the device to do; anything else stays device-only.
+_DEVICE_ACTION = re.compile(r"update|reboot|key:\d{1,3},\d{1,3},\d{1,2}|open:[a-z_]{1,24}")
 
 
 class ExtractRequest(BaseModel):
@@ -379,10 +388,12 @@ def create_app(
         return result
 
     @api.get("/health")
-    def health(authorization: str | None = Header(default=None)):
+    def health(request: Request, authorization: str | None = Header(default=None)):
         if not security.token_ok(authorization):
             # Public by design (reachable via Funnel): no inventory, no paths.
             return {"ok": True, "name": "nod Core", "version": CORE_VERSION}
+        if "ESP32" in request.headers.get("user-agent", "") and request.client:
+            core_service.note_device(request.client.host)  # the device polls this; live view reuses its address
         core_status = versioned_core_status() if cfg.core_enabled else {"ok": False, "disabled": True}
         return {
             "ok": True,
@@ -540,6 +551,30 @@ def create_app(
                 "Cache-Control": "no-store",
             },
         )
+
+    @api.post("/core/cardputer/action")
+    def core_cardputer_action(body: DeviceAction):
+        if not _DEVICE_ACTION.fullmatch(body.action):
+            raise HTTPException(400, "unsupported_device_action")
+        try:
+            return core_service.cardputer_action(body.action)
+        except CoreError as error:
+            raise HTTPException(503, str(error)) from error
+
+    @api.get("/core/device")
+    def core_device():
+        """One call for the web Device tab: what the device runs vs what the hub has staged."""
+        device = core_service.cardputer_status()
+        staged = fw.manifest()
+        running = str(device.get("fw_build") or "")
+        return {
+            "device": device,
+            "online": "version" in device,
+            "hub_fw": staged and {k: staged.get(k) for k in ("version", "sha", "size")},
+            "update_available": bool(staged and running and staged.get("sha") and staged["sha"] != running),
+            "hub_update": updates.brief(),
+            "last_report": fw.last_report(),
+        }
 
     # --------------------------------------------------------- FIELD services
     @api.get("/system/status")

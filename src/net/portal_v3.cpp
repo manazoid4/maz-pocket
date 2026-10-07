@@ -6,6 +6,10 @@
 #include <mbedtls/sha256.h>
 
 #include "../audio/sfx.h"
+#include "../audio/voice.h"
+#include "../core/approvals.h"
+#include "../core/notify.h"
+#include "../input/keyboard.h"
 #include "../core/launcher.h"
 #include "../core/settings.h"
 #include "../core/shell.h"
@@ -45,6 +49,7 @@ bool gRunning = false;
 bool gMdns = false;
 uint32_t gReconnectAt = 0;
 uint32_t gRebootAt = 0;
+uint32_t gUpdateAt = 0;
 bool gToLauncher = false;
 
 enum class RxState : uint8_t { RequestLine, Headers, Body, Upload, Ready };
@@ -336,6 +341,23 @@ ActionResult runAction(const String& body) {
     }
     if (action == "reboot") { gToLauncher = false; gRebootAt = millis() + 500; return {202, "Rebooting nod..."}; }
     if (action == "launcher") { gToLauncher = true; gRebootAt = millis() + 500; return {202, "Opening M5Launcher without erasing nod..."}; }
+    if (action == "update") {  // hub's "Update device" button: same path as U on Home, run from the main loop
+        if (voice::state() == voice::State::Listening) return {409, "nod is recording; try again after."};
+        if (gUpdateAt) return {202, "Update already queued."};
+        gUpdateAt = millis() + 800;  // let this reply leave before the blocking download starts
+        return {202, "Update starting on nod."};
+    }
+    if (action.startsWith("key:")) {  // key:<hid code>,<ascii>,<mods> from the hub's live view
+        const String rest = action.substring(4);
+        const int a = rest.indexOf(','), b = rest.indexOf(',', a + 1);
+        if (a < 0 || b < 0) return {400, "Bad key."};
+        if (approvals::active()) return {423, "Approvals are decided on the device itself."};
+        const long code = rest.substring(0, a).toInt(), ch = rest.substring(a + 1, b).toInt(), mods = rest.substring(b + 1).toInt();
+        if (code <= 0 || code > 0xff || ch < 0 || ch > 126 || mods < 0 || mods > 0x1f) return {400, "Bad key."};
+        KB.inject(static_cast<uint8_t>(code), static_cast<char>(ch), static_cast<uint8_t>(mods));
+        shell::wake();
+        return {200, "ok"};
+    }
     if (action.startsWith("open:")) {
         const String id = action.substring(5);
         if (!allowedApp(id)) return {400, "Unsupported app."};
@@ -601,6 +623,13 @@ void update() {
     if (gReconnectAt && static_cast<int32_t>(millis() - gReconnectAt) >= 0) { gReconnectAt = 0; net::connectSaved(); }
     if (gRebootAt && static_cast<int32_t>(millis() - gRebootAt) >= 0) {
         gRebootAt = 0; if (gToLauncher) launcher::reboot(); else ESP.restart();
+    }
+    if (gUpdateAt && static_cast<int32_t>(millis() - gUpdateAt) >= 0) {
+        gUpdateAt = 0;
+        if (gClient) closeClient();
+        notify::post(Note::Info, "Update", "started from the hub");
+        host::fwUpdate();  // reboots on success; shows and reports its own error otherwise
+        shell::invalidate();
     }
     if (WiFi.status() != WL_CONNECTED) {
         if (gClient) closeClient(); gRunning = false;

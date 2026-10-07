@@ -21,6 +21,9 @@ public:
     // Pop one event. Returns false when the queue is empty.
     bool pop(KeyEvent& out);
 
+    // Queue a synthetic press + release (remote keys from the hub's live view).
+    void inject(uint8_t code, char ch, uint8_t mods);
+
     uint8_t mods() const { return _mods; }
     bool    held(uint8_t hidCode) const;
     bool    anyHeld() const { return _heldCount > 0; }
