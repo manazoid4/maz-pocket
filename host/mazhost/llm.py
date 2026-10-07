@@ -9,7 +9,7 @@ from .config import Settings
 from .brain import is_refusal
 from .errors import ErrorCode, RouteError, normalize_upstream_error
 
-Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlatest", "groq", "groq_alt"]
+Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlatest", "groq", "groq_alt", "groq_3", "openrouter"]
 
 # Explicit AUTO fallback order. One attempt per stage, no in-stage retries —
 # a stage that fails (auth, model-not-found, timeout, refused connection...)
@@ -17,15 +17,15 @@ Route = Literal["local", "local_fast", "local_smart", "auto", "cloud", "mazlates
 # CLOUD is a real stage in this chain, but until it is pointed at a provider
 # genuinely separate from the 9router endpoint MAZLATEST uses, it does not
 # add independence — see diagnostics()["independent_fallback_configured"].
-AUTO_CHAIN: tuple[Route, ...] = ("groq", "groq_alt", "mazlatest", "cloud", "local_fast", "local_smart")
+AUTO_CHAIN: tuple[Route, ...] = ("groq", "groq_alt", "groq_3", "mazlatest", "openrouter", "cloud", "local_fast", "local_smart")
 
 # Per-stage ceiling while AUTO is hopping through the chain. A user who
 # explicitly picks one route (mazlatest/cloud/local_fast/...) keeps the
 # client's full 90s patience; AUTO trades patience for not making the Pocket
 # wait through up to four stacked 90s hangs before it gives up.
 AUTO_STAGE_TIMEOUT_SECONDS = 15.0
-# Groq answers in well under 2 s; if it has not by 6 s, hop to the next model.
-GROQ_TIMEOUT_SECONDS = 6.0
+# Groq answers in under 1 s; past 3 s hop on, so the worst case stays near the 3 s budget.
+GROQ_TIMEOUT_SECONDS = 3.0
 
 # The handheld prompt explicitly asks for compact answers. Bounding generation
 # prevents a verbose local model from making the user wait for text that cannot
@@ -367,7 +367,7 @@ class Models:
 
     def _groq_model(self, stage: str) -> str:
         models = [m.strip() for m in self.settings.groq_models.split(",") if m.strip()]
-        index = 1 if stage == "groq_alt" else 0
+        index = {"groq": 0, "groq_alt": 1, "groq_3": 2}[stage]
         return models[index] if len(models) > index else ""
 
     def _groq(self, stage: str, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
@@ -389,6 +389,16 @@ class Models:
         self._last_usage = {"provider": provider, "model": resolved}
         return text, provider
 
+    def _openrouter(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
+        if not self.settings.openrouter_api_key:
+            raise RouteError(ErrorCode.AUTH_FAILED, "openrouter", retryable=False)
+        text, resolved = self._openai_completion(
+            route="openrouter", url="https://openrouter.ai/api/v1", key=self.settings.openrouter_api_key,
+            model=self.settings.openrouter_free_model, messages=messages, max_tokens=MAX_OUTPUT_TOKENS,
+            timeout=min(timeout or 5.0, 5.0),
+        )
+        return text, f"openrouter:{resolved}"
+
     def _mazlatest(self, messages: list[dict[str, str]], timeout: float | None = None) -> tuple[str, str]:
         text, resolved_model = self._openai_completion(
             route="mazlatest",
@@ -406,7 +416,9 @@ class Models:
     def _dispatch_one(self, stage: Route, messages: list[dict[str, str]]) -> tuple[str, str]:
         # A single, non-recursive attempt at exactly one named route. AUTO
         # calls this in a loop; it never calls itself or "auto" through here.
-        if stage in ("groq", "groq_alt"):
+        if stage == "openrouter":
+            return self._openrouter(messages)
+        if stage.startswith("groq"):
             return self._groq(stage, messages)
         if stage == "mazlatest":
             return self._mazlatest(messages)
@@ -421,7 +433,9 @@ class Models:
         raise ValueError(f"unknown route stage: {stage}")
 
     def _dispatch_one_bounded(self, stage: Route, messages: list[dict[str, str]]) -> tuple[str, str]:
-        if stage in ("groq", "groq_alt"):
+        if stage == "openrouter":
+            return self._openrouter(messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
+        if stage.startswith("groq"):
             return self._groq(stage, messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
         if stage == "mazlatest":
             return self._mazlatest(messages, timeout=AUTO_STAGE_TIMEOUT_SECONDS)
@@ -444,6 +458,10 @@ class Models:
         chain = AUTO_CHAIN
         if not self.settings.groq_key:
             chain = tuple(stage for stage in chain if not stage.startswith("groq"))
+        if not self.settings.mazlatest_key:  # keyless 9router stage only burns ~2 s before local
+            chain = tuple(stage for stage in chain if stage != "mazlatest")
+        if not self.settings.openrouter_api_key:
+            chain = tuple(stage for stage in chain if stage != "openrouter")
         if self._cloud_is_independent_of_mazlatest():
             return chain
         return tuple(stage for stage in chain if stage != "cloud")
