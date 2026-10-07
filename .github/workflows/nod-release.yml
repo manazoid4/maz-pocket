@@ -1,0 +1,82 @@
+name: nod release
+
+on:
+  push:
+    branches: [deploy/local]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nod-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+            ~/.cache/ms-playwright
+          key: nod-${{ runner.os }}-${{ hashFiles('platformio.ini', 'host/requirements.txt') }}
+          restore-keys: nod-${{ runner.os }}-
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio pytest playwright -r host/requirements.txt
+          pip install "click>=8.0.4,<8.4"
+          python -m playwright install --with-deps chromium
+
+      - name: Core tests
+        run: python -m pytest host/tests -q
+
+      - name: Build firmware
+        run: pio run -e cardputer-adv
+
+      - name: Size gate
+        run: |
+          size=$(stat -c %s .pio/build/cardputer-adv/firmware.bin)
+          limit=1572864
+          echo "firmware.bin: $size bytes of $limit ($((size * 100 / limit))%)"
+          echo "### Firmware size" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`firmware.bin\` = **$size** bytes of $limit ($((size * 100 / limit))%), headroom $((limit - size))" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt "$limit" ]; then echo "::error::firmware.bin exceeds app slot"; exit 1; fi
+
+      - name: Manifest
+        run: python scripts/fw_manifest.py .pio/build/cardputer-adv/firmware.bin dist/
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          CORE_VERSION=$(PYTHONPATH=host python -c "from mazhost.version import CORE_VERSION; print(CORE_VERSION)")
+          TAG="nod-v${VERSION}-b${RUN_NUMBER}"
+          mkdir -p out
+          cp dist/latest.bin out/nod-fw.bin
+          python scripts/nod_release_manifest.py dist/manifest.json out/nod-manifest.json "$TAG" "$CORE_VERSION"
+          PREV=$(git tag --list 'nod-v*' --sort=-creatordate | head -1)
+          if [ -n "$PREV" ]; then
+            git log --no-merges --format='- %s' "$PREV..$SHA" > notes.md
+          fi
+          if [ ! -s notes.md ]; then git log -1 --format='- %s' "$SHA" > notes.md; fi
+          gh release create "$TAG" out/nod-fw.bin out/nod-manifest.json \
+            --target "$SHA" --title "nod v${VERSION} build ${RUN_NUMBER}" \
+            --notes-file notes.md --latest
+          echo "Released $TAG" >> "$GITHUB_STEP_SUMMARY"
