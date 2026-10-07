@@ -207,7 +207,10 @@ public:
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
         if (_qr) { renderQr(g); return; }
-        ui::header(g, "BEAM", host_worker::busy() ? host_worker::stateName() : "TEXT / LINK");
+        static char sub[16];
+        snprintf(sub, sizeof(sub), "%u QUEUED", Sys.outboxQueued);
+        ui::header(g, "BEAM", host_worker::busy() ? host_worker::stateName()
+                              : Sys.outboxQueued ? sub : "TEXT / LINK");
         if (_editing) {
             g.setFont(&fonts::Font0);
             g.setTextColor(DIM, BG);
