@@ -22,6 +22,7 @@ from .authority import AuthorityBroker
 from .beam import BeamStore
 from .braindump import structure_braindump
 from .dump_routes import build_dump_router, save_safely
+from .library_routes import build_library_router
 from .bridge import BridgeWorker
 from .buddy import install_buddy_routes
 from .commands import parse_command
@@ -866,6 +867,7 @@ def create_app(
 
     api.include_router(build_dump_router(cfg, model_router))
     api.include_router(webui_router)
+    api.include_router(build_library_router(cfg, model_router))
     install_buddy_routes(api)
     install_focus_routes(api, focus)
 
