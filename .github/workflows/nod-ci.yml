@@ -1,0 +1,68 @@
+name: nod CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nod-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: nod-${{ runner.os }}-${{ hashFiles('platformio.ini', 'host/requirements.txt') }}
+          restore-keys: nod-${{ runner.os }}-
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio pytest -r host/requirements.txt
+
+      - name: Core tests
+        run: python -m pytest host/tests -q
+
+      - name: Build firmware
+        run: pio run -e cardputer-adv
+
+      - name: Size gate
+        run: |
+          size=$(stat -c %s .pio/build/cardputer-adv/firmware.bin)
+          limit=1572864
+          echo "firmware.bin: $size bytes of $limit ($((size * 100 / limit))%)"
+          echo "### Firmware size" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`firmware.bin\` = **$size** bytes of $limit ($((size * 100 / limit))%), headroom $((limit - size))" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt "$limit" ]; then echo "::error::firmware.bin exceeds app slot"; exit 1; fi
+
+      - name: Manifest
+        run: python scripts/fw_manifest.py .pio/build/cardputer-adv/firmware.bin dist/
+
+      - name: Stage artifact
+        run: |
+          mkdir -p out
+          cp dist/latest.bin out/nod-fw.bin
+          cp dist/manifest.json out/manifest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nod-fw-${{ github.event.pull_request.head.sha || github.sha }}
+          path: out/
+          if-no-files-found: error
