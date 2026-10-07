@@ -52,6 +52,10 @@ const char* gErr      = "";
 File    gPlayFile;
 bool    gPlaying = false;
 int16_t gPlayBuf[2][BLOCK];
+constexpr uint8_t kPlayCh = 0;  // dedicated channel: sfx tones use auto channels
+bool     gPlayEof = false;
+size_t   gPlayBytes = 0;
+uint32_t gPlayStartMs = 0;
 uint8_t gPlayIdx = 0;
 
 void measure(const int16_t* s, size_t n) {
@@ -198,18 +202,26 @@ void update() {
     }
 
     if (gPlaying) {
-        // Keep at most one block queued so ESC stops playback promptly.
-        if (M5.Speaker.isPlaying() < 2) {
+        // isPlaying() with no argument is a bool, so "< 2" was always true:
+        // the whole file was queued in one tick (buffers overwritten) and then
+        // stopPlayback() cut the sound dead. Use the per-channel queue depth.
+        if (M5.Speaker.isPlaying(kPlayCh) < 2 && !gPlayEof) {
             const size_t n =
                 gPlayFile.read(reinterpret_cast<uint8_t*>(gPlayBuf[gPlayIdx]),
                                BLOCK * sizeof(int16_t)) /
                 sizeof(int16_t);
             if (n == 0) {
-                stopPlayback();
-                return;
+                gPlayEof = true;
+            } else {
+                gPlayBytes += n * 2;
+                M5.Speaker.playRaw(gPlayBuf[gPlayIdx], n, SAMPLE_RATE, false, 1, kPlayCh, false);
+                gPlayIdx = 1 - gPlayIdx;
             }
-            M5.Speaker.playRaw(gPlayBuf[gPlayIdx], n, SAMPLE_RATE, false, 1, -1);
-            gPlayIdx = 1 - gPlayIdx;
+        }
+        // Let the queued tail finish before closing, or the last words are cut.
+        if (gPlayEof && M5.Speaker.isPlaying(kPlayCh) == 0) {
+            Serial.printf("[voice] play end bytes=%u ms=%u\n", (unsigned)gPlayBytes, (unsigned)(millis() - gPlayStartMs));
+            stopPlayback();
         }
     }
 }
@@ -288,11 +300,21 @@ bool play(const std::string& wavPath) {
     gPlayFile = store::fs()->open(wavPath.c_str(), FILE_READ);
     if (!gPlayFile) {
         gErr = "cannot open recording";
+        Serial.printf("[voice] play open FAIL path=%s\n",wavPath.c_str());
         return false;
     }
-    gPlayFile.seek(sizeof(WavHeader));  // we only ever read our own headers
+    uint8_t hdr[sizeof(WavHeader)] = {0};
+    gPlayFile.read(hdr, sizeof(hdr));  // 44-byte PCM header (Core /speak and our own recordings)
+    const uint16_t fmt = hdr[20] | (hdr[21] << 8), ch = hdr[22] | (hdr[23] << 8);
+    const uint32_t rate = hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | ((uint32_t)hdr[27] << 24);
+    Serial.printf("[voice] play path=%s size=%u hdr riff=%d data=%d fmt=%u ch=%u rate=%lu vol=%u\n",
+                  wavPath.c_str(), (unsigned)gPlayFile.size(), memcmp(hdr, "RIFF", 4) == 0,
+                  memcmp(hdr + 36, "data", 4) == 0, fmt, ch, (unsigned long)rate, Cfg.volume);
     M5.Speaker.begin();
     M5.Speaker.setVolume(Cfg.volume);
+    gPlayEof = false;
+    gPlayBytes = 0;
+    gPlayStartMs = millis();
     gPlaying = true;
     gState   = State::Playing;
     gPlayIdx = 0;
