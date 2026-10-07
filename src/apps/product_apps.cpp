@@ -221,7 +221,7 @@ void updateProductServices() {
 
             store::Record answer;
             answer.kind="inbox"; answer.status="open";
-            answer.title=item.source == "talk" ? "MAZ answer" : "BrainDump processed";
+            answer.title=item.source == "talk" ? "nod answer" : "BrainDump processed";
             answer.body=result.text; answer.source=result.provider; answer.ref=item.ref;
             if (!store::addRecord(answer)) break;
 

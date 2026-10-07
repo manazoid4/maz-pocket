@@ -5,6 +5,7 @@
 #include <M5Unified.h>
 
 #include <string>
+#include <vector>
 
 #include "theme.h"
 
@@ -26,7 +27,7 @@ void bigValue(M5Canvas& g, const char* value, const char* caption,
               uint16_t colour = theme::TEXT);
 void progress(M5Canvas& g, int x, int y, int w, int h, float pct, uint16_t colour);
 
-// --- MAZ identity ---------------------------------------------------------
+// --- nod identity ---------------------------------------------------------
 // The mark: a struck ring with a solid core. Drawn, never bitmapped, so it
 // stays crisp at any size and carries no third-party asset licence.
 void mark(M5Canvas& g, int cx, int cy, int r, uint16_t colour, float energy = 0.f);
@@ -34,14 +35,19 @@ void wordmark(M5Canvas& g, int cx, int y, uint16_t colour);
 
 // --- state words ----------------------------------------------------------
 // One word set and one colour per state, shared by Home and Call.
-enum class Phase : uint8_t { Ready, Listening, Thinking, Speaking, NeedsYou, Offline, Error, Update };
+enum class Phase : uint8_t { Ready, Listening, Thinking, Speaking, NeedsYou, Offline, Error, Update, Saved };
 struct StatusWord { const char* text; uint16_t colour; };
 StatusWord statusWord(Phase p);
 // Small face drawn from primitives: s px square at (x, y). Thinking and
 // NeedsYou animate with a 2-frame loop driven by millis().
 void glyph(M5Canvas& g, int x, int y, int s, Phase p);
+// The state word in its one look: READY plain, LISTENING orange, THINKING with a
+// blinking dot, SAVED green, NEEDS YOU / UPDATE an inverse block, ERROR red.
+// Uses the current font; `center` treats x as the centre. text=null: stock word.
+void stateWord(M5Canvas& g, int x, int y, Phase p, const char* text = nullptr, bool center = false);
 
 // --- text -----------------------------------------------------------------
+std::vector<std::string> wrap(const std::string& text, size_t cols);
 std::string ellipsis(const std::string& s, size_t maxChars);
 std::string hhmmss(uint32_t seconds);
 std::string humanSize(size_t bytes);

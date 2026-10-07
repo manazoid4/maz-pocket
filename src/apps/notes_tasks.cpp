@@ -25,22 +25,11 @@ void drawWrapped(M5Canvas& g, const std::string& text, int fromLine) {
     g.setTextColor(TEXT, BG);
     g.setTextDatum(top_left);
 
-    const size_t cols  = 28;
-    int          line  = 0, drawn = 0;
-    size_t       i     = 0;
-    while (i < text.size() && drawn < 5) {
-        size_t eol = text.find('\n', i);
-        if (eol == std::string::npos) eol = text.size();
-        for (size_t s = i; s < eol || s == i; s += cols) {
-            if (line++ < fromLine) continue;
-            if (drawn >= 5) break;
-            const size_t n = std::min(cols, eol - s);
-            g.drawString(text.substr(s, n).c_str(), PAD,
-                         BODY_Y + 24 + drawn * 15);
-            drawn++;
-            if (n < cols) break;
-        }
-        i = eol + 1;
+    const std::vector<std::string> lines = ui::wrap(text, 28);
+    for (int d = 0; d < 5; ++d) {
+        const size_t idx = static_cast<size_t>(fromLine + d);
+        if (idx >= lines.size()) break;
+        g.drawString(lines[idx].c_str(), PAD, BODY_Y + 24 + d * 15);
     }
 }
 

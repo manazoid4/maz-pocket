@@ -31,7 +31,7 @@ std::string pct(int value) {
 class LaptopApp : public App {
 public:
     const char* id() const override { return "laptop"; }
-    const char* title() const override { return "Laptop"; }
+    const char* title() const override { return "Hub"; }
     const char* hints() const override { return "R refresh   Fn+F FIELD   ESC back"; }
 
     void onEnter() override {
@@ -65,7 +65,7 @@ public:
     }
 
     std::string contextSnapshot() const override {
-        if (!Sys.laptopStatusOk) return "Laptop status unavailable";
+        if (!Sys.laptopStatusOk) return "hub status unavailable";
         std::string s = "CPU " + pct(Sys.laptopCpuPct) + ", RAM " + pct(Sys.laptopRamPct);
         if (Sys.laptopGpuAvailable)
             s += ", GPU " + pct(Sys.laptopGpuPct) + ", VRAM " +
@@ -77,15 +77,15 @@ public:
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
-        ui::header(g, "LAPTOP", Cfg.fieldMode ? "FIELD" : "ON DEMAND");
+        ui::header(g, "HUB", Cfg.fieldMode ? "FIELD" : "ON DEMAND");
         g.setFont(&fonts::Font0);
         g.setTextDatum(top_left);
 
         if (!Sys.laptopStatusOk) {
             const bool loading = host_worker::jobKind() == host_worker::JobKind::SystemStatus &&
                                  host_worker::busy();
-            ui::emptyState(g, loading ? "Reading laptop..." : "Laptop unavailable",
-                           loading ? "one lightweight snapshot" : "R retry / Core may be offline");
+            ui::emptyState(g, loading ? "Reading hub..." : "hub unavailable",
+                           loading ? "one lightweight snapshot" : "R retry / hub may be offline");
             return;
         }
 
@@ -199,7 +199,7 @@ public:
     }
 
     std::string contextSnapshot() const override {
-        if (_editing) return "Composing a Beam to the laptop";
+        if (_editing) return "Composing a Beam to the hub";
         if (_rows.empty()) return "Beam inbox empty";
         return _rows[_cursor.sel].title + ": " + _rows[_cursor.sel].body.substr(0, 180);
     }
@@ -214,12 +214,12 @@ public:
         if (_editing) {
             g.setFont(&fonts::Font0);
             g.setTextColor(DIM, BG);
-            g.drawString("SEND TO LAPTOP / queues offline", PAD, BODY_Y + 22);
+            g.drawString("SEND TO HUB / queues offline", PAD, BODY_Y + 22);
             _field.draw(g, PAD, BODY_Y + 40, SCREEN_W - PAD * 2, "text or https://...");
             return;
         }
         if (_rows.empty()) {
-            ui::emptyState(g, "No Beam received", "N sends text to the laptop");
+            ui::emptyState(g, "No Beam received", "N sends text to the hub");
             return;
         }
         const auto& r = _rows[_cursor.sel];

@@ -88,15 +88,15 @@ public:
                         ui::ellipsis(a.name, 17).c_str(), a.state.c_str());
         }
         if (_summary.agents.empty())
-            ui::emptyState(g, _summary.ok ? "No active agents" : "PC unavailable",
-                           _summary.ok ? "Agent Nudge has nothing pending" : "Call PC or check connection");
+            ui::emptyState(g, _summary.ok ? "No active agents" : "hub unavailable",
+                           _summary.ok ? "Agent Nudge has nothing pending" : "Call hub or check connection");
     }
 
 private:
     void refresh() {
         _summary = host::assurance();
-        if (!_summary.ok) _status = "PC OFFLINE";
-        else if (_summary.questionForMaz) _status = "NEEDS MAZ";
+        if (!_summary.ok) _status = "HUB OFFLINE";
+        else if (_summary.questionForMaz) _status = "NEEDS NOD";
         else if (_summary.overdue) _status = std::to_string(_summary.overdue) + " OVERDUE";
         else if (_summary.needsNudge) _status = std::to_string(_summary.needsNudge) + " NUDGE DUE";
         else if (_summary.waiting) _status = std::to_string(_summary.waiting) + " WAITING";
@@ -110,7 +110,7 @@ private:
     host::Assurance _summary;
     ListCursor _cursor;
     bool _detail = false;
-    std::string _status = "PC OFFLINE";
+    std::string _status = "HUB OFFLINE";
 };
 
 }  // namespace

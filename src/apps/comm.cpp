@@ -30,25 +30,7 @@ std::string gCommSession;
 
 // Word-wrap `text` to REPLY_CHARS columns and draw REPLY_LINES lines from `first`.
 void drawCommWrapped(M5Canvas& g, const std::string& text, int y, int first = 0) {
-    std::vector<std::string> lines;
-    std::string line;
-    size_t i = 0;
-    while (i < text.size()) {
-        size_t e = text.find(' ', i);
-        if (e == std::string::npos) e = text.size();
-        std::string word = text.substr(i, e - i);
-        i = e + 1;
-        while (word.size() > static_cast<size_t>(REPLY_CHARS)) {  // very long token
-            if (!line.empty()) { lines.push_back(line); line.clear(); }
-            lines.push_back(word.substr(0, REPLY_CHARS));
-            word.erase(0, REPLY_CHARS);
-        }
-        if (!line.empty() && line.size() + 1 + word.size() > static_cast<size_t>(REPLY_CHARS)) {
-            lines.push_back(line); line.clear();
-        }
-        line += line.empty() ? word : " " + word;
-    }
-    if (!line.empty()) lines.push_back(line);
+    const std::vector<std::string> lines = ui::wrap(text, REPLY_CHARS);
     g.setFont(&fonts::Font0);
     g.setTextColor(TEXT, BG);
     g.setTextDatum(top_left);
@@ -63,7 +45,7 @@ struct ControlAction { const char* key; const char* label; const char* hint; };
 constexpr ControlAction CONTROLS[] = {
     {"desktop", "DESKTOP", "show / hide desktop"},
     {"play_pause", "PLAY", "play or pause media"},
-    {"mute", "MUTE", "toggle PC sound"},
+    {"mute", "MUTE", "toggle hub sound"},
     {"volume_down", "VOL -", "lower volume"},
     {"volume_up", "VOL +", "raise volume"},
     {"lock", "LOCK", "lock Windows"},
@@ -72,19 +54,19 @@ constexpr int CONTROL_COUNT = sizeof(CONTROLS) / sizeof(CONTROLS[0]);
 
 const char* controlLabel(const std::string& action) {
     for (const auto& item : CONTROLS) if (action == item.key) return item.label;
-    return "PC COMMAND";
+    return "HUB COMMAND";
 }
 
 class CommApp : public App {
 public:
     const char* id() const override { return "talk"; }
-    const char* title() const override { return "CALL MAZ"; }
+    const char* title() const override { return "CALL NOD"; }
 
     const char* hints() const override {
         if (_controlMode) return "</> choose  ENTER send  C back";
         if (voice::state() == voice::State::Listening)
             return field::contextArmed() ? "SPACE release to ask" : "SPACE release to send";
-        if (working()) return canCancel() ? "ESC cancel" : "ESC leave, MAZ keeps going";
+        if (working()) return canCancel() ? "ESC cancel" : "ESC leave, nod keeps going";
         if (voice::isPlaying()) return "SPACE stop  P replay";
         if (!_err.empty()) return "SPACE retry  W wifi";
         if (!_reply.empty()) return "SPACE talk  P replay  ENTER say";
@@ -139,7 +121,7 @@ public:
             if (voice::isPlaying()) voice::stopPlayback();
             consumeWorkerResult();
             if (working()) {
-                notify::post(Note::Info, "MAZ is thinking", canCancel() ? "ESC cancels" : "result will wait for you");
+                notify::post(Note::Info, "nod is thinking", canCancel() ? "ESC cancels" : "result will wait for you");
                 return true;
             }
             if (voice::state() != voice::State::Listening) beginTake();
@@ -199,7 +181,7 @@ public:
             Cfg.ttsEnabled = !Cfg.ttsEnabled;
             Cfg.save();
             if (!Cfg.ttsEnabled) voice::stopPlayback();
-            notify::post(Note::Info, "Voice replies", Cfg.ttsEnabled ? "ON - MAZ will speak" : "OFF - text only");
+            notify::post(Note::Info, "Voice replies", Cfg.ttsEnabled ? "ON - nod will speak" : "OFF - text only");
             invalidate();
             return true;
         }
@@ -223,8 +205,8 @@ public:
     }
 
     std::string contextSnapshot() const override {
-        if (!_reply.empty()) return "Call MAZ last reply: " + _reply.substr(0, 180);
-        return field::contextArmed() ? "Call MAZ preparing screen question" : "Call MAZ voice line";
+        if (!_reply.empty()) return "Call nod last reply: " + _reply.substr(0, 180);
+        return field::contextArmed() ? "Call nod preparing screen question" : "Call nod voice line";
     }
 
     void render(M5Canvas& g) override {
@@ -238,17 +220,21 @@ public:
             const std::string t = "00:" + two(voice::elapsedSeconds());
             state(g, Phase::Listening,
                   (t + (field::contextArmed() ? "  asking about screen" : "  release to send")).c_str());
+            ui::progress(g, PAD, REPLY_Y, SCREEN_W - PAD * 2, 6, voice::level(), LIVE);
         } else if (working() && host_worker::peekTalkText(early)) {
             state(g, Phase::Thinking, "voice loading...");
             drawCommWrapped(g, early, REPLY_Y, 0);
         } else if (busy) {
             state(g, Phase::Thinking,
-                  host_worker::state() == host_worker::State::Queued ? "waiting for PC" : "MAZ is working on it");
+                  host_worker::state() == host_worker::State::Queued ? "waiting for hub" : "nod is working on it");
         } else if (voice::isPlaying()) {
             state(g, Phase::Speaking, "SPACE stops the voice");
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
         } else if (!_err.empty()) {
             state(g, Phase::Error, _err.c_str());
+            g.setFont(&fonts::Font0);
+            g.setTextColor(ERR, BG);
+            g.drawString("ESC back", PAD, REPLY_Y);
         } else if (!_reply.empty()) {
             state(g, Phase::Ready, (std::string(routeName()) + (Cfg.ttsEnabled ? " / voice on" : " / text only")).c_str());
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
@@ -280,9 +266,7 @@ private:
         float scale = STATE_SCALE;  // shrink until the word fits the screen
         g.setTextSize(scale);
         while (scale > 1.f && g.textWidth(word) > SCREEN_W - SIDE * 2) { scale -= 0.25f; g.setTextSize(scale); }
-        g.setTextDatum(top_center);
-        g.setTextColor(sw.colour, BG);
-        g.drawString(word, SCREEN_W / 2, STATE_Y);
+        ui::stateWord(g, SCREEN_W / 2, STATE_Y, p, word, true);
         g.setTextSize(1);
         g.setFont(&fonts::Font2);
         g.setTextColor(DIM, BG);
@@ -291,7 +275,7 @@ private:
     }
 
     void renderControl(M5Canvas& g) {
-        ui::header(g, "PC QUICK CONTROL", host::linkName());
+        ui::header(g, "HUB QUICK CONTROL", host::linkName());
         const int prev = (_controlSel + CONTROL_COUNT - 1) % CONTROL_COUNT;
         const int next = (_controlSel + 1) % CONTROL_COUNT;
         g.setTextDatum(top_center);
@@ -312,7 +296,7 @@ private:
     }
 
     void runControl() {
-        if (host_worker::busy()) { notify::post(Note::Info, "PC busy", "wait for current action"); return; }
+        if (host_worker::busy()) { notify::post(Note::Info, "hub busy", "wait for current action"); return; }
         const auto& control = CONTROLS[_controlSel];
         if (!host_worker::submitPcAction(control.key)) {
             notify::post(Note::Error, "Command not queued", host_worker::stateName());
@@ -403,10 +387,10 @@ private:
             const char* label = controlLabel(result.action);
             if (result.reply.ok) {
                 sfx::confirm();
-                notify::post(Note::Success, label, result.reply.text.empty() ? "PC acknowledged" : result.reply.text);
+                notify::post(Note::Success, label, result.reply.text.empty() ? "hub acknowledged" : result.reply.text);
             } else {
                 sfx::error();
-                notify::post(Note::Error, "Command failed", result.reply.error.empty() ? "PC unavailable" : result.reply.error);
+                notify::post(Note::Error, "Command failed", result.reply.error.empty() ? "hub unavailable" : result.reply.error);
             }
             invalidate();
             return;
@@ -430,7 +414,7 @@ private:
         Serial.printf("[call] ok=%d status=%d err=%s wav=%s\n", result.reply.ok, result.reply.status,
                       result.reply.error.c_str(), result.wavPath.c_str());
         if (!result.reply.ok) {
-            queueRaw(result.wavPath, result.reply.error.empty() ? "PC unavailable" : result.reply.error, result.context);
+            queueRaw(result.wavPath, result.reply.error.empty() ? "hub unavailable" : result.reply.error, result.context);
             _err = failReason(result.reply);
             sfx::error();
             notify::post(Note::Warn, _err, "voice call kept in outbox");
@@ -446,7 +430,7 @@ private:
         store::Record answer;
         answer.kind = "inbox";
         answer.status = "open";
-        answer.title = result.context.empty() ? "CALL MAZ" : "ASK SCREEN";
+        answer.title = result.context.empty() ? "CALL NOD" : "ASK SCREEN";
         answer.body = result.reply.text;
         answer.source = result.reply.provider;
         answer.ref = result.wavPath;
@@ -469,8 +453,8 @@ private:
             voice::holdOpen(false);
         }
         sfx::confirm();
-        notify::post(Note::Success, result.context.empty() ? "MAZ answered" : "Screen answer ready",
-                     result.reply.provider.empty() ? "MAZ Core" : result.reply.provider);
+        notify::post(Note::Success, result.context.empty() ? "nod answered" : "Screen answer ready",
+                     result.reply.provider.empty() ? "hub" : result.reply.provider);
         invalidate();
     }
 
@@ -520,9 +504,9 @@ private:
     static std::string failReason(const host::Reply& r) {
         const std::string& e = r.error;
         auto has = [&](const char* k) { return e.find(k) != std::string::npos; };
-        if (r.status <= 0 || has("unreachable") || has("offline") || has("Core")) {
+        if (r.status <= 0 || has("unreachable") || has("offline") || has("hub")) {
             const char* link = linkSentence(false);
-            return link ? link : "Core not answering. Retry.";
+            return link ? link : "hub not answering. Retry.";
         }
         if (r.status == 429 || r.status == 502 || r.status == 503 || r.status == 504 ||
             has("busy") || has("LLM") || has("brain") || has("model"))
@@ -538,7 +522,7 @@ private:
         store::Record queued;
         queued.kind = "outbox";
         queued.status = "queued";
-        queued.title = context.empty() ? "Call MAZ voice turn" : "Ask Screen voice turn";
+        queued.title = context.empty() ? "Call nod voice turn" : "Ask Screen voice turn";
         queued.body = context.empty() ? reason : context;
         queued.source = context.empty() ? "talk" : "talk-context";
         queued.ref = path;

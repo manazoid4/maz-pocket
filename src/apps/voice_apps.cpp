@@ -41,8 +41,8 @@ const char* stateName(voice::State s) {
 
 uint16_t stateColour(voice::State s) {
     switch (s) {
-        case voice::State::Listening: return ACCENT2;
-        case voice::State::Playing:   return OK;
+        case voice::State::Listening: return LIVE;
+        case voice::State::Playing:   return TEXT;
         case voice::State::Error:     return ERR;
         default:                      return DIM;
     }
@@ -54,7 +54,7 @@ uint16_t stateColour(voice::State s) {
 void drawVoiceFace(M5Canvas& g, voice::State st, const char* caption) {
     const bool live = st == voice::State::Listening;
     ui::mark(g, SCREEN_W / 2, BODY_Y + 42, 16,
-             live ? ACCENT2 : (st == voice::State::Playing ? OK : ACCENT),
+             live ? LIVE : ACCENT,
              live ? voice::level() : 0.f);
 
     g.setTextDatum(top_center);

@@ -251,7 +251,7 @@ public:
             _path = store::newPath("cache", "wav");
             if (host::say(_text, _path)) voice::play(_path);
             else _path.clear();
-            _note = _path.empty() ? "Say failed. Is Core on?" : "Playing. ENTER repeats.";
+            _note = _path.empty() ? "Say failed. Is hub on?" : "Playing. ENTER repeats.";
         } else if (e.code == KEY_BACKSPACE) {
             if (!_text.empty()) _text.pop_back();
             _note.clear();
@@ -272,7 +272,7 @@ public:
         g.setTextDatum(top_left);
         if (_text.empty()) {
             g.setTextColor(DIM, BG);
-            g.drawString("Type what MAZ should say", PAD, BODY_Y + 22);
+            g.drawString("Type what nod should say", PAD, BODY_Y + 22);
         } else {
             // Last two lines of 38 chars; the cursor sits on the newest one.
             const size_t n = _text.size();
@@ -496,7 +496,7 @@ public:
         g.fillScreen(BG);
         ui::header(g, "Voice", _items.empty() ? nullptr : "Fish");
         if (_items.empty()) {
-            ui::emptyState(g, _status.c_str(), "Core must be reachable");
+            ui::emptyState(g, _status.c_str(), "hub must be reachable");
             return;
         }
         const int total = (int)_items.size();
@@ -554,7 +554,7 @@ public:
                 } else {
                     Cfg.hostToken = _field.text; Cfg.firstRunComplete = true; Cfg.save();
                     _field.text.clear(); _hostSetup = 0;
-                    notify::post(Note::Success, "MAZ Host saved", Cfg.hostAddr);
+                    notify::post(Note::Success, "hub saved", Cfg.hostAddr);
                 }
                 invalidate(); return true;
             }
@@ -627,7 +627,7 @@ public:
         if (e.code == KEY_H) {
             const bool ok = net::probeHost();
             notify::post(ok ? Note::Success : Note::Warn,
-                         ok ? "MAZ Host reachable" : "MAZ Host not reachable",
+                         ok ? "hub reachable" : "hub not reachable",
                          Cfg.hostAddr.empty() ? "not configured" : Cfg.hostAddr);
             invalidate();
             return true;
@@ -646,7 +646,7 @@ public:
         g.fillScreen(BG);
 
         if (_hostSetup) {
-            ui::header(g, "MAZ Host setup", _hostSetup == 1 ? "ADDRESS" : "TOKEN");
+            ui::header(g, "hub setup", _hostSetup == 1 ? "ADDRESS" : "TOKEN");
             _field.draw(g, PAD, BODY_Y + 30, SCREEN_W - PAD * 2,
                         _hostSetup == 1 ? "192.168.1.20:8787" : "token from host setup");
             return;
@@ -692,7 +692,7 @@ public:
         const char* hostState = Cfg.hostAddr.empty()
                                     ? "NOT CONFIGURED"
                                     : (Sys.hostOnline ? "ONLINE" : "OFFLINE");
-        row(g, y, "MAZ HOST", hostState,
+        row(g, y, "HUB", hostState,
             Sys.hostOnline ? OK : (Cfg.hostAddr.empty() ? DIM : WARN));
         y += 16;
         if (!Cfg.hostAddr.empty()) {

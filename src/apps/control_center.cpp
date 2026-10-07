@@ -32,8 +32,8 @@ struct ControlItem {
 constexpr ControlItem CONTROL_ITEMS[] = {
     {"OVERVIEW",    "live state",      nullptr},
     {"WI-FI",       "scan / connect",  "network"},
-    {"MAZ CORE",    "PC / AI bridge",  nullptr},
-    {"PC COMMANDS", "media / lock",    "talk"},
+    {"HUB",    "HUB / AI bridge",  nullptr},
+    {"HUB COMMANDS", "media / lock",    "talk"},
     {"LIVE SCREEN", "mazpocket.local", nullptr},
     {"STORAGE",     "SD / flash",      nullptr},
     {"DIAGNOSTICS", "hardware tests",  "tools"},
@@ -125,7 +125,7 @@ private:
             draw(g, 0, line);
             snprintf(line, sizeof(line), "IP     %s", Sys.ip.empty() ? "-" : Sys.ip.c_str());
             draw(g, 1, line);
-            snprintf(line, sizeof(line), "PC     %s", host::linkName());
+            snprintf(line, sizeof(line), "hub     %s", host::linkName());
             draw(g, 2, line);
             snprintf(line, sizeof(line), "Agents %u work / %u wait", Sys.agentsWorking, Sys.agentsWaiting);
             draw(g, 3, line);
@@ -135,23 +135,23 @@ private:
             return;
         }
         if (idx == 2) {
-            ui::header(g, "MAZ CORE", host::linkName());
-            draw(g, 0, "Local PC brain + tools");
+            ui::header(g, "HUB", host::linkName());
+            draw(g, 0, "Local hub brain + tools");
             draw(g, 1, "AI: LFM2.5 8B via Ollama");
             draw(g, 2, Sys.hostOnline ? "Host reachable" : "Host offline / not paired");
             std::string addr = Cfg.hostAddr.empty() ? "Host: not configured" :
                                "Host: " + Cfg.hostAddr + ":" + std::to_string(Cfg.hostPort);
             draw(g, 3, addr.c_str());
-            draw(g, 4, "Web: Maz Works Core console");
+            draw(g, 4, "Web: Maz Works hub console");
             return;
         }
         if (idx == 4) {
             ui::header(g, "LIVE SCREEN", "2 FPS");
             draw(g, 0, "Open mazpocket.local");
-            draw(g, 1, "Unlock with MAZ token");
+            draw(g, 1, "Unlock with nod token");
             draw(g, 2, "LIVE SCREEN mirrors this LCD");
             draw(g, 3, "240x135 RGB565 / LAN");
-            draw(g, 4, "Core can proxy it remotely");
+            draw(g, 4, "hub can proxy it remotely");
             return;
         }
         if (idx == 5) {

@@ -133,7 +133,7 @@ Reply talkTextContext(const std::string& session, const std::string& text,
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -159,12 +159,12 @@ Reply beamSend(const std::string& text) {
         if (status < 200 || status >= 300) { out.error = jsonError(doc, "Beam failed"); return out; }
         fieldOnline();
         out.ok = true;
-        out.text = doc["reply"] | "BEAMED TO LAPTOP";
+        out.text = doc["reply"] | "BEAMED TO HUB";
         out.provider = "beam-local";
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -192,7 +192,7 @@ BeamMessage beamPull() {
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -206,7 +206,7 @@ SystemStatus systemStatus() {
         http.end();
         if (status <= 0) continue;
         JsonDocument doc;
-        if (deserializeJson(doc, body)) { out.error = "invalid laptop status"; return out; }
+        if (deserializeJson(doc, body)) { out.error = "invalid hub status"; return out; }
         if (status < 200 || status >= 300) { out.error = jsonError(doc, "status unavailable"); return out; }
         fieldOnline();
         out.ok = doc["ok"] | true;
@@ -233,7 +233,7 @@ SystemStatus systemStatus() {
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -332,7 +332,7 @@ WorkSummary workSummary() {
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -366,7 +366,7 @@ Reply workIncrement(const std::string& trackId, const std::string& eventTypeId) 
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 

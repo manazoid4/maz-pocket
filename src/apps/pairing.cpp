@@ -55,8 +55,8 @@ public:
     }
 
     std::string contextSnapshot() const override {
-        return std::string("MAZ pairing token ID ") + tokenId() +
-               "; short-lived phone pairing is MAZ Core /pair";
+        return std::string("nod pairing token ID ") + tokenId() +
+               "; short-lived phone pairing is hub /pair";
     }
 
     void render(M5Canvas& g) override {
@@ -90,7 +90,7 @@ public:
         } else if (!Cfg.hostAddr.empty()) {
             url = "http://" + Cfg.hostAddr + ":" + std::to_string(Cfg.hostPort) + "/pair/";
         } else {
-            url = "Configure MAZ Core first";
+            url = "Configure hub first";
         }
         g.setTextColor(DIM, BG);
         g.drawString("OPEN ON PHONE", PAD, BODY_Y + 87);
