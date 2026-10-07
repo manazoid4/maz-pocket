@@ -139,8 +139,8 @@ class SelfUpdater:
     def _client(self) -> httpx.Client:
         return self._http or httpx.Client(timeout=30, follow_redirects=True)
 
-    def _headers(self) -> dict:
-        h = {"Accept": "application/vnd.github+json", "User-Agent": "nod-core-selfupdate"}
+    def _headers(self, accept: str = "application/vnd.github+json") -> dict:
+        h = {"Accept": accept, "User-Agent": "nod-core-selfupdate"}
         if self._token:
             h["Authorization"] = f"Bearer {self._token}"
         return h
@@ -155,10 +155,13 @@ class SelfUpdater:
             log.info("selfupdate: no nod-v release found")
             return "no_release"
         tag = rel["tag_name"]
-        assets = {a.get("name"): a.get("browser_download_url") for a in rel.get("assets", [])}
+        # Private repo: browser_download_url 404s without a login session; the API asset url works with MAZ_GITHUB_TOKEN.
+        assets = {a.get("name"): (a.get("url") if self._token and a.get("url") else a.get("browser_download_url"))
+                  for a in rel.get("assets", [])}
+        dl_headers = self._headers("application/octet-stream") if self._token else {"User-Agent": "nod-core-selfupdate"}
         if MANIFEST_ASSET not in assets or FW_ASSET not in assets:
             raise RuntimeError(f"release {tag} missing assets")
-        mr = c.get(assets[MANIFEST_ASSET], headers={"User-Agent": "nod-core-selfupdate"})
+        mr = c.get(assets[MANIFEST_ASSET], headers=dl_headers)
         mr.raise_for_status()
         m = mr.json()
         for k in ("version", "sha256", "size", "git_sha"):
@@ -167,11 +170,11 @@ class SelfUpdater:
         self.state["latest_tag"] = tag
         self.state["latest_git_sha"] = m["git_sha"]
         log.info("selfupdate: latest release %s fw=%s core=%s", tag, m["version"], m.get("core_version"))
-        fw_result = self._stage_fw(c, m, assets[FW_ASSET])
+        fw_result = self._stage_fw(c, m, assets[FW_ASSET], dl_headers)
         return f"{fw_result}; {self._update_code(m)}"
 
     # ---- firmware -----------------------------------------------------
-    def _stage_fw(self, c: httpx.Client, m: dict, url: str) -> str:
+    def _stage_fw(self, c: httpx.Client, m: dict, url: str, headers: dict | None = None) -> str:
         cur = fw.manifest() or {}
         if cur.get("sha256") == m["sha256"]:
             log.info("selfupdate: fw already staged (%s)", m["sha256"][:12])
@@ -184,7 +187,7 @@ class SelfUpdater:
         h = hashlib.sha256()
         n = 0
         try:
-            with os.fdopen(fd, "wb") as f, c.stream("GET", url, headers={"User-Agent": "nod-core-selfupdate"}) as resp:
+            with os.fdopen(fd, "wb") as f, c.stream("GET", url, headers=headers or {"User-Agent": "nod-core-selfupdate"}) as resp:
                 resp.raise_for_status()
                 for chunk in resp.iter_bytes():
                     f.write(chunk)
