@@ -78,6 +78,15 @@ summary { cursor: pointer; color: var(--dim); display: block; min-height: 44px; 
 .btn { background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px 14px; min-height: 44px; cursor: pointer; }
 .btn:hover { border-color: var(--text); }
 .btn:disabled { opacity: .6; cursor: not-allowed; }
+body.view-needs #app { display: none; }
+#needs { max-width: 1100px; margin: 0 auto; }
+#needs[hidden] { display: none; }
+#needhead { margin: 0 0 8px; font-size: 2rem; }
+#needhead.zero { color: var(--ok); }
+#needlist { list-style: none; margin: 0; padding: 0; }
+#needlist li button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px; cursor: pointer; }
+#needlist li button:hover, #needlist li button[aria-current="true"] { background: var(--panel); }
+#needlist li button[aria-current="true"] { box-shadow: inset 3px 0 var(--accent); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .chip { border: 1px solid var(--ctl); background: transparent; border-radius: 999px; padding: 4px 16px; min-height: 44px; cursor: pointer; color: var(--dim); }
@@ -117,6 +126,10 @@ summary { cursor: pointer; color: var(--dim); display: block; min-height: 44px; 
 <body>
 <header>
   <h1><span>nod</span> inbox</h1>
+  <nav class="chips" id="tabs" role="group" aria-label="View" style="margin:0">
+    <button class="chip" type="button" id="tab-inbox" aria-pressed="true">Inbox</button>
+    <button class="chip" type="button" id="tab-needs" aria-pressed="false">Needs you <span id="needn"></span></button>
+  </nav>
   <span id="conn"></span>
 </header>
 
@@ -125,6 +138,13 @@ summary { cursor: pointer; color: var(--dim); display: block; min-height: 44px; 
   <input id="tokin" type="password" autocomplete="off" spellcheck="false">
   <button class="btn primary" type="submit">Use token</button>
 </form>
+
+<section id="needs" aria-label="Needs you" hidden>
+  <h2 id="needhead"></h2>
+  <div id="needwarn" class="hint" role="status"></div>
+  <ul id="needlist"></ul>
+  <p class="hint"><kbd>J</kbd>/<kbd>K</kbd> move, <kbd>E</kbd> done, <kbd>H</kbd> snooze 24 h. Approvals are decided on the device.</p>
+</section>
 
 <main id="app">
   <div id="rec">
@@ -186,6 +206,9 @@ const API = {
   get: (id) => API.call("GET", "/dumps/" + encodeURIComponent(id)),
   saveText: (text) => API.call("POST", "/dumps", { json: { text, source: "web" } }), // -> {dump_id, project}
   done: (id) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/done", { json: { agent: "web", note: "" } }),
+  needs: () => API.call("GET", "/needs"),
+  needDone: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/done"),
+  needSnooze: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/snooze?hours=24"),
   assign: (id, project) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/assign", { json: { project } }),
   // Core's brain dump endpoint: body = audio bytes (WAV mono 16-bit), optional X-MAZ-Highlights header.
   audio: (blob) => API.call("POST", "/braindump/raw", { body: blob, type: blob.type || "audio/wav" }),
@@ -346,6 +369,47 @@ function renderDetail(d) {
 }
 $("detail").append(el("p", "Select a note. J and K move.", "empty"));
 
+/* ---- needs you ---- */
+const N = { items: [], sel: "", on: false };
+const TIER = { approvals: "APPROVE", prs: "PR", actions: "YOU" };
+function dur(s) { return s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h" : Math.floor(s / 86400) + " d"; }
+function renderNeeds(r) {
+  N.items = arr(r.items); $("needn").textContent = N.items.length ? "(" + N.items.length + ")" : "";
+  const h = $("needhead"); h.textContent = N.items.length ? N.items.length + " waiting" : "0 waiting"; h.classList.toggle("zero", !N.items.length);
+  $("needwarn").textContent = arr(r.warnings).join(" | ");
+  if (!N.items.some((i) => i.id === N.sel)) N.sel = N.items.length ? N.items[0].id : "";
+  keepFocus(() => {
+    const ul = $("needlist"); ul.replaceChildren();
+    for (const i of N.items) {
+      const li = el("li"), b = el("button"); b.type = "button"; b.dataset.key = "n:" + i.id;
+      if (i.id === N.sel) b.setAttribute("aria-current", "true");
+      const m = el("span", null, "meta"); m.append(el("span", TIER[i.tier] || i.tier, "tag"));
+      m.append(" · " + [i.project, dur(i.age), i.detail].filter(Boolean).join(" · "));
+      b.append(el("span", i.title, "sum"), m);
+      b.onclick = () => { N.sel = i.id; renderNeeds(r); };
+      li.append(b); ul.append(li);
+    }
+  });
+}
+async function refreshNeeds() {
+  try { renderNeeds(await API.needs()); needToken(false); } catch (e) { toast(fail(e)); }
+}
+function showView(needs) {
+  N.on = needs; document.body.classList.toggle("view-needs", needs); $("needs").hidden = !needs;
+  $("tab-needs").setAttribute("aria-pressed", String(needs)); $("tab-inbox").setAttribute("aria-pressed", String(!needs));
+  $("rec").style.display = needs ? "none" : ""; document.body.style.setProperty("--barh", "0px");
+  if (needs) refreshNeeds();
+}
+$("tab-inbox").onclick = () => showView(false);
+$("tab-needs").onclick = () => showView(true);
+async function needAct(fn, msg) {
+  const i = N.items.find((x) => x.id === N.sel); if (!i) return;
+  if (i.tier === "approvals") { toast("Decide approvals on the device"); return; }
+  try { await fn(i.id); toast(msg); refreshNeeds(); } catch (e) { toast(fail(e)); }
+}
+setInterval(() => { if (!document.hidden && N.on) refreshNeeds(); }, 10000);
+(async () => { try { const r = await API.needs(); $("needn").textContent = arr(r.items).length ? "(" + arr(r.items).length + ")" : ""; } catch (e) {} })();
+
 /* ---- type instead ---- */
 async function saveText() {
   if (locked) return;
@@ -456,12 +520,21 @@ let spaceHeld = false;
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "Escape") { if (cancelRec() || (!typing() && closeDetail())) e.preventDefault(); return; }
-  if (e.code === "Space" && !typing()) {
+  if (e.code === "Space" && !typing() && !N.on) {
     e.preventDefault(); // also stops a focused button from scrolling/clicking on keydown
     if (!e.repeat) { spaceHeld = true; R.holdStart = true; startRec(); }
     return;
   }
   if (typing()) return;
+  if (N.on) {
+    if (e.key === "e") needAct(API.needDone, "Done");
+    else if (e.key === "h") needAct(API.needSnooze, "Snoozed 24 h");
+    else if (e.key === "j" || e.key === "k") {
+      const i = N.items.findIndex((x) => x.id === N.sel), n = N.items[e.key === "j" ? i + 1 : i - 1];
+      if (n) { N.sel = n.id; renderNeeds({ items: N.items, warnings: [] }); const b = document.querySelector('[data-key="n:' + CSS.escape(n.id) + '"]'); if (b) b.focus({ preventScroll: true }); }
+    }
+    return;
+  }
   if (e.key === "j" || e.key === "k") {
     const i = S.dumps.findIndex((d) => d.id === S.selected), n = e.key === "j" ? i + 1 : i - 1;
     if (S.dumps[n]) { select(S.dumps[n].id); const b = $("list").querySelector('[data-id="' + CSS.escape(S.dumps[n].id) + '"]'); if (b) { b.scrollIntoView({ block: "nearest" }); if (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.key) b.focus({ preventScroll: true }); } }
