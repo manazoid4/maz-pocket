@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     )
 
     token: str = "change-me-before-first-run"
+    discovery: bool = True  # MAZ_DISCOVERY=0 stops answering the Cardputer's LAN "where is Core?" broadcast
     autoupdate: bool = True  # MAZ_AUTOUPDATE=0 disables the GitHub Releases self-update loop
     update_interval_s: int = 300
     repo_dir: str = ""  # git checkout Core updates; default: the checkout containing mazhost

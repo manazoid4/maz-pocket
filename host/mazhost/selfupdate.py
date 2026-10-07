@@ -29,6 +29,11 @@ RELEASES_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=10"
 BRANCH = "deploy/local"
 FW_ASSET = "nod-fw.bin"
 MANIFEST_ASSET = "nod-manifest.json"
+PRIVATE_REPO_MSG = "repo is private - set MAZ_GITHUB_TOKEN or make it public"
+
+
+class UpdateError(RuntimeError):
+    """A failure whose message is already user-readable (shown as-is in GET /core/update)."""
 
 
 def find_repo_dir(configured: str = "") -> Path | None:
@@ -130,7 +135,8 @@ class SelfUpdater:
                 self.state["result"] = self._check()
             except Exception as e:
                 self.state["result"] = "error"
-                self.state["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+                self.state["error"] = (str(e) if isinstance(e, UpdateError)
+                                       else f"{type(e).__name__}: {str(e)[:200]}")
                 log.error("selfupdate: check failed: %s", self.state["error"])
             return self.status()
         finally:
@@ -149,6 +155,12 @@ class SelfUpdater:
         log.info("selfupdate: checking releases")
         c = self._client()
         r = c.get(RELEASES_URL, headers=self._headers())
+        if r.status_code in (401, 404):
+            # GitHub answers 404 (not 401) for a private repo when unauthenticated.
+            raise UpdateError(PRIVATE_REPO_MSG if not self._token else
+                              "repo not found or MAZ_GITHUB_TOKEN has no access to it")
+        if r.status_code == 403:
+            raise UpdateError("GitHub refused the request (rate limit?) - try again later")
         r.raise_for_status()
         rel = pick_release(r.json())
         if not rel:

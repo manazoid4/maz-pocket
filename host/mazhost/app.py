@@ -36,6 +36,7 @@ from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
 from .nudge import NudgeClient
+from .discovery import DiscoveryResponder
 from .pairing import build_pairing_app
 from .pc import PCController
 from .brain import maths_line, priorities_line, weather_line
@@ -181,6 +182,17 @@ def create_app(
     @api.on_event("shutdown")
     def stop_remote_detect() -> None:
         remote_info.stop()
+
+    discovery = DiscoveryResponder(port=cfg.port)
+
+    @api.on_event("startup")
+    def start_discovery() -> None:
+        if cfg.discovery:
+            discovery.start()
+
+    @api.on_event("shutdown")
+    def stop_discovery() -> None:
+        discovery.stop()
 
     @api.on_event("startup")
     async def start_selfupdate() -> None:

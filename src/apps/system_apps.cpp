@@ -238,7 +238,7 @@ private:
 const char* SET_NAMES[] = {"Brightness",    "Volume",        "UI sounds",
                            "Screen timeout", "Mic gain",     "Storage",
                            "Time zone",      "Wi-Fi & host", "Keys & help",
-                           "Voice"};
+                           "Voice",          "Connect to PC"};
 constexpr int SET_COUNT = sizeof(SET_NAMES) / sizeof(SET_NAMES[0]);
 
 class SettingsApp : public App {
@@ -304,6 +304,9 @@ public:
                 break;
             case 9:
                 if (e.code == KEY_ENTER) shell::pushById("voice");
+                break;
+            case 10:
+                if (e.code == KEY_ENTER) shell::pushById("connectpc");
                 break;
             default:
                 break;
@@ -481,7 +484,7 @@ public:
         if (_hostSetup) return "ENTER next/save   ESC cancel";
         if (_entering) return "ENTER connect   ESC cancel";
         if (_scanning) return "ENTER pick network";
-        return "W wifi  S scan  C host  H test";
+        return "W wifi  S scan  P connect PC  H test";
     }
 
     bool onKey(const KeyEvent& e) override {
@@ -565,7 +568,8 @@ public:
             invalidate();
             return true;
         }
-        if (e.code == KEY_C) {
+        if (e.code == KEY_P) { shell::pushById("connectpc"); return true; }
+        if (e.code == KEY_C) {  // hidden advanced path: manual address + token
             _hostSetup = 1; _field.text.clear(); invalidate(); return true;
         }
         if (e.code == KEY_H) {

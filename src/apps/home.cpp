@@ -124,7 +124,7 @@ public:
         g.setFont(&fonts::Font0);
         g.setTextDatum(bottom_right);
         g.setTextColor(DIM);
-        g.drawString(host::updateReady() ? "v" NOD_FW_VERSION "  U: update" : "v" NOD_FW_VERSION, SCREEN_W - 2, SCREEN_H - 1);
+        g.drawString(!host::configured() ? "v" NOD_FW_VERSION "  Ctrl+U: connect PC" : (host::updateReady() ? "v" NOD_FW_VERSION "  U: update" : "v" NOD_FW_VERSION), SCREEN_W - 2, SCREEN_H - 1);
     }
 
 private:

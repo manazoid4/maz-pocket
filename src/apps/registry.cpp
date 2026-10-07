@@ -27,6 +27,7 @@ const Descriptor TABLE[] = {
     {"network",    "Wi-Fi",       "WI-FI",  "wifi network scan connect reconnect hotspot",     KEY_W, false, makeNetworkV5},
     {"core",       "Projects & Builds", "CORE", "core pc projects builds tests git local ai",  0,     false, makeCoreConsole},
     {"pairing",    "Pairing & Phone", "PAIR", "pairing token token id phone approval full control", 0, false, makePairing},
+    {"connectpc",  "Connect to PC", "PC",   "connect pc pair code core setup link host",          0,     false, makeConnectPc},
     {"laptop",     "Laptop Status", "LAP",  "laptop cpu ram gpu vram battery ollama status",    0,     false, makeLaptop},
     {"beam",       "Send to PC",  "BEAM",   "beam laptop pocket text url clipboard offline",    0,     false, makeBeam},
     {"shift",      "Shift Clock", "SHIFT",  "shift work field elapsed timer log",               0,     false, makeShift},

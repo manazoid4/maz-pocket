@@ -10,7 +10,9 @@ Every `MAZ_UPDATE_INTERVAL_S` (default 300) Core picks the newest non-draft `nod
 - Rollback: the helper polls `/health` for 90 s expecting `git_sha` = the new sha. If it never appears it checks out the previous sha, reinstalls requirements, restarts, and writes a note to `logs/selfupdate.log`. The bad sha is added to `logs/selfupdate-bad.txt` and is not retried. If pip fails, the checkout is reverted immediately and no restart happens.
 - Non-Windows: code is updated on disk and "restart required" is logged.
 
-One-time setup: run `host\BOOTSTRAP-AUTOUPDATE.cmd [worktree]` on the PC (default `C:\Users\manaz\maz-pocket-deploy`). It updates the checkout, installs requirements, and re-points the "nod Core" task at that checkout (state stays in `%LOCALAPPDATA%\MAZ Core`).
+One-time setup: double-click `host\nod-setup.cmd`. It installs requirements and registers the "nod Core" task to run from the checkout (state stays in `%LOCALAPPDATA%\MAZ Core`). `BOOTSTRAP-AUTOUPDATE.cmd` now just forwards there.
+
+The repo is public, so no GitHub token is needed. If it is ever made private again, `GET /core/update` reports `repo is private - set MAZ_GITHUB_TOKEN or make it public`.
 
 ## Env vars (.env, prefix MAZ_)
 | var | default | meaning |

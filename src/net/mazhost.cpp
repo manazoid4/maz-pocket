@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include "remote_tls.h"
 #include <WiFi.h>
+#include <WiFiUdp.h>
 
 #include <utility>
 #include <vector>
@@ -198,6 +199,117 @@ std::string startSession() {
     }
     Sys.hostOnline = false;
     return "";
+}
+
+bool probeCore(const std::string& addr, uint16_t port, int timeoutMs) {
+    if (addr.empty() || WiFi.status() != WL_CONNECTED) return false;
+    WiFiClient c;
+    if (!c.connect(addr.c_str(), port, timeoutMs)) return false;
+    c.print("GET /health HTTP/1.0\r\nHost: nod\r\nConnection: close\r\n\r\n");
+    String resp;
+    const uint32_t t0 = millis();
+    while (millis() - t0 < 700 && resp.length() < 700 && (c.connected() || c.available())) {
+        while (c.available() && resp.length() < 700) resp += static_cast<char>(c.read());
+        delay(4);
+    }
+    c.stop();
+    return resp.indexOf("nod Core") >= 0;
+}
+
+namespace {
+// Ask the LAN "where is Core?". Core answers the datagram with "NOD-CORE {...}" from its own address.
+std::string broadcastFind(uint16_t port) {
+    WiFiUDP udp;
+    if (!udp.begin(48787)) return "";
+    const IPAddress targets[2] = {IPAddress(255, 255, 255, 255), WiFi.broadcastIP()};
+    for (const auto& ip : targets) {
+        udp.beginPacket(ip, port);
+        udp.write(reinterpret_cast<const uint8_t*>("NOD-CORE?"), 9);
+        udp.endPacket();
+    }
+    const uint32_t t0 = millis();
+    std::string ip;
+    while (millis() - t0 < 1400) {
+        const int n = udp.parsePacket();
+        if (n > 0) {
+            char buf[40] = {};
+            udp.read(buf, sizeof(buf) - 1);
+            if (!strncmp(buf, "NOD-CORE ", 9)) { ip = udp.remoteIP().toString().c_str(); break; }
+        }
+        delay(20);
+    }
+    udp.stop();
+    return ip;
+}
+}  // namespace
+
+bool FindCore::step() {
+    if (phase == Done) return true;
+    if (WiFi.status() != WL_CONNECTED) { phase = Done; return true; }
+    if (phase == Known) {
+        phase = Broadcast;
+        if (!Cfg.hostAddr.empty() && probeCore(Cfg.hostAddr, port, 600)) { found = Cfg.hostAddr; phase = Done; }
+        return phase == Done;
+    }
+    if (phase == Broadcast) {
+        phase = Scan;
+        const std::string ip = broadcastFind(port);
+        if (!ip.empty() && probeCore(ip, port, 600)) { found = ip; phase = Done; }
+        return phase == Done;
+    }
+    const IPAddress me = WiFi.localIP();
+    for (int i = 0; i < 6 && next <= 254; ++i, ++next) {
+        if (next == static_cast<int>(me[3])) continue;
+        char ip[20];
+        snprintf(ip, sizeof(ip), "%u.%u.%u.%d", me[0], me[1], me[2], next);
+        if (probeCore(ip, port, 140)) { found = ip; phase = Done; return true; }
+    }
+    if (next > 254) phase = Done;
+    return phase == Done;
+}
+
+int FindCore::percent() const {
+    switch (phase) {
+        case Known: return 2;
+        case Broadcast: return 8;
+        case Scan: return 10 + (next * 90) / 255;
+        default: return 100;
+    }
+}
+
+ClaimResult pairClaim(const std::string& addr, uint16_t port, const std::string& code) {
+    if (WiFi.status() != WL_CONNECTED || addr.empty()) return ClaimResult::NotFound;
+    JsonDocument req;
+    req["code"] = code;
+    String body;
+    serializeJson(req, body);
+    HTTPClient http;
+    if (!http.begin(("http://" + addr + ":" + std::to_string(port) + "/pair/claim").c_str()))
+        return ClaimResult::NotFound;
+    http.setConnectTimeout(3000);
+    http.setTimeout(8000);
+    http.addHeader("Content-Type", "application/json");
+    const int status = http.POST(body);
+    const String resp = status > 0 ? http.getString() : String();
+    http.end();
+    if (status <= 0) return ClaimResult::NotFound;
+    if (status == 400) return ClaimResult::WrongCode;
+    if (status == 429) return ClaimResult::TooMany;
+    if (status == 403) return ClaimResult::Refused;
+    if (status != 200) return ClaimResult::BadReply;
+    JsonDocument doc;
+    if (deserializeJson(doc, resp)) return ClaimResult::BadReply;
+    const std::string token = doc["token"] | "";
+    if (token.size() < 8 || token.size() > 200) return ClaimResult::BadReply;
+    Cfg.hostAddr = addr;
+    Cfg.hostPort = port;
+    Cfg.hostToken = token;
+    Cfg.firstRunComplete = true;
+    Cfg.save();
+    Sys.hostAddr = Cfg.hostAddr;
+    Sys.hostPort = Cfg.hostPort;
+    health();
+    return ClaimResult::Ok;
 }
 
 PairCode startPairing() {

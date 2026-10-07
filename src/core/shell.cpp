@@ -292,7 +292,9 @@ bool handleGlobalKey(const KeyEvent& e) {
     }
     // Ctrl+U: install the available firmware update from any screen (Ctrl never types text).
     if ((e.mods & MOD_CTRL) && e.code == KEY_U) {
-        if (host::updateReady()) {
+        if (!host::configured()) {  // not paired yet: the same key starts "Connect to PC"
+            if (gStack.empty() || strcmp(gStack.back()->id(), "connectpc")) pushById("connectpc");
+        } else if (host::updateReady()) {
             gFwConfirm = true;
         } else {
             notify::post(Note::Info, "No update", "firmware is current");

@@ -40,6 +40,7 @@ App* makeControlCenter();
 App* makeNetworkV5();
 App* makeCoreConsole();
 App* makePairing();
+App* makeConnectPc();
 App* makeNotes();
 App* makeFocus();
 App* makeTasks();

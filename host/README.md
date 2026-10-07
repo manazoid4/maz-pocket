@@ -6,7 +6,7 @@ MAZ Core is the Windows companion for MAZ Pocket. The Cardputer stays a small, r
 
 For a complete install use the root `MAZ-Pocket-v0.7-Install.zip` and double-click `START-HERE.cmd`.
 
-For Core by itself, extract `MAZ-Core-v0.7.zip` and run `INSTALL-MAZ-CORE.cmd`. Existing `.env` configuration is preserved by the normal installer path.
+For Core by itself, double-click `nod-setup.cmd` (see ../docs/SETUP.md). Existing `.env` configuration is preserved by the normal installer path.
 
 ## v0.7 FIELD services
 

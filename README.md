@@ -142,7 +142,7 @@ For remote use, keep MAZ Core behind a private VPN/tunnel rather than exposing a
 
 ## Pairing and Token ID
 
-Token hunting was too awkward in older builds.
+New devices pair with a short code (see Quickstart): nobody types the long token. The text below describes the Token ID and phone approval screens.
 
 Open **CONTROL → PAIRING + PHONE** to see:
 
@@ -197,9 +197,17 @@ From `mazpocket.local`:
 
 The currently installed MAZ image remains valid when you enter Launcher.
 
-## Installing / updating MAZ Core
+## Quickstart (3 steps, no token typing)
 
-Run `START-HERE.cmd` from the combined install package.
+1. **Get it**: download `nod-setup.cmd` (release asset) or clone this repo.
+2. **Double-click `nod-setup.cmd`** (`host\nod-setup.cmd` in a clone). It installs everything, starts nod Core and prints an 8-character pairing code.
+3. **On the Cardputer press Ctrl+U** and type the code. Done: the device finds your PC by itself.
+
+Safe to re-run any time (it updates in place). Full details and troubleshooting: [docs/SETUP.md](docs/SETUP.md).
+
+## Installing / updating MAZ Core (legacy package path)
+
+Prefer the quickstart above. The older combined package still works: run `START-HERE.cmd` from it.
 
 v1 setup remains explicitly opt-in:
 

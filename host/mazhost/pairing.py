@@ -141,6 +141,7 @@ def build_pairing_app(
         normalized = body.code.strip().upper()
         if not pairing_store.claim(normalized, client_ip):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_or_expired_code")
-        return {"token": settings.token}
+        # LAN-only: the remote guard (security.py) 403s /pair/* from Funnel/WAN peers.
+        return {"token": settings.token, "name": "nod Core"}
 
     return pair_app

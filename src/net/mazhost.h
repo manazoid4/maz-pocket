@@ -143,6 +143,26 @@ struct TeachStatus {
     int elapsedSeconds = 0;
 };
 
+// --- Short-code pairing: no token is ever typed on the device -------------------------------
+// FindCore locates Core in small non-blocking slices (call step() from update()):
+//   1. the last known address, 2. a UDP "NOD-CORE?" broadcast Core answers, 3. a /24 scan of the
+//   port hitting the unauthenticated minimal /health. mazpocket.local is the DEVICE's own name,
+//   so it is not a way to find Core.
+struct FindCore {
+    enum Phase : uint8_t { Known, Broadcast, Scan, Done };
+    Phase       phase = Known;
+    int         next  = 1;          // next last octet to probe during Scan
+    uint16_t    port  = 8787;
+    std::string found;              // Core IPv4 once located; empty when Done without a result
+    bool        step();             // one slice of work; true once finished
+    int         percent() const;    // 0..100 for a progress bar
+};
+bool probeCore(const std::string& addr, uint16_t port, int timeoutMs);
+
+enum class ClaimResult : uint8_t { Ok, NotFound, WrongCode, TooMany, Refused, BadReply };
+// POST /pair/claim {code}; on Ok stores addr + token in Cfg and saves. The token never leaves flash.
+ClaimResult pairClaim(const std::string& addr, uint16_t port, const std::string& code);
+
 bool configured();
 bool health();
 bool onRemoteLink();   // true while the active Core link is the remote HTTPS URL

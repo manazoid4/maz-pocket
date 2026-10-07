@@ -55,7 +55,7 @@ public:
             return true;
         }
         if (e.code == KEY_ENTER && !_status.ok) {
-            shell::pushById("wifi");
+            shell::pushById("connectpc");
             return true;
         }
         return false;
