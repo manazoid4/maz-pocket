@@ -1,13 +1,15 @@
-# MAZ Pocket — 8MB flash (ESP32-S3FN8), no PSRAM.
+# MAZ Pocket - 8MB flash (ESP32-S3FN8), no PSRAM.
 #
-# IMPORTANT: this CSV exists so standalone PlatformIO builds have a complete
-# 8 MB layout for compile/link checks and recovery work. MAZ Pocket v0.5 does
-# NOT self-update and does NOT own the device partition table when launched by
-# M5Launcher. M5Launcher chooses/owns the installed app slot; the release
-# artifact is an app-only image and must never be flashed at address 0x0.
+# THIS FILE IS NOT THE REAL DEVICE LAYOUT. On a Launcher-managed device,
+# M5Launcher owns and rewrites the partition table; this CSV only gives
+# standalone PlatformIO builds a complete 8 MB table for compile/link checks and
+# recovery work. The layout seen on the real device (Launcher Web UI) is recorded
+# in docs/OTA-LAYOUT.md: Launcher in app0 (type app/test), nod in nodfw0/nodfw1
+# (ota_0/ota_1, 0x170000 each), data in mazdata. Never flash this table or an
+# image at 0x0 onto a device that boots through Launcher.
 #
-# storage.cpp must therefore tolerate LittleFS being absent or having moved.
-# A moved data region is detected and reported there, never silently formatted.
+# storage.cpp must tolerate LittleFS being absent or having moved. A moved data
+# region is detected and reported there, never silently formatted.
 # Name,     Type, SubType,  Offset,   Size
 nvs,        data, nvs,      0x9000,   0x5000
 otadata,    data, ota,      0xe000,   0x2000
