@@ -321,42 +321,164 @@ void fwProgress(const char* line, int pct) {
     d.fillRect(8, 72, 224 * pct / 100, 10, 0x07E0);
 }
 
-bool fwFail(const char* why) {
-    Serial.printf("[fw] FAIL %s\n", why);
-    fwProgress(why, 0);
-    delay(2500);
+// Last failure: kept in RAM and NVS so /api/status and Core can explain it without a cable.
+struct FwDiag {
+    String stage, err;
+    int code = 0;
+    bool loaded = false;
+} gDiag;
+
+void diagLoad() {
+    if (gDiag.loaded) return;
+    gDiag.loaded = true;
+    Preferences p;
+    p.begin("nodfw", false);
+    gDiag.stage = p.getString("lstage", "");
+    gDiag.err = p.getString("lerr", "");
+    gDiag.code = p.getInt("lcode", 0);
+    p.end();
+}
+
+void diagSet(const char* stage, const char* err, int code) {
+    gDiag.loaded = true;
+    gDiag.stage = stage;
+    gDiag.err = err;
+    gDiag.code = code;
+    Preferences p;
+    p.begin("nodfw", false);
+    p.putString("lstage", stage);
+    p.putString("lerr", err);
+    p.putInt("lcode", code);
+    p.end();
+}
+
+const char* otaStateName(esp_ota_img_states_t s) {
+    switch (s) {
+        case ESP_OTA_IMG_NEW: return "new";
+        case ESP_OTA_IMG_PENDING_VERIFY: return "pending_verify";
+        case ESP_OTA_IMG_VALID: return "valid";
+        case ESP_OTA_IMG_INVALID: return "invalid";
+        case ESP_OTA_IMG_ABORTED: return "aborted";
+        default: return "undefined";
+    }
+}
+
+String runningOtaState(const esp_partition_t* running, esp_ota_img_states_t* raw = nullptr) {
+    esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+    const esp_err_t e = esp_ota_get_state_partition(running, &st);
+    if (raw) *raw = e == ESP_OK ? st : ESP_OTA_IMG_UNDEFINED;
+    return e == ESP_OK ? String(otaStateName(st)) : String("n/a ") + esp_err_to_name(e);
+}
+
+bool otadataPresent() {
+    return esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, nullptr) != nullptr;
+}
+
+// Best effort: tell Core what happened, so the PC log has it even when nobody is looking at the device.
+void fwReport(const char* stage, const char* err, int code, size_t size) {
+    const esp_partition_t* run = esp_ota_get_running_partition();
+    const esp_partition_t* nxt = esp_ota_get_next_update_partition(nullptr);
+    JsonDocument d;
+    d["stage"] = stage;
+    d["error"] = err;
+    d["code"] = code;
+    d["slot"] = run ? run->label : "";
+    d["next_slot"] = nxt ? nxt->label : "";
+    d["size"] = size;
+    d["build"] = NOD_FW_SHA;
+    d["battery"] = Sys.batteryPct;
+    d["ota_state"] = runningOtaState(run);
+    d["otadata"] = otadataPresent();
+    String body;
+    serializeJson(d, body);
+    NodHttp h;
+    if (!coreBegin(h, "/fw/report", false)) return;
+    h.setTimeout(4000);
+    h.addHeader("Content-Type", "application/json");
+    h.POST(body);
+    h.end();
+}
+
+// why = plain words for the screen; code = the ESP error (ESP_OK when it is not an ESP failure).
+bool fwFail(const char* stage, const char* why, esp_err_t code = ESP_OK, size_t size = 0) {
+    const char* name = code == ESP_OK ? "" : esp_err_to_name(code);
+    Serial.printf("[fw] FAIL %s: %s (%s 0x%x)\n", stage, why, name, (unsigned)code);
+    diagSet(stage, code == ESP_OK ? String(why).c_str() : (String(why) + " / " + name).c_str(), (int)code);
+    auto& d = M5.Display;
+    d.fillRect(0, 50, 240, 60, 0);
+    d.setTextColor(0xFFFF, 0);
+    d.setTextDatum(top_left);
+    d.drawString(why, 8, 52);
+    d.drawString(name, 8, 68);
+    d.drawString(stage, 8, 84);
+    fwReport(stage, why, (int)code, size);
+    delay(4000);
     return false;
 }
 
+constexpr int kFwMinBattery = 30;  // percent; erase + Wi-Fi + flash writes need real headroom
+
 }  // namespace
 
+// Fragment for /api/status: ,"fw_...": fields (starts with a comma).
+String fwStatusJson() {
+    diagLoad();
+    const esp_partition_t* run = esp_ota_get_running_partition();
+    const esp_partition_t* nxt = esp_ota_get_next_update_partition(nullptr);
+    String j = ",\"fw_build\":\"" NOD_FW_SHA "\"";
+    j += ",\"fw_running_slot\":\"" + String(run ? run->label : "") + "\"";
+    j += ",\"fw_next_slot\":\"" + String(nxt ? nxt->label : "") + "\"";
+    j += ",\"fw_slot_size\":" + String(nxt ? (unsigned)nxt->size : 0u);
+    j += ",\"fw_ota_state\":\"" + runningOtaState(run) + "\"";
+    j += ",\"fw_otadata_present\":"; j += otadataPresent() ? "true" : "false";
+    j += ",\"fw_last_stage\":\"" + gDiag.stage + "\"";
+    String e = gDiag.err;
+    e.replace("\\", "/");
+    e.replace("\"", "'");
+    j += ",\"fw_last_error\":\"" + e + "\"";
+    j += ",\"fw_last_error_code\":" + String(gDiag.code);
+    return j;
+}
+
 bool fwUpdate() {
+    if (Sys.batteryPct >= 0 && Sys.batteryPct < kFwMinBattery && !Sys.charging)
+        return fwFail("precheck", "Charge first");
+    WiFi.setSleep(false);  // steady throughput while the flash is busy erasing/writing
     NodHttp m;
-    if (!coreBegin(m, "/fw/manifest", false)) return fwFail("Update needs home Wi-Fi");
+    if (!coreBegin(m, "/fw/manifest", false)) return fwFail("manifest", "Update needs home Wi-Fi");
     const int ms = m.GET();
     const String mb = ms > 0 ? m.getString() : String();
     m.end();
     JsonDocument doc;
-    if (ms != 200 || deserializeJson(doc, mb)) return fwFail("no firmware on Core");
+    if (ms != 200 || deserializeJson(doc, mb)) return fwFail("manifest", "no firmware on Core");
     const size_t size = doc["size"] | 0;
     const String want = doc["sha256"] | "";
+    const esp_partition_t* running = esp_ota_get_running_partition();
     const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
-    if (!target) return fwFail("No free OTA slot");
-    if (target == esp_ota_get_running_partition()) return fwFail("No free slot: reinstall via Launcher");
-    if (size < 65536 || size > target->size) return fwFail("Image too big for slot");
-    if (want.length() != 64) return fwFail("bad manifest");
+    if (!target) return fwFail("precheck", "No free OTA slot", ESP_ERR_NOT_FOUND, size);
+    if (target == running) return fwFail("precheck", "No free slot: reinstall via Launcher", ESP_ERR_OTA_PARTITION_CONFLICT, size);
+    if (size < 65536 || size > target->size) return fwFail("precheck", "Image too big for slot", ESP_ERR_INVALID_SIZE, size);
+    if (want.length() != 64) return fwFail("manifest", "bad manifest");
 
-    NodHttp http;
-    if (!coreBegin(http, "/fw/latest.bin", false)) return fwFail("Update needs home Wi-Fi");
-    http.setTimeout(20000);
-    if (http.GET() != 200) { http.end(); return fwFail("download refused"); }
+    // A fresh Launcher install can leave this image PENDING_VERIFY, which makes esp_ota_begin refuse.
+    esp_ota_img_states_t st;
+    runningOtaState(running, &st);
+    if (st == ESP_OTA_IMG_PENDING_VERIFY) esp_ota_mark_app_valid_cancel_rollback();
+
+    // Erase the spare slot BEFORE opening the download, so the HTTP stream is not left idle during the erase.
     esp_ota_handle_t ota = 0;
     const esp_err_t be = esp_ota_begin(target, size, &ota);
     if (be != ESP_OK) {
-        http.end();
-        Serial.printf("[fw] esp_ota_begin: %s\n", esp_err_to_name(be));
-        return fwFail(be == ESP_ERR_OTA_PARTITION_CONFLICT ? "No free slot: reinstall via Launcher" : "OTA begin failed");
+        return fwFail("begin", be == ESP_ERR_OTA_PARTITION_CONFLICT ? "No free slot: reinstall via Launcher"
+                      : be == ESP_ERR_OTA_ROLLBACK_INVALID_STATE ? "Boot not confirmed yet"
+                      : "Cannot prepare spare slot", be, size);
     }
+
+    NodHttp http;
+    if (!coreBegin(http, "/fw/latest.bin", false)) { esp_ota_abort(ota); return fwFail("download", "Update needs home Wi-Fi"); }
+    http.setTimeout(20000);
+    const int code = http.GET();
+    if (code != 200) { esp_ota_abort(ota); http.end(); return fwFail("download", "download refused", (esp_err_t)code, size); }
 
     mbedtls_sha256_context sha;
     mbedtls_sha256_init(&sha);
@@ -368,12 +490,13 @@ bool fwUpdate() {
     while (done < size) {
         const size_t n = stream->readBytes(buf, min(sizeof(buf), size - done));
         if (n == 0) {
-            if (millis() - last > 15000) { esp_ota_abort(ota); http.end(); return fwFail("download stalled"); }
+            if (millis() - last > 15000) { esp_ota_abort(ota); http.end(); return fwFail("download", "download stalled", ESP_ERR_TIMEOUT, done); }
             delay(2);
             continue;
         }
         last = millis();
-        if (esp_ota_write(ota, buf, n) != ESP_OK) { esp_ota_abort(ota); http.end(); return fwFail("flash write failed"); }
+        const esp_err_t we = esp_ota_write(ota, buf, n);
+        if (we != ESP_OK) { esp_ota_abort(ota); http.end(); return fwFail("write", "flash write failed", we, done); }
         mbedtls_sha256_update(&sha, buf, n);
         done += n;
         if (millis() - shown > 400) { shown = millis(); fwProgress("Updating nod...", static_cast<int>(done * 100 / size)); }
@@ -384,15 +507,25 @@ bool fwUpdate() {
     mbedtls_sha256_free(&sha);
     char hex[65];
     for (int i = 0; i < 32; ++i) snprintf(hex + i * 2, 3, "%02x", out[i]);
-    if (!want.equalsIgnoreCase(hex)) { esp_ota_abort(ota); return fwFail("checksum mismatch"); }
-    if (esp_ota_end(ota) != ESP_OK) return fwFail("image invalid");
+    if (!want.equalsIgnoreCase(hex)) { esp_ota_abort(ota); return fwFail("verify", "checksum mismatch", ESP_ERR_INVALID_CRC, size); }
+    const esp_err_t ee = esp_ota_end(ota);
+    if (ee != ESP_OK) return fwFail("verify", "image invalid", ee, size);
 
     Preferences p;
     p.begin("nodfw", false);
-    p.putString("prev", esp_ota_get_running_partition()->label);
+    p.putString("prev", running->label);
     p.putInt("boots", 0);
     p.end();
-    if (esp_ota_set_boot_partition(target) != ESP_OK) return fwFail("cannot set boot slot");
+    const esp_err_t se = esp_ota_set_boot_partition(target);
+    if (se != ESP_OK) {
+        Preferences q;  // the guard marker is only meaningful once the boot slot really changed
+        q.begin("nodfw", false);
+        q.remove("prev");
+        q.end();
+        return fwFail("boot", se == ESP_ERR_NOT_FOUND ? "Boot table missing" : "cannot set boot slot", se, size);
+    }
+    diagSet("", "", 0);
+    fwReport("ok", "rebooting into new build", 0, size);
     fwProgress("Updated - rebooting", 100);
     Serial.printf("[fw] OK %u bytes -> %s\n", (unsigned)size, target->label);
     delay(600);

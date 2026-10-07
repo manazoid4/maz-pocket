@@ -15,6 +15,8 @@
 #include "mazhost.h"
 #include "net.h"
 
+namespace maz::host { String fwStatusJson(); }  // core_client.cpp
+
 namespace maz {
 namespace portal {
 namespace {
@@ -263,7 +265,7 @@ void queueScreen() {
 
 String statusJson(bool unlocked) {
     String j;
-    j.reserve(1450);
+    j.reserve(2100);
     j += "{\"ok\":true,\"version\":\"" MAZ_POCKET_VERSION "\"";
     j += ",\"token_id\":\"" + jsonEscape(tokenId()) + "\"";
     j += ",\"unlocked\":"; j += unlocked ? "true" : "false";
@@ -293,6 +295,7 @@ String statusJson(bool unlocked) {
     j += ",\"loop_max\":" + String(Sys.loopMaxMs);
     j += ",\"screen_bytes\":" + String(SCREEN_BYTES);
     j += ",\"staging_supported\":"; j += Sys.storage == Storage::SD ? "true" : "false";
+    j += host::fwStatusJson();
     if (unlocked) {
         j += ",\"host_addr\":\"" + jsonEscape(Cfg.hostAddr.c_str()) + "\"";
         j += ",\"host_port\":" + String(Cfg.hostPort);

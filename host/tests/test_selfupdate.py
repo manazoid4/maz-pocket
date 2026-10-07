@@ -170,3 +170,20 @@ def test_restart_helper_task_quotes_paths_with_spaces():
     args = root.find(".//t:Arguments", ns).text
     assert args == sp.list2cmdline(argv[1:])
     assert '"C:/MAZ Core/py.exe"' in args and 'logs"' in args
+
+
+
+def test_fw_report_is_logged_and_readable(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("MAZ_FW_DIR", str(tmp_path))
+    api = client()
+    body = {"stage": "begin", "error": "Boot not confirmed yet", "code": 0x1502, "slot": "nodfw1",
+            "next_slot": "nodfw0", "size": 1458928, "build": "1e55d34", "ota_state": "pending_verify",
+            "otadata": True, "battery": 13}
+    assert api.post("/fw/report", json=body).status_code in (401, 403)  # no token
+    with caplog.at_level("WARNING", logger="mazhost.fw"):
+        r = api.post("/fw/report", json=body, headers=AUTH)
+    assert r.status_code == 200
+    assert "stage=begin" in caplog.text and "slot=nodfw1" in caplog.text
+    last = api.get("/core/update", headers=AUTH).json()["fw_report"]
+    assert last["stage"] == "begin" and last["code"] == 0x1502 and last["next_slot"] == "nodfw0" and last["at"]
+    assert api.post("/fw/report", json={"error": "x"}, headers=AUTH).status_code == 422  # stage required

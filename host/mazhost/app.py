@@ -59,6 +59,20 @@ from .work_service import WorkService
 from .work_store import WorkStore
 
 
+class FwReport(BaseModel):
+    """Device-side OTA outcome (stage names: precheck, manifest, begin, download, write, verify, boot, ok)."""
+    stage: str = Field(max_length=24)
+    error: str = Field(default="", max_length=160)
+    code: int = 0
+    slot: str = Field(default="", max_length=16)
+    next_slot: str = Field(default="", max_length=16)
+    size: int = 0
+    build: str = Field(default="", max_length=16)
+    ota_state: str = Field(default="", max_length=48)
+    otadata: bool | None = None
+    battery: int | None = None
+
+
 class TextTurn(BaseModel):
     text: str = Field(min_length=1, max_length=8_000)
     session_id: str
@@ -392,7 +406,7 @@ def create_app(
 
     @api.get("/core/update")
     def core_update_status():
-        return updates.status()
+        return {**updates.status(), "fw_report": fw.last_report()}
 
     @api.post("/core/update/check")
     async def core_update_check():
@@ -404,6 +418,10 @@ def create_app(
         if not m:
             raise HTTPException(404, "no_firmware")
         return m
+
+    @api.post("/fw/report")
+    def fw_report(report: FwReport):
+        return {"ok": True, "report": fw.save_report(report.model_dump())}
 
     @api.get("/fw/latest.bin")
     def fw_latest_bin():
