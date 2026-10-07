@@ -36,6 +36,12 @@ Cardputer: WORK opens straight to current/target values and the seven-day strip.
 WORK TOOLS = Focus, Sprint, Tasks, Reminders, Shift, Retro.
 STALE keeps last-known values visible after roughly three missed Host polls; it never substitutes fake zeroes.
 
+BRAIN DUMP
+----------
+On Home, hold SPACE = record. Release = save and send to the hub inbox.
+If the hub is off it says NOT SENT: press O to retry.
+T on Home = Call MAZ. Ctrl+SPACE from any screen = Call MAZ.
+
 CALL MAZ
 --------
 Hold SPACE = talk.

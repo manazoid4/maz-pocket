@@ -95,8 +95,8 @@ public:
         if (voice::state() == voice::State::Listening)
             return "H mark  P pause  ENTER done";
         if (voice::state() == voice::State::Paused) return "P resume  ENTER done";
-        if (_processing) return "thinking about it...";
-        if (!_result.empty()) return "R again  P play  I inbox";
+        if (_processing) return "saving...";
+        if (!_result.empty()) return _resultOk ? "R again  P play  I inbox" : "O retry  R again  I inbox";
         if (_ready) return "O retry  R again  P play raw";
         return "recording saved";
     }
@@ -106,6 +106,7 @@ public:
         _ready = false;
         _result.clear();
         _scroll = 0;
+        _held = KB.held(KEY_SPACE);  // entered by holding SPACE on Home: release = stop + send
         beginVoice();
         invalidate();
     }
@@ -115,7 +116,10 @@ public:
     }
 
     bool onKey(const KeyEvent& e) override {
-        if (!e.down) return false;
+        if (!e.down) {
+            if (e.code == KEY_SPACE && _held && voice::state() == voice::State::Listening) { _held = false; endVoice(); return true; }
+            return false;
+        }
         if (e.code == KEY_H && voice::state() == voice::State::Listening) {
             _highlights.push_back(voice::elapsedSeconds());
             notify::post(Note::Success, "Highlighted", ui::hhmmss(voice::elapsedSeconds()));
@@ -171,7 +175,7 @@ public:
             // to Inbox to find out whether it worked.
             g.setFont(&fonts::Font0);
             g.setTextColor(DIM, BG);
-            g.drawString(_resultOk ? "USEFUL OUTPUT" : "QUEUED - LAPTOP OFFLINE",
+            g.drawString(_resultOk ? "SAVED" : "NOT SENT - PRESS O TO RETRY",
                          PAD, BODY_Y + 22);
             drawShortText(g, _result.substr(std::min(_result.size(),
                                                      _scroll * size_t(38))),
@@ -181,7 +185,7 @@ public:
 
         ui::emptyState(
             g,
-            _processing ? "Thinking about it" : (_ready ? "Raw thought kept" : "Ready"),
+            _processing ? "SAVING" : (_ready ? "Raw thought kept" : "Ready"),
             _processing ? "raw audio stays on the device"
                         : (_ready ? "R records another" : "recording starts immediately"));
     }
@@ -261,6 +265,7 @@ private:
     bool                _ready = false;
     bool                _processing = false;
     bool                _queued = false;
+    bool                _held = false;
     uint32_t            _processAt = 0;
 };
 
