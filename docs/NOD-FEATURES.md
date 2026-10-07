@@ -41,5 +41,5 @@ Only step 5 pressed by hand plus the Wi-Fi OTA itself are owner-proven; steps 3-
 ## Setup notes
 
 - Approvals hook: merge the `PermissionRequest` block from `host/hooks/README.md` into `~/.claude/settings.json`. Env: `MAZ_TOKEN`, `MAZ_CORE_URL` (default `http://127.0.0.1:8787`), `MAZ_BUDDY_TIMEOUT` (default 60).
-- Dictation and the smart reply need `MAZ_GROQ_KEY` in Core's `.env` (the field is `groq_key` in `host/mazhost/config.py`; earlier docs named `MAZ_GROQ_API_KEY`, which may be a different name: check the installed `.env`).
+- Groq key: `MAZ_GROQ_KEY` or `MAZ_GROQ_API_KEY` in Core's `.env` (stt.py accepts both; the smart-reply chain reads `groq_key` in config.py, so use `MAZ_GROQ_KEY` to be safe).
 - Tailscale: follow `host/REMOTE.md`.
