@@ -109,7 +109,7 @@ void worker(void*) {
             bool speechReady = false;
             if (session.empty()) session = host::startSession();
             Serial.printf("[worker] talk session=%s path=%s\n", session.c_str(), path.c_str());
-            if (session.empty()) reply.error = "PC unreachable";
+            if (session.empty()) reply.error = "hub unreachable";
             else reply = contextAudio(session, path, context);
             if (reply.ok && !reply.text.empty()) { gPartial = reply.text; gPartialReady.store(true, std::memory_order_release); }
             uint8_t speechParts = 0;
@@ -144,7 +144,7 @@ void worker(void*) {
         } else if (kind == JobKind::OutboxAudio) {
             std::string session = host::startSession();
             host::Reply reply;
-            if (session.empty()) reply.error = "PC unreachable";
+            if (session.empty()) reply.error = "hub unreachable";
             else reply = contextAudio(session, gPath, gContext);
             gOutboxAudioResult.recordId = gRecordId;
             gOutboxAudioResult.wavPath = gPath;

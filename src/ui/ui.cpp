@@ -133,7 +133,7 @@ void hintBar(M5Canvas& g, const char* hints) {
     // HINT_CHARS is what fits beside the chip at Font0's 6px advance. Hints used
     // to run off the right edge silently; now they are cut where they land.
     char buf[HINT_CHARS + 1];
-    snprintf(buf, sizeof(buf), "%.*s", HINT_CHARS, hints ? hints : "");
+    snprintf(buf, sizeof(buf), "%.*s", HINT_CHARS, hints && *hints ? hints : "ESC back");  // never a bare bar
     g.setTextColor(HINT, PANEL);
     g.drawString(buf, 41, y + 3);
 }

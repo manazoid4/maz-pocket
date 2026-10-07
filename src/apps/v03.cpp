@@ -45,7 +45,7 @@ struct ControlAction {
 constexpr ControlAction CONTROLS[] = {
     {"desktop",     "DESKTOP", "show / hide desktop"},
     {"play_pause",  "PLAY",    "play or pause media"},
-    {"mute",        "MUTE",    "toggle PC sound"},
+    {"mute",        "MUTE",    "toggle hub sound"},
     {"volume_down", "VOL -",   "lower volume"},
     {"volume_up",   "VOL +",   "raise volume"},
     {"lock",        "LOCK",    "lock Windows"},
@@ -55,12 +55,12 @@ constexpr int CONTROL_COUNT = sizeof(CONTROLS) / sizeof(CONTROLS[0]);
 class CallPCApp : public App {
 public:
     const char* id() const override { return "talk"; }
-    const char* title() const override { return "Call PC"; }
+    const char* title() const override { return "Call hub"; }
 
     const char* hints() const override {
         if (_controlMode) return "< > choose   ENTER send   C voice";
         if (voice::state() == voice::State::Listening) return "release SPACE to send";
-        if (_sending) return "PC is thinking...";
+        if (_sending) return "hub is thinking...";
         if (voice::isPlaying()) return "SPACE interrupt   P replay";
         if (!_reply.empty()) return "SPACE reply   C controls   N new";
         return "hold SPACE call   C controls   N new";
@@ -176,7 +176,7 @@ public:
             return;
         }
 
-        ui::header(g, "COMM / PC", host::linkName());
+        ui::header(g, "COMM / HUB", host::linkName());
 
         if (voice::state() == voice::State::Listening) {
             ui::panel(g, 71, BODY_Y + 19, 98, 52);
@@ -192,17 +192,17 @@ public:
         }
 
         if (_sending) {
-            retroPhone(g, "DIALING PC", WARN);
+            retroPhone(g, "DIALING HUB", WARN);
             return;
         }
         if (voice::isPlaying()) {
-            retroPhone(g, "PC TALKING", OK);
+            retroPhone(g, "HUB TALKING", OK);
             return;
         }
         if (!_reply.empty()) {
             g.setFont(&fonts::Font0);
             g.setTextColor(ACCENT, BG);
-            g.drawString((std::string("PC> ") + host::linkName() + " / " + routeName()).c_str(), PAD, BODY_Y + 18);
+            g.drawString((std::string("hub> ") + host::linkName() + " / " + routeName()).c_str(), PAD, BODY_Y + 18);
             drawWrapped(g, _reply, BODY_Y + 34, _scroll);
             return;
         }
@@ -226,7 +226,7 @@ private:
         g.setFont(&fonts::Font2);
         g.setTextColor(colour, PANEL);
         g.setTextDatum(middle_center);
-        g.drawString("PC", SCREEN_W / 2, BODY_Y + 40);
+        g.drawString("hub", SCREEN_W / 2, BODY_Y + 40);
         g.setTextDatum(top_center);
         g.setFont(&fonts::Font0);
         g.setTextColor(colour, BG);
@@ -264,11 +264,11 @@ private:
         if (result.ok) {
             sfx::confirm();
             notify::post(Note::Success, control.label,
-                         result.text.empty() ? "PC acknowledged" : result.text);
+                         result.text.empty() ? "hub acknowledged" : result.text);
         } else {
             sfx::error();
             notify::post(Note::Error, "Command failed",
-                         result.error.empty() ? "PC unavailable" : result.error);
+                         result.error.empty() ? "hub unavailable" : result.error);
         }
         invalidate();
     }
@@ -313,14 +313,14 @@ private:
             store::Record queued;
             queued.kind = "outbox";
             queued.status = "queued";
-            queued.title = "Call PC turn";
-            queued.body = result.error.empty() ? "PC unavailable" : result.error;
+            queued.title = "Call hub turn";
+            queued.body = result.error.empty() ? "hub unavailable" : result.error;
             queued.source = "talk";
             queued.ref = _takePath;
             store::addRecord(queued);
             _takePath.clear();
             _haveTake = false;
-            notify::post(Note::Warn, "PC unavailable", "voice turn queued");
+            notify::post(Note::Warn, "hub unavailable", "voice turn queued");
             invalidate();
             return;
         }
@@ -330,7 +330,7 @@ private:
         store::Record answer;
         answer.kind = "inbox";
         answer.status = "open";
-        answer.title = "Call PC";
+        answer.title = "Call hub";
         answer.body = result.text;
         answer.source = result.provider;
         store::addRecord(answer);
@@ -429,15 +429,15 @@ public:
                         ui::ellipsis(a.name, 17).c_str(), a.state.c_str());
         }
         if (_summary.agents.empty())
-            ui::emptyState(g, _summary.ok ? "No active agents" : "PC unavailable",
-                           _summary.ok ? "Agent Nudge has nothing pending" : "Call PC or check connection");
+            ui::emptyState(g, _summary.ok ? "No active agents" : "hub unavailable",
+                           _summary.ok ? "Agent Nudge has nothing pending" : "Call hub or check connection");
     }
 
 private:
     void refresh() {
         _summary = host::assurance();
-        if (!_summary.ok) _status = "PC OFFLINE";
-        else if (_summary.questionForMaz) _status = "NEEDS MAZ";
+        if (!_summary.ok) _status = "HUB OFFLINE";
+        else if (_summary.questionForMaz) _status = "NEEDS NOD";
         else if (_summary.overdue) _status = std::to_string(_summary.overdue) + " OVERDUE";
         else if (_summary.needsNudge) _status = std::to_string(_summary.needsNudge) + " NUDGE DUE";
         else if (_summary.waiting) _status = std::to_string(_summary.waiting) + " WAITING";
@@ -451,7 +451,7 @@ private:
     host::Assurance _summary;
     ListCursor _cursor;
     bool _detail = false;
-    std::string _status = "PC OFFLINE";
+    std::string _status = "HUB OFFLINE";
 };
 
 }  // namespace

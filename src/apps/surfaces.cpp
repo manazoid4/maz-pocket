@@ -110,9 +110,9 @@ constexpr HubItem AGENT_ITEMS[] = {
 
 constexpr HubItem CONTROL_ITEMS[] = {
     {"PAIRING + PHONE", "token / approvals", "pairing"},
-    {"LAPTOP STATUS", "CPU / GPU / AI", "laptop"},
+    {"HUB STATUS", "CPU / GPU / AI", "laptop"},
     {"PROJECTS + BUILDS", "git / tests", "core"},
-    {"SEND TO PC", "text / links", "beam"},
+    {"SEND TO HUB", "text / links", "beam"},
     {"WI-FI", "scan / connect", "network"},
     {"DEVICE TESTS", "hardware checks", "tools"},
     {"SETTINGS", "device + AI", "settings"},
@@ -123,7 +123,7 @@ constexpr HubItem RECALL_ITEMS[] = {
     {"RESULTS INBOX", "AI + agent outputs", "inbox"},
     {"PROMPT DECK", "build prompts", "prompts"},
     {"NOTES", "saved text", "notes"},
-    {"SEND TO PC", "received / sent", "beam"},
+    {"SEND TO HUB", "received / sent", "beam"},
     {"SNIPPETS", "quick reuse", "snippets"},
     {"TEXT VIEWER", "txt / md", "viewer"},
 };
@@ -272,7 +272,7 @@ App* makeAgentsHub() {
 }
 
 App* makeDesk() {
-    return new SurfaceHub("desk", "CONTROL", "PC + DEVICE",
+    return new SurfaceHub("desk", "CONTROL", "HUB + DEVICE",
                           CONTROL_ITEMS, sizeof(CONTROL_ITEMS) / sizeof(CONTROL_ITEMS[0]));
 }
 

@@ -34,10 +34,10 @@ void update() {
     if (Sys.hostOnline != gHostOnline) {
         gHostOnline = Sys.hostOnline;
         if (Sys.hostOnline)
-            notify::post(Note::Success, "PC connected",
+            notify::post(Note::Success, "hub connected",
                          std::string("COMM ready / ") + host::linkName());
         else
-            notify::post(Note::Warn, "PC disconnected",
+            notify::post(Note::Warn, "hub disconnected",
                          "COMM will retry when needed");
         return;
     }

@@ -97,8 +97,8 @@ Reply decodeReply(const RawResponse& raw) {
         out.text = doc["reply"] | "";
         out.provider = doc["provider"] | "";
     } else {
-        out.error = raw.status <= 0 ? "PC unreachable"
-            : (error ? "invalid Core response" : static_cast<const char*>(doc["detail"] | "Core request failed"));
+        out.error = raw.status <= 0 ? "hub unreachable"
+            : (error ? "invalid hub response" : static_cast<const char*>(doc["detail"] | "hub request failed"));
     }
     return out;
 }
@@ -115,7 +115,7 @@ TeachStatus decodeTeach(const RawResponse& raw) {
     JsonDocument doc;
     const auto error = deserializeJson(doc, raw.body);
     if (raw.status < 200 || raw.status >= 300 || error) {
-        out.error = raw.status <= 0 ? "PC unreachable"
+        out.error = raw.status <= 0 ? "hub unreachable"
             : (error ? "invalid Teach response" : static_cast<const char*>(doc["detail"] | "Teach failed"));
         return out;
     }
@@ -158,7 +158,7 @@ std::vector<TeachDisplay> teachDisplays(std::string& error) {
     JsonDocument doc;
     const auto parse = deserializeJson(doc, raw.body);
     if (raw.status < 200 || raw.status >= 300 || parse) {
-        error = raw.status <= 0 ? "PC unreachable" : "Could not read PC displays";
+        error = raw.status <= 0 ? "hub unreachable" : "Could not read hub displays";
         return displays;
     }
     for (JsonObjectConst row : doc["displays"].as<JsonArrayConst>()) {

@@ -22,7 +22,7 @@ constexpr int ACTION_COUNT = 5;
 class CoreConsoleApp final : public App {
 public:
     const char* id() const override { return "core"; }
-    const char* title() const override { return "MAZ CORE"; }
+    const char* title() const override { return "HUB"; }
     const char* hints() const override {
         if (_view == View::Result) return "R refresh job  ESC actions";
         if (_view == View::Actions) return "ENTER run  ESC projects";
@@ -86,11 +86,11 @@ private:
     }
 
     void renderProjects(M5Canvas& g) {
-        std::string right = _status.ok ? (_status.ollama ? "AI + PC" : "PC / AI OFF") : "OFFLINE";
-        ui::header(g, "MAZ CORE", right.c_str());
+        std::string right = _status.ok ? (_status.ollama ? "AI + HUB" : "HUB / AI OFF") : "OFFLINE";
+        ui::header(g, "HUB", right.c_str());
         if (!_status.ok) {
             line(g, 0, _status.error.c_str(), WARN);
-            line(g, 2, "Configure CONTROL > MAZ CORE", DIM);
+            line(g, 2, "Configure CONTROL > HUB", DIM);
             line(g, 3, "then press R to refresh", DIM);
             return;
         }
@@ -116,7 +116,7 @@ private:
     }
 
     void renderActions(M5Canvas& g) {
-        ui::header(g, _project.c_str(), "CORE ACTIONS");
+        ui::header(g, _project.c_str(), "HUB ACTIONS");
         for (int row = 0; row < ACTION_COUNT; ++row)
             ui::listRow(g, row + 1, row == _cursor.sel, ACTION_LABELS[row], row >= 1 && row <= 2 ? "job" : "safe");
     }
@@ -126,7 +126,7 @@ private:
         _job = host::coreStartJob(ACTION_IDS[idx], _project);
         _result.clear();
         if (_job.id.empty()) {
-            _result = _job.error.empty() ? "Could not start Core job" : _job.error;
+            _result = _job.error.empty() ? "Could not start hub job" : _job.error;
         }
         _view = View::Result;
         _lastPoll = millis();
@@ -148,10 +148,10 @@ private:
     void renderResult(M5Canvas& g) {
         std::string right = _job.state.empty() ? "ERROR" : _job.state;
         ui::header(g, _project.c_str(), right.c_str());
-        std::string heading = _job.action.empty() ? "CORE JOB" : _job.action;
+        std::string heading = _job.action.empty() ? "HUB JOB" : _job.action;
         line(g, 0, heading.c_str(), ACCENT);
         if (_job.state != "done" && !_job.id.empty()) {
-            line(g, 2, "Running on PC...", TEXT);
+            line(g, 2, "Running on hub...", TEXT);
             line(g, 3, "You can leave this screen.", DIM);
             line(g, 4, "R checks now; auto-refreshes.", DIM);
             return;

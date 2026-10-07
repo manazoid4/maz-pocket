@@ -130,7 +130,7 @@ Reply upload(const char* path, const std::string& wavPath,
     }
     file.close();
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -153,7 +153,7 @@ Reply jsonPost(const char* path, const std::string& json) {
         return decodeReply(http, status);
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -223,7 +223,7 @@ std::string startSession() {
 PairCode startPairing() {
     PairCode out;
     if (!configured() || WiFi.status() != WL_CONNECTED) {
-        out.error = "MAZ Core offline";
+        out.error = "hub offline";
         return out;
     }
     for (const auto& base : bases()) {
@@ -257,7 +257,7 @@ PairCode startPairing() {
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "MAZ Core unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 
@@ -408,7 +408,7 @@ bool voiceList(std::vector<VoiceItem>& out, std::string& error) {
         }
         return !out.empty();
     }
-    error = "PC unreachable";
+    error = "hub unreachable";
     return false;
 }
 
@@ -479,7 +479,7 @@ Assurance assurance() {
         return out;
     }
     Sys.hostOnline = false;
-    out.error = "PC unreachable";
+    out.error = "hub unreachable";
     return out;
 }
 

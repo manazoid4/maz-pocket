@@ -233,7 +233,7 @@ private:
     void refresh() {
         _summary=host::assurance();
         if (!_summary.ok) _status="OFFLINE";
-        else if (_summary.questionForMaz) _status="QUESTION FOR MAZ";
+        else if (_summary.questionForMaz) _status="QUESTION FOR NOD";
         else if (_summary.overdue) _status=std::to_string(_summary.overdue)+" OVERDUE";
         else if (_summary.needsNudge) _status=std::to_string(_summary.needsNudge)+" NUDGE DUE";
         else if (_summary.waiting) _status=std::to_string(_summary.waiting)+" WAITING";
@@ -269,7 +269,7 @@ void updateProductServices() {
 
             store::Record answer;
             answer.kind="inbox"; answer.status="open";
-            answer.title=item.source == "talk" ? "MAZ answer" : "BrainDump processed";
+            answer.title=item.source == "talk" ? "nod answer" : "BrainDump processed";
             answer.body=result.text; answer.source=result.provider; answer.ref=item.ref;
             if (!store::addRecord(answer)) break;
 
