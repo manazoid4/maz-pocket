@@ -6,39 +6,64 @@
 <meta name="color-scheme" content="dark">
 <title>nod inbox</title>
 <style>
-/* One accent. Change --accent to re-theme. */
+/* One accent. Change --accent to re-theme. --ctl is the border for every interactive control (>=3:1 on --bg and --panel); --line is for faint dividers only. */
 :root {
-  --bg: #0e0f11; --panel: #16181b; --line: #25282d; --text: #e8e6e1; --dim: #8a8e96;
+  --bg: #0e0f11; --panel: #16181b; --line: #25282d; --ctl: #67717E; --text: #e8e6e1; --dim: #8a8e96;
   --accent: #f2b45a; --accent-ink: #1a1203; --bad: #ff7b72; --ok: #8fd19e;
-  --gutter: 16px;
+  --gutter: 16px; --barh: 0px;
+  --mono: ui-monospace, "SF Mono", Consolas, monospace;
   font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
-body { min-height: 100vh; overflow-x: hidden; }
+body { min-height: 100vh; overflow-x: hidden; padding-bottom: var(--barh); }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--gutter); border-bottom: 1px solid var(--line); }
-h1 { margin: 0; font-size: 1.1rem; letter-spacing: .02em; }
+h1 { margin: 0; font-size: 1.1rem; letter-spacing: .02em; white-space: nowrap; }
 h1 span { color: var(--accent); }
-#conn { color: var(--dim); font-size: .85rem; }
-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; max-width: 1100px; margin: 0 auto; }
-@media (min-width: 860px) { main { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } }
+#conn { color: var(--dim); font-size: .85rem; white-space: nowrap; }
+#app { display: grid; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; }
 section { padding: 20px var(--gutter); min-width: 0; }
 #detail { border-top: 1px solid var(--line); }
-@media (min-width: 860px) { #detail { border-top: 0; border-left: 1px solid var(--line); } }
+.back { display: none; margin-bottom: 12px; }
+.detail-open #inbox { display: none; }
+body:not(.detail-open) #detail { display: none; }
+@media (min-width: 860px) {
+  #app { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: auto 1fr; grid-template-areas: "rec detail" "inbox detail"; }
+  #rec { grid-area: rec; } #inbox { grid-area: inbox; } #detail { grid-area: detail; border-top: 0; border-left: 1px solid var(--line); }
+  .detail-open #inbox { display: block; } body:not(.detail-open) #detail { display: block; }
+  body { padding-bottom: 0; }
+}
+@media (max-width: 859px) {
+  .back { display: inline-block; }
+  #rec { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--bg); border-top: 1px solid var(--ctl); padding: 10px var(--gutter) calc(10px + env(safe-area-inset-bottom)); }
+  #recbtn { min-height: 56px !important; border-radius: 28px !important; font-size: 1.2rem !important; }
+  #rec .hint { display: none; }
+}
 
 /* record */
-#rec { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0 22px; }
+#rec { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px var(--gutter) 12px; }
 #recbtn { width: 100%; max-width: 420px; min-height: 84px; border-radius: 42px; border: 0; cursor: pointer; background: var(--accent); color: var(--accent-ink); font-size: 1.35rem; font-weight: 650; }
 #recbtn[data-s="recording"] { background: var(--bad); color: #200503; }
-#recbtn:disabled { opacity: .6; cursor: progress; }
-#recstate { min-height: 1.6em; color: var(--dim); text-align: center; overflow-wrap: anywhere; }
-#recstate[data-s="error"] { color: var(--bad); }
+#recbtn:disabled { opacity: .6; cursor: not-allowed; }
+#recbtn[data-s="transcribing"]:disabled { cursor: progress; }
+#recline { display: flex; gap: 10px; justify-content: center; color: var(--dim); }
+#recline.empty-line { display: none; }
+#recstate { overflow-wrap: anywhere; text-align: center; }
 #recstate[data-s="saved"] { color: var(--ok); }
 #recstate[data-s="recording"] { color: var(--text); }
+#timer { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+#level { display: none; width: 100%; max-width: 420px; height: 8px; border-radius: 4px; border: 1px solid var(--ctl); overflow: hidden; }
+#level.on { display: block; }
+#level i { display: block; height: 100%; width: 100%; background: var(--ok); transform-origin: left; transform: scaleX(0); }
+@media (prefers-reduced-motion: reduce) { #level { display: none !important; } }
+#sendfail { display: none; width: 100%; max-width: 420px; padding: 10px 12px; border: 1px solid var(--bad); border-radius: 8px; }
+#sendfail.show { display: block; }
+#sendfail p { margin: 0 0 8px; color: var(--bad); font-weight: 600; }
+#sendfail .row { margin-top: 0; }
 .hint { color: var(--dim); font-size: .8rem; }
-kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font: inherit; font-size: .8rem; }
+kbd { border: 1px solid var(--ctl); border-radius: 4px; padding: 0 5px; font: inherit; font-size: .8rem; }
 @media (prefers-reduced-motion: no-preference) {
   #recbtn[data-s="recording"] { animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(255,123,114,.18); } }
@@ -46,26 +71,30 @@ kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font: i
 
 /* type */
 details { margin-bottom: 18px; }
-summary { cursor: pointer; color: var(--dim); }
-#txt { width: 100%; min-height: 96px; margin-top: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+summary { cursor: pointer; color: var(--dim); display: block; min-height: 44px; padding: 10px 0; }
+#txt { width: 100%; min-height: 96px; margin-top: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; resize: vertical; }
 
 /* buttons + chips */
-.btn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; min-height: 40px; cursor: pointer; }
-.btn:hover { border-color: var(--dim); }
+.btn { background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px 14px; min-height: 44px; cursor: pointer; }
+.btn:hover { border-color: var(--text); }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.chip { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 12px; min-height: 34px; cursor: pointer; color: var(--dim); }
-.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.chip { border: 1px solid var(--ctl); background: transparent; border-radius: 999px; padding: 4px 16px; min-height: 44px; cursor: pointer; color: var(--dim); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 
 /* list */
 #list { list-style: none; margin: 0; padding: 0; }
-#list li button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px 4px; cursor: pointer; }
+#list li button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px; cursor: pointer; }
 #list li button:hover { background: var(--panel); }
-#list li button[aria-current="true"] { background: var(--panel); box-shadow: inset 3px 0 var(--accent); padding-left: 12px; }
+#list li button[aria-current="true"] { background: var(--panel); box-shadow: inset 3px 0 var(--accent); }
 .sum { display: block; overflow-wrap: anywhere; }
 .meta { display: block; color: var(--dim); font-size: .82rem; }
+.tag { font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--text); }
 .st-done .sum { color: var(--dim); text-decoration: line-through; }
 .empty { color: var(--dim); padding: 20px 0; }
+#listerr { display: none; padding: 14px; margin-bottom: 12px; border: 1px solid var(--bad); border-radius: 8px; color: var(--bad); font-size: 1rem; }
+#listerr.show { display: block; }
 
 /* detail */
 #detail h2 { margin: 0 0 4px; font-size: 1.35rem; line-height: 1.3; overflow-wrap: anywhere; }
@@ -74,14 +103,14 @@ summary { cursor: pointer; color: var(--dim); }
 #detail li { overflow-wrap: anywhere; }
 #transcript { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); border-radius: 8px; padding: 12px; font-size: .95rem; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 18px; }
-#proj { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 40px; max-width: 100%; }
+#proj { background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px; min-height: 44px; max-width: 100%; }
 
 /* token */
-#tok { display: none; margin: 0 var(--gutter) 0; padding: 14px; border: 1px solid var(--accent); border-radius: 8px; margin-top: 16px; max-width: 1068px; }
+#tok { display: none; margin: 16px var(--gutter) 0; padding: 14px; border: 1px solid var(--accent); border-radius: 8px; max-width: 1068px; }
 #tok.show { display: block; }
-#tok input { width: 100%; margin: 8px 0; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+#tok input { width: 100%; margin: 8px 0; padding: 8px; min-height: 44px; background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; }
 @media (min-width: 1132px) { #tok { margin-left: auto; margin-right: auto; } }
-#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; display: none; }
+#toast { position: fixed; bottom: calc(16px + var(--barh)); left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px 14px; display: none; z-index: 9; }
 #toast.show { display: block; }
 </style>
 </head>
@@ -92,19 +121,24 @@ summary { cursor: pointer; color: var(--dim); }
 </header>
 
 <form id="tok" aria-live="polite">
-  <label for="tokin">Paste your Core token (the MAZ_TOKEN value). It stays in this browser only.</label>
+  <label for="tokin">Hub locked. Paste your hub token. It stays in this browser only.</label>
   <input id="tokin" type="password" autocomplete="off" spellcheck="false">
   <button class="btn primary" type="submit">Use token</button>
 </form>
 
 <main id="app">
-  <section aria-label="Inbox">
-    <div id="rec">
-      <button id="recbtn" type="button" data-s="idle">Record</button>
-      <div id="recstate" role="status" data-s="idle"></div>
-      <div class="hint">Hold <kbd>Space</kbd> to talk, or click to start and stop.</div>
+  <div id="rec">
+    <button id="recbtn" type="button" data-s="idle">Record</button>
+    <div id="level" aria-hidden="true"><i></i></div>
+    <div id="recline" class="empty-line"><span id="recstate" role="status" data-s="idle"></span><span id="timer" aria-hidden="true"></span></div>
+    <div id="sendfail" role="alert">
+      <p>Not sent.</p>
+      <div class="row"><button id="retry" class="btn primary" type="button">Retry</button><button id="dl" class="btn" type="button">Download .wav</button><button id="discard" class="btn" type="button">Discard</button></div>
     </div>
+    <div class="hint">Hold <kbd>Space</kbd> to talk, or click to start and stop.</div>
+  </div>
 
+  <section id="inbox" aria-label="Inbox">
     <details>
       <summary>Type instead</summary>
       <textarea id="txt" aria-label="Brain dump text" placeholder="Dump it here. Ctrl+Enter saves."></textarea>
@@ -113,10 +147,11 @@ summary { cursor: pointer; color: var(--dim); }
 
     <div class="chips" id="stchips" role="group" aria-label="Status filter"></div>
     <div class="chips" id="pjchips" role="group" aria-label="Project filter"></div>
+    <div id="listerr" role="alert"></div>
     <ul id="list"></ul>
   </section>
 
-  <section id="detail" aria-label="Dump detail" aria-live="polite"></section>
+  <section id="detail" aria-label="Note detail"></section>
 </main>
 <div id="toast" role="status"></div>
 
@@ -149,7 +184,7 @@ const API = {
     return this.call("GET", "/dumps" + (q.toString() ? "?" + q : ""));
   },
   get: (id) => API.call("GET", "/dumps/" + encodeURIComponent(id)),
-  saveText: (text) => API.call("POST", "/dumps", { json: { text, source: "web" } }),
+  saveText: (text) => API.call("POST", "/dumps", { json: { text, source: "web" } }), // -> {dump_id, project}
   done: (id) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/done", { json: { agent: "web", note: "" } }),
   assign: (id, project) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/assign", { json: { project } }),
   // Core's brain dump endpoint: body = audio bytes (WAV mono 16-bit), optional X-MAZ-Highlights header.
@@ -162,6 +197,7 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
 const arr = (v) => Array.isArray(v) ? v : [];
 const str = (v) => v == null ? "" : typeof v === "string" ? v : (v.text || v.title || v.summary || JSON.stringify(v));
+const narrow = () => matchMedia("(max-width: 859px)").matches;
 function age(iso) {
   const t = Date.parse(iso); if (!t) return "";
   const s = Math.max(0, (Date.now() - t) / 1000);
@@ -172,6 +208,20 @@ function age(iso) {
 }
 let toastTimer;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); }
+// Re-render without losing keyboard focus or scroll: elements carry data-key, focus goes back to the same key.
+function keepFocus(fn) {
+  const a = document.activeElement, key = a && a.dataset && a.dataset.key, y = window.scrollY;
+  fn();
+  if (key) { const n = document.querySelector('[data-key="' + CSS.escape(key) + '"]'); if (n && n !== document.activeElement) n.focus({ preventScroll: true }); }
+  window.scrollTo(0, y);
+}
+// "NEW" / "CLAIMED agent" / "DONE" then the rest of the meta line. All text via textContent.
+function metaLine(d, parts) {
+  const m = el("span", null, "meta");
+  m.append(el("span", (String(d.status || "new").toUpperCase() + (d.claimed_by ? " " + d.claimed_by : "")).trim(), "tag"));
+  const rest = parts.filter(Boolean).join(" · "); if (rest) m.append(" · " + rest);
+  return m;
+}
 
 /* ---- auth: ?token= once -> localStorage -> stripped from URL; paste box on 401 ---- */
 const store = { get() { try { return localStorage.getItem("nod_token") || ""; } catch (e) { return ""; } }, set(v) { try { localStorage.setItem("nod_token", v); } catch (e) {} } };
@@ -180,53 +230,71 @@ const store = { get() { try { return localStorage.getItem("nod_token") || ""; } 
   if (t) { store.set(t); u.searchParams.delete("token"); history.replaceState(null, "", u.pathname + u.search + u.hash); }
   API.token = store.get();
 })();
-function needToken(show) { $("tok").classList.toggle("show", show); if (show) $("tokin").focus(); }
+let locked = false;
+function needToken(show) { locked = show; $("tok").classList.toggle("show", show); $("save").disabled = show; syncRec(); if (show) $("tokin").focus(); }
 $("tok").addEventListener("submit", (e) => { e.preventDefault(); const v = $("tokin").value.trim(); if (!v) return; API.token = v; store.set(v); $("tokin").value = ""; needToken(false); refresh(); });
 function fail(e) {
-  if (e.status === 401) { needToken(true); return "Token needed or wrong."; }
+  if (e.status === 401) { needToken(true); return "Hub locked."; }
   return e.message || String(e);
 }
 
 /* ---- state ---- */
-const S = { status: "", project: "", dumps: [], selected: "", projects: new Set() };
+const S = { status: "", project: "", dumps: [], selected: "", projects: new Set(), sig: null, chipSig: "", err: "" };
 
 /* ---- list ---- */
-function chip(label, pressed, on) { const b = el("button", label, "chip"); b.type = "button"; b.setAttribute("aria-pressed", String(pressed)); b.onclick = on; return b; }
+function chip(group, label, pressed, on) { const b = el("button", label, "chip"); b.type = "button"; b.dataset.key = "c:" + group + ":" + label; b.setAttribute("aria-pressed", String(pressed)); b.onclick = on; return b; }
 function renderChips() {
-  const sc = $("stchips"); sc.replaceChildren();
-  for (const [v, l] of [["", "all"], ["new", "new"], ["claimed", "claimed"], ["done", "done"]])
-    sc.append(chip(l, S.status === v, () => { S.status = v; refresh(); }));
-  const pc = $("pjchips"); pc.replaceChildren();
   const ps = [...S.projects].sort();
   if (S.project && !S.projects.has(S.project)) ps.push(S.project);
-  if (ps.length) pc.append(chip("any project", !S.project, () => { S.project = ""; refresh(); }));
-  for (const p of ps) pc.append(chip(p, S.project === p, () => { S.project = p; refresh(); }));
+  const sig = JSON.stringify([S.status, S.project, ps]);
+  if (sig === S.chipSig) return; S.chipSig = sig;
+  keepFocus(() => {
+    const sc = $("stchips"); sc.replaceChildren();
+    for (const [v, l] of [["", "all"], ["new", "new"], ["claimed", "claimed"], ["done", "done"]])
+      sc.append(chip("s", l, S.status === v, () => { S.status = v; renderChips(); refresh(); }));
+    const pc = $("pjchips"); pc.replaceChildren();
+    if (ps.length) pc.append(chip("p", "any project", !S.project, () => { S.project = ""; renderChips(); refresh(); }));
+    for (const p of ps) pc.append(chip("p", p, S.project === p, () => { S.project = p; renderChips(); refresh(); }));
+  });
 }
 function renderList() {
-  const ul = $("list"); ul.replaceChildren();
-  if (!S.dumps.length) { ul.append(el("li", "Nothing here yet. Record something.", "empty")); return; }
-  for (const d of S.dumps) {
-    const li = el("li"), b = el("button"); b.type = "button"; b.dataset.id = d.id;
-    if (d.id === S.selected) b.setAttribute("aria-current", "true");
-    if (d.status === "done") li.className = "st-done";
-    b.append(el("span", str(d.summary) || "(no summary)", "sum"),
-      el("span", [d.project || "no project", d.status, age(d.created), d.source].filter(Boolean).join(" · "), "meta"));
-    b.onclick = () => select(d.id);
-    li.append(b); ul.append(li);
-  }
+  keepFocus(() => {
+    const ul = $("list"); ul.replaceChildren();
+    if (!S.dumps.length) { if (!S.err) ul.append(el("li", "No notes yet. Hold Space and talk.", "empty")); return; }
+    for (const d of S.dumps) {
+      const li = el("li"), b = el("button"); b.type = "button"; b.dataset.id = d.id; b.dataset.key = "r:" + d.id;
+      if (d.id === S.selected) b.setAttribute("aria-current", "true");
+      if (d.status === "done") li.className = "st-done";
+      b.append(el("span", str(d.summary) || "(no summary)", "sum"),
+        metaLine(d, [d.project || "no project", age(d.created), d.source]));
+      b.onclick = () => select(d.id);
+      li.append(b); ul.append(li);
+    }
+  });
 }
+function setCurrent(id) { for (const b of $("list").querySelectorAll("button[data-id]")) { if (b.dataset.id === id) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current"); } }
+function showErr(msg) { const n = $("listerr"); n.textContent = msg; n.classList.toggle("show", !!msg); }
 let loading = false;
 async function refresh() {
   if (loading) return; loading = true;
   try {
     const r = await API.list(S.status, S.project);
-    S.dumps = arr(r.dumps);
-    for (const d of S.dumps) if (d.project) S.projects.add(d.project);
+    const dumps = arr(r.dumps);
+    for (const d of dumps) if (d.project) S.projects.add(d.project);
+    S.err = ""; showErr("");
     $("conn").textContent = "updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     needToken(false);
-  } catch (e) { $("conn").textContent = fail(e); }
+    const sig = JSON.stringify(dumps);
+    if (sig !== S.sig) { S.sig = sig; S.dumps = dumps; renderList(); }
+  } catch (e) {
+    fail(e);
+    if (e.status === 401) { S.err = ""; showErr(""); $("conn").textContent = "locked"; }
+    else if (e.status === 0) { S.err = "net"; showErr("Hub not answering. Retrying."); $("conn").textContent = "offline"; }
+    else { S.err = "srv"; showErr("The hub hit a problem. Retrying."); $("conn").textContent = "error"; }
+    S.sig = null; if (!S.dumps.length) renderList();
+  }
   finally { loading = false; }
-  renderChips(); renderList();
+  renderChips();
 }
 setInterval(() => { if (!document.hidden) refresh(); }, 10000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
@@ -237,16 +305,28 @@ function section(title, items) {
   if (!xs.length) return f;
   f.append(el("h3", title)); const ul = el("ul"); for (const x of xs) ul.append(el("li", x)); f.append(ul); return f;
 }
+let listY = 0;
+function backBtn() { const b = el("button", "Back", "btn back"); b.type = "button"; b.dataset.key = "back"; b.onclick = closeDetail; return b; }
+function closeDetail() {
+  if (!document.body.classList.contains("detail-open")) return false;
+  document.body.classList.remove("detail-open");
+  const b = S.selected && $("list").querySelector('[data-id="' + CSS.escape(S.selected) + '"]');
+  window.scrollTo(0, listY); if (b) b.focus({ preventScroll: true });
+  return true;
+}
 async function select(id) {
-  S.selected = id; renderList();
-  const box = $("detail"); box.replaceChildren(el("p", "Loading...", "hint"));
-  try { renderDetail(await API.get(id)); box.scrollIntoView({ block: "nearest" }); }
-  catch (e) { box.replaceChildren(el("p", fail(e), "empty")); }
+  S.selected = id; setCurrent(id);
+  const box = $("detail");
+  if (narrow() && !document.body.classList.contains("detail-open")) { listY = window.scrollY; document.body.classList.add("detail-open"); window.scrollTo(0, 0); }
+  box.replaceChildren(backBtn(), el("p", "Loading...", "hint"));
+  try {
+    const d = await API.get(id); if (S.selected !== id) return;
+    renderDetail(d); if (narrow()) box.querySelector(".back").focus({ preventScroll: true });
+  } catch (e) { if (S.selected === id) box.replaceChildren(backBtn(), el("p", fail(e), "empty")); }
 }
 function renderDetail(d) {
-  const box = $("detail"); box.replaceChildren();
-  box.append(el("h2", str(d.summary) || "(no summary)"),
-    el("div", [d.project || "no project", d.status, d.claimed_by && ("claimed by " + d.claimed_by), age(d.created), d.source].filter(Boolean).join(" · "), "meta"));
+  const box = $("detail"); box.replaceChildren(backBtn());
+  box.append(el("h2", str(d.summary) || "(no summary)"), metaLine(d, [d.project || "no project", age(d.created), d.source]));
   box.append(section("Actions", d.actions), section("Ideas", d.ideas), section("Questions", d.questions));
   if (d.transcript) { box.append(el("h3", "Transcript")); const t = el("div", d.transcript); t.id = "transcript"; box.append(t); }
 
@@ -264,45 +344,94 @@ function renderDetail(d) {
   go.onclick = async () => { const p = inp.value.trim(); if (!p) return; try { renderDetail(Object.assign({}, d, await API.assign(d.id, p))); refresh(); toast("Moved to " + p); } catch (e) { toast(fail(e)); } };
   pr.append(lab, inp, dl, go); box.append(pr);
 }
-$("detail").append(el("p", "Pick a dump to see it here.", "empty"));
+$("detail").append(el("p", "Select a note. J and K move.", "empty"));
 
 /* ---- type instead ---- */
 async function saveText() {
+  if (locked) return;
   const text = $("txt").value.trim(); if (!text) return;
-  try { const d = await API.saveText(text); $("txt").value = ""; toast("Saved"); await refresh(); if (d && d.id) select(d.id); }
+  try { const d = await API.saveText(text); $("txt").value = ""; toast("Saved"); await refresh(); if (d && d.dump_id) select(d.dump_id); }
   catch (e) { toast(fail(e)); }
 }
 $("save").onclick = saveText;
 $("txt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveText(); } });
 
 /* ---- recorder ---- */
-const R = { rec: null, stream: null, chunks: [], t0: 0, timer: 0, busy: false };
-function recState(s, msg) { $("recbtn").dataset.s = s; $("recstate").dataset.s = s; $("recstate").textContent = msg || ""; $("recbtn").textContent = s === "recording" ? "Stop" : s === "idle" || s === "saved" || s === "error" ? "Record" : "Working..."; $("recbtn").disabled = s === "transcribing"; }
+const R = { rec: null, stream: null, chunks: [], t0: 0, timer: 0, busy: false, pending: null, cancel: false, actx: null, raf: 0, starting: false };
+let recS = "idle";
+// Live region (#recstate) only changes on state change; the ticking timer is a separate, non-live element.
+function recState(s, msg) {
+  recS = s; const st = $("recstate"), b = $("recbtn");
+  b.dataset.s = s; st.dataset.s = s;
+  if (st.textContent !== (msg || "")) st.textContent = msg || "";
+  $("recline").classList.toggle("empty-line", !msg && s !== "recording");
+  if (s !== "recording") $("timer").textContent = "";
+  b.textContent = s === "recording" ? "Stop" : s === "transcribing" ? "Working..." : "Record";
+  syncRec();
+}
+function syncRec() { $("recbtn").disabled = locked || recS === "transcribing"; }
+function showFail(on) { $("sendfail").classList.toggle("show", on); }
+function meter(on) {
+  const lv = $("level"); lv.classList.toggle("on", on);
+  cancelAnimationFrame(R.raf);
+  if (!on || !R.actx || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const an = R.actx.createAnalyser(); an.fftSize = 512; R.actx.createMediaStreamSource(R.stream).connect(an);
+  const buf = new Uint8Array(an.fftSize), bar = lv.firstElementChild;
+  const loop = () => { an.getByteTimeDomainData(buf); let s = 0; for (const v of buf) { const x = (v - 128) / 128; s += x * x; } bar.style.transform = "scaleX(" + Math.min(1, Math.sqrt(s / buf.length) * 4) + ")"; R.raf = requestAnimationFrame(loop); };
+  loop();
+}
 async function startRec() {
-  if (R.rec || R.busy) return;
+  const hold = R.holdStart; R.holdStart = false;
+  if (R.rec || R.busy || R.starting || locked) return;
+  if (R.pending) { toast("Retry or discard the unsent recording first."); return; }
   if (!navigator.mediaDevices || !window.MediaRecorder) { recState("error", "This browser cannot record (needs HTTPS or localhost, and MediaRecorder)."); return; }
+  R.starting = true;
   try { R.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (e) { recState("error", "Microphone blocked: " + e.message); return; }
+  catch (e) { R.starting = false; recState("error", "Microphone blocked: " + e.message); return; }
+  R.starting = false;
+  if (hold && !spaceHeld) { R.stream.getTracks().forEach((t) => t.stop()); return; } // Space released before the mic opened
+  R.cancel = false;
   R.chunks = []; R.rec = new MediaRecorder(R.stream);
   R.rec.ondataavailable = (e) => e.data.size && R.chunks.push(e.data);
   R.rec.onstop = onStopped;
   R.rec.start(); R.t0 = Date.now();
-  const tick = () => { const s = Math.floor((Date.now() - R.t0) / 1000); recState("recording", "Recording " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0")); };
+  try { R.actx = new (window.AudioContext || window.webkitAudioContext)(); meter(true); } catch (e) { R.actx = null; }
+  recState("recording", "Recording");
+  const tick = () => { const s = Math.floor((Date.now() - R.t0) / 1000); $("timer").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
   tick(); R.timer = setInterval(tick, 500);
 }
 function stopRec() { if (R.rec && R.rec.state !== "inactive") R.rec.stop(); }
+function cancelRec() { if (!R.rec) return false; R.cancel = true; stopRec(); return true; }
 async function onStopped() {
-  clearInterval(R.timer); R.stream.getTracks().forEach((t) => t.stop());
+  clearInterval(R.timer); meter(false); if (R.actx) { R.actx.close().catch(() => {}); R.actx = null; }
+  R.stream.getTracks().forEach((t) => t.stop());
   const blob = new Blob(R.chunks, { type: R.rec.mimeType || "audio/webm" }); R.rec = null;
+  if (R.cancel) { R.cancel = false; recState("idle", "Cancelled."); return; }
   if (Date.now() - R.t0 < 400 || !blob.size) { recState("idle", "Too short, nothing saved."); return; }
-  R.busy = true; recState("transcribing", "Transcribing...");
+  R.busy = true; recState("transcribing", "Sending");
+  R.pending = await toWav(blob); // kept in memory until a send succeeds or the user discards
+  await send();
+}
+async function send() {
+  if (!R.pending) return;
+  R.busy = true; showFail(false); recState("transcribing", "Sending");
   try {
-    const out = await API.audio(await toWav(blob));
-    recState("saved", "Saved" + (out.project ? " to " + out.project : "") + ".");
+    const out = await API.audio(R.pending);
+    R.pending = null;
+    recState("saved", "Saved" + (out.project ? " to " + out.project : ""));
     await refresh(); if (out.dump_id) select(out.dump_id);
-  } catch (e) { recState("error", fail(e)); }
+  } catch (e) { fail(e); recState("error", "Not sent"); showFail(true); if (!locked) $("retry").focus({ preventScroll: true }); }
   finally { R.busy = false; }
 }
+function discardPending() { R.pending = null; showFail(false); recState("idle", ""); }
+$("retry").onclick = send;
+$("discard").onclick = discardPending;
+$("dl").onclick = () => {
+  if (!R.pending) return;
+  const a = document.createElement("a"), u = URL.createObjectURL(R.pending);
+  a.href = u; a.download = "nod-" + new Date().toISOString().replace(/[:.]/g, "-") + (R.pending.type.includes("wav") ? ".wav" : ".webm");
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+};
 // Core's STT upload only accepts WAV (mono, 16-bit), but browsers record webm/opus. Decode and re-wrap as WAV
 // right here (no dependency). If decoding fails, send the original so the server's error is shown.
 async function toWav(blob) {
@@ -320,18 +449,27 @@ async function toWav(blob) {
 }
 $("recbtn").onclick = () => (R.rec ? stopRec() : startRec());
 
-/* ---- keyboard: hold Space to talk; j/k move; Esc clears ---- */
-const typing = () => /^(INPUT|TEXTAREA|SELECT|BUTTON|SUMMARY)$/.test(document.activeElement.tagName);
+/* ---- keyboard: hold Space to talk; j/k move; Esc cancels recording / closes detail ---- */
+// Only real text entry blocks shortcuts; a focused button/summary must not (clicking a chip would otherwise kill them).
+const typing = () => { const a = document.activeElement; return !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable); };
 let spaceHeld = false;
 document.addEventListener("keydown", (e) => {
-  if (e.code === "Space" && !typing() && !e.repeat) { e.preventDefault(); spaceHeld = true; startRec(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Escape") { if (cancelRec() || (!typing() && closeDetail())) e.preventDefault(); return; }
+  if (e.code === "Space" && !typing()) {
+    e.preventDefault(); // also stops a focused button from scrolling/clicking on keydown
+    if (!e.repeat) { spaceHeld = true; R.holdStart = true; startRec(); }
+    return;
+  }
   if (typing()) return;
   if (e.key === "j" || e.key === "k") {
     const i = S.dumps.findIndex((d) => d.id === S.selected), n = e.key === "j" ? i + 1 : i - 1;
-    if (S.dumps[n]) { select(S.dumps[n].id); const b = $("list").querySelector('[data-id="' + CSS.escape(S.dumps[n].id) + '"]'); if (b) b.scrollIntoView({ block: "nearest" }); }
+    if (S.dumps[n]) { select(S.dumps[n].id); const b = $("list").querySelector('[data-id="' + CSS.escape(S.dumps[n].id) + '"]'); if (b) { b.scrollIntoView({ block: "nearest" }); if (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.key) b.focus({ preventScroll: true }); } }
   }
 });
-document.addEventListener("keyup", (e) => { if (e.code === "Space" && spaceHeld) { spaceHeld = false; stopRec(); } });
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Space" && spaceHeld) { e.preventDefault(); spaceHeld = false; stopRec(); } // preventDefault on keyup blocks the button click
+});
 
 renderChips(); renderList(); refresh();
 </script>
