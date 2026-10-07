@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/notify.h"
+#include "../core/sys.h"
 #include "../net/host_worker.h"
 #include "../net/mazhost.h"
 #include "../storage/store.h"
@@ -142,6 +143,13 @@ public:
 
     void update() override {
         if (_view == View::Working) consumeResult();
+        // Retry a failed project load, but only once a background poll saw Core
+        // online: coreProjects() blocks up to its connect timeout while it is down.
+        if ((_view == View::Template || _view == View::Project) && !_projectError.empty() &&
+            Sys.hostOnline && !host_worker::busy() && millis() - _lastTry >= 5000) {
+            refreshProjects();
+            invalidate();
+        }
         if (_view == View::Working && host_worker::busy() && millis() - _lastPaint > 250) {
             _lastPaint = millis();
             invalidate();
@@ -173,6 +181,7 @@ public:
 private:
     void refreshProjects() {
         std::string error;
+        _lastTry = millis();
         _projects = host::coreProjects(error);
         _projectError = error;
         _projectCursor.clamp(_projects.size());
@@ -309,6 +318,7 @@ private:
     int _scroll = 0;
     bool _ok = false;
     uint32_t _lastPaint = 0;
+    uint32_t _lastTry = 0;
 };
 
 }  // namespace

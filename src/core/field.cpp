@@ -135,6 +135,15 @@ void finishOutboxBeam(const host_worker::OutboxBeamResult& result) {
     store::Record* queued = findRecord(rows, result.recordId);
     if (!queued) return;
     if (!result.reply.ok) {
+        // Core rejected it (400/422, e.g. blank text): retrying forever blocks the queue.
+        if (result.reply.status == 400 || result.reply.status == 422) {
+            queued->status = "failed";
+            store::updateRecord(*queued);
+            gNextOutboxTry = millis() + 500;
+            notify::post(Note::Error, "Beam rejected", result.reply.error.c_str());
+            refreshCounts();
+            return;
+        }
         gNextOutboxTry = millis() + gOutboxBackoffMs;
         gOutboxBackoffMs = std::min<uint32_t>(gOutboxBackoffMs * 2u, 300000u);
         return;
