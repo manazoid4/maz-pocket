@@ -569,6 +569,7 @@ const char* HELP_LINES[] = {
     "            agent ops",
     "#VOICE",
     "hold SPACE  talk (Call, Capture)",
+    "hold ^SPACE call from any screen",
     "P S D       play, save, delete",
     "#LISTS",
     "up/down move   ENTER open",

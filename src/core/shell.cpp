@@ -281,6 +281,13 @@ bool handleGlobalKey(const KeyEvent& e) {
         openPalette();
         return true;
     }
+    // Call from any screen: hold Ctrl+Space (Call starts recording while SPACE is held).
+    if ((e.mods & MOD_CTRL) && e.code == KEY_SPACE && !gStack.empty() &&
+        strcmp(gStack.back()->id(), "talk") && strcmp(gStack.back()->id(), "palette")) {
+        field::clearContext();
+        pushById("talk");
+        return true;
+    }
     if ((e.mods & MOD_CTRL) && e.code == KEY_L) {
         launcher::reboot();
         return true;

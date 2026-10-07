@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import logging
 import json
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Annotated, Literal
@@ -143,6 +144,7 @@ def create_app(
     def start_bridge() -> None:
         logging.getLogger("uvicorn.error").info("nod Core v%s starting", CORE_VERSION)
         bridge_worker.start()
+        threading.Thread(target=getattr(speech, "warm", lambda: None), daemon=True).start()
 
     @api.on_event("shutdown")
     def stop_bridge() -> None:
