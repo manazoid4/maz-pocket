@@ -283,6 +283,12 @@ class SelfUpdater:
                "-NewSha", new_sha, "-PrevSha", prev_sha, "-Port", str(self.port),
                "-EnvFile", str(Path.cwd() / ".env"), "-LogDir", str(ld)]
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        subprocess.Popen(cmd, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        kw = dict(close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Task Scheduler runs Core inside a job object; "schtasks /End" kills the whole job, which would
+        # take this helper with it. Break away from the job when allowed, else fall back.
+        try:
+            subprocess.Popen(cmd, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kw)  # type: ignore[attr-defined]
+        except OSError:
+            log.warning("selfupdate: job breakaway refused; helper may die with the task")
+            subprocess.Popen(cmd, creationflags=flags, **kw)
         log.info("selfupdate: spawned restart helper")
