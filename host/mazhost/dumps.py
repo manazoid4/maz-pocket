@@ -178,9 +178,22 @@ def list_dumps(inbox: Path, status: str | None = None, project: str | None = Non
     ]
 
 
+def _items(body: str, title: str) -> list[str]:
+    text = body.partition(f"## {title}\n")[2].partition("\n\n## ")[0]
+    return [line.removeprefix("- [ ] ").removeprefix("- ") for line in text.splitlines() if line.startswith("- ")]
+
+
 def get_dump(inbox: Path, dump_id: str) -> dict:
     _, meta, body = _read(inbox, dump_id)
-    return {**meta, "body": body}
+    head, _, tail = body.partition("## Transcript\n")
+    return {
+        **meta,
+        "actions": _items(head, "Actions"),
+        "ideas": _items(head, "Ideas"),
+        "questions": _items(head, "Questions"),
+        "transcript": tail.partition("\n\n## Done (")[0].strip(),
+        "body": body,
+    }
 
 
 def _update(inbox: Path, dump_id: str, change: Callable[[dict, str], str | None]) -> dict:

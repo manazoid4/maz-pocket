@@ -168,3 +168,14 @@ def test_dump_routes(tmp_path):
     assert client.post(f"/dumps/{dump_id}/done", headers=AUTH, json={"agent": "a", "note": "ok"}).json()["status"] == "done"
     assert client.get("/dumps/nope", headers=AUTH).status_code == 404
     assert client.get("/dumps/..%2Fprojects", headers=AUTH).status_code in (400, 404)
+
+
+def test_get_dump_returns_parsed_sections(tmp_path):
+    structured = {"summary": "s", "actions": ["do a"], "ideas": ["idea ## b"], "questions": []}
+    meta = dumps.save_dump(tmp_path, "line one\n## not a heading\nline two", structured, source="api")
+    dumps.finish_dump(tmp_path, meta["id"], "tester", "note")
+    got = dumps.get_dump(tmp_path, meta["id"])
+    assert got["actions"] == ["do a"]
+    assert got["ideas"] == ["idea ## b"]
+    assert got["questions"] == []
+    assert got["transcript"] == "line one\n## not a heading\nline two"
