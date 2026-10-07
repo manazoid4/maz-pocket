@@ -341,14 +341,22 @@ bool fwUpdate() {
     const size_t size = doc["size"] | 0;
     const String want = doc["sha256"] | "";
     const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
-    if (!target || size < 65536 || size > target->size || want.length() != 64) return fwFail("bad manifest");
+    if (!target) return fwFail("No free OTA slot");
+    if (target == esp_ota_get_running_partition()) return fwFail("No free slot: reinstall via Launcher");
+    if (size < 65536 || size > target->size) return fwFail("Image too big for slot");
+    if (want.length() != 64) return fwFail("bad manifest");
 
     NodHttp http;
     if (!coreBegin(http, "/fw/latest.bin", false)) return fwFail("Update needs home Wi-Fi");
     http.setTimeout(20000);
     if (http.GET() != 200) { http.end(); return fwFail("download refused"); }
     esp_ota_handle_t ota = 0;
-    if (esp_ota_begin(target, size, &ota) != ESP_OK) { http.end(); return fwFail("OTA begin failed"); }
+    const esp_err_t be = esp_ota_begin(target, size, &ota);
+    if (be != ESP_OK) {
+        http.end();
+        Serial.printf("[fw] esp_ota_begin: %s\n", esp_err_to_name(be));
+        return fwFail(be == ESP_ERR_OTA_PARTITION_CONFLICT ? "No free slot: reinstall via Launcher" : "OTA begin failed");
+    }
 
     mbedtls_sha256_context sha;
     mbedtls_sha256_init(&sha);
