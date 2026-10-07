@@ -48,6 +48,7 @@ def decide(event: dict) -> str | None:
             "tool": event.get("tool_name", "?"),
             "summary": summarize(event.get("tool_input") or {}),
             "session_id": event.get("session_id", ""),
+            "project": str(event.get("cwd", "")).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1][:60],
         })
         end = time.monotonic() + TIMEOUT
         while True:

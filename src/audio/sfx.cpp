@@ -38,6 +38,8 @@ void lineClose() { pair(660.f, 330.f, 55); }
 void saved()     { beep(1760.f, 45); }
 void error()     { pair(300.f, 200.f, 90); }
 
+void approval()  { pair(880.f, 1480.f, 90, /*force=*/true); }
+
 void timerDone() {
     for (int i = 0; i < 3; ++i) {
         beep(1200.f, 120, /*force=*/true);

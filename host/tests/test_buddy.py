@@ -98,3 +98,46 @@ def test_core_down_asks():
     out = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(EVENT), text=True,
                          capture_output=True, env=env, timeout=30)
     assert out.returncode == 0 and out.stdout == "" and out.stderr.strip() == "ask"
+
+
+def test_summary_states_and_fields():
+    c = api()
+    s = c.get("/buddy/summary", headers=H).json()
+    assert s["agent"] == "idle" and s["count"] == 0 and s["items"] == []
+    a = c.post("/buddy/request", json={"tool": "Edit", "summary": "a.py", "project": "maz"}, headers=H).json()["id"]
+    b = c.post("/buddy/request", json={"tool": "Bash", "summary": "ls"}, headers=H).json()["id"]
+    s = c.get("/buddy/summary", headers=H).json()
+    assert s["agent"] == "needs_you" and s["count"] == 2
+    assert [i["id"] for i in s["items"]] == [a, b]  # oldest first
+    assert s["items"][0]["project"] == "maz" and 55 <= s["items"][0]["left"] <= 60
+    c.post("/buddy/decide", json={"id": a, "decision": "allow"}, headers=H)
+    c.post("/buddy/decide", json={"id": b, "decision": "cancel"}, headers=H)
+    s = c.get("/buddy/summary", headers=H).json()
+    assert s["agent"] == "working" and s["count"] == 0  # recent activity, nothing pending
+
+
+def test_summary_requires_auth_and_hides_expired():
+    c = api()
+    assert c.get("/buddy/summary").status_code == 401
+    rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    import mazhost.buddy as bm
+    real = bm.time.time
+    bm.time.time = lambda: real() + 100
+    try:
+        assert c.get("/buddy/summary", headers=H).json()["count"] == 0
+    finally:
+        bm.time.time = real
+    assert rid
+
+
+def test_hook_sends_project(monkeypatch, capsys):
+    c = api()
+    hook = load_hook(monkeypatch, c, "0.2")
+    import io
+    ev = {**EVENT, "cwd": "C:\\Users\\x\\maz-pocket"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(ev)))
+    sent = []
+    orig = hook.call
+    hook.call = lambda m, p, body=None, timeout=10: (sent.append(body), orig(m, p, body, timeout))[1]
+    hook.main()
+    assert sent[0]["project"] == "maz-pocket"
