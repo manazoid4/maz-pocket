@@ -50,11 +50,14 @@ jobs:
       - name: Size gate
         run: |
           size=$(stat -c %s .pio/build/cardputer-adv/firmware.bin)
-          limit=1572864
+          limit=1507328  # app slot 0x170000 (device partition table)
           echo "firmware.bin: $size bytes of $limit ($((size * 100 / limit))%)"
           echo "### Firmware size" >> "$GITHUB_STEP_SUMMARY"
           echo "\`firmware.bin\` = **$size** bytes of $limit ($((size * 100 / limit))%), headroom $((limit - size))" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$size" -gt "$limit" ]; then echo "::error::firmware.bin exceeds app slot"; exit 1; fi
+          headroom=$((limit - size))
+          echo "headroom: $headroom bytes"
+          if [ "$size" -gt "$limit" ]; then echo "::error::firmware.bin exceeds app slot by $((size - limit)) bytes"; exit 1; fi
+          if [ "$headroom" -lt 8192 ]; then echo "::warning::firmware.bin headroom only $headroom bytes (< 8192) of the app slot"; fi
 
       - name: Manifest
         run: python scripts/fw_manifest.py .pio/build/cardputer-adv/firmware.bin dist/
