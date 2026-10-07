@@ -137,6 +137,12 @@ String handleLine(const String& raw, bool trusted) {
         return String("MAZPING OK version=" MAZ_POCKET_VERSION " ip=") +
                WiFi.localIP().toString();
 
+    if (line == "MAZSPK") {
+        // Blocks ~2 s while the generated tone + sweep play via the reply path.
+        if (!voice::speakerTest(true)) return "MAZSPK ERR busy";
+        return "[spk] test done";
+    }
+
     if (line == "MAZSTATUS") {
         // Status is a snapshot, not a network operation. Older builds called
         // host::health()/assurance() here, which could block this foreground
