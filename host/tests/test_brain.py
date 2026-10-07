@@ -31,9 +31,9 @@ def test_priorities_from_now_file(tmp_path):
 
 
 def test_groq_stages_first_only_with_key():
-    assert Models(settings())._effective_auto_chain()[0] == "mazlatest"
+    assert Models(settings(mazlatest_key="m"))._effective_auto_chain()[0] == "mazlatest"
     chain = Models(settings(groq_key="k", cloud_key="c"))._effective_auto_chain()
-    assert chain[:2] == ("groq", "groq_alt")
+    assert chain[:3] == ("groq", "groq_alt", "groq_3")
 
 
 def test_refusal_retries_once_on_next_stage(monkeypatch):
@@ -70,3 +70,19 @@ def test_prompt_has_weather_maths_priorities_and_local_upgrades_to_auto(monkeypa
     assert "Ship hero" in ask("what should I work on now")
     assert models.last_route == "auto"
     assert "Never say" in ask("hi")
+
+
+def test_groq_429_hops_to_next_model_not_local(monkeypatch):
+    m = Models(settings(groq_key="k"))
+    seen = []
+
+    def groq(stage, msgs, timeout=None):
+        seen.append(stage)
+        if stage != "groq_3":
+            raise RuntimeError("429 rate limited")
+        return "ok", "groq:c"
+
+    monkeypatch.setattr(m, "_groq", groq)
+    monkeypatch.setattr(m, "_local_stage", lambda *a, **k: (_ for _ in ()).throw(AssertionError("local used")))
+    assert m.chat([{"role": "user", "content": "hi"}], "auto") == ("ok", "groq:c")
+    assert seen == ["groq", "groq_alt", "groq_3"]
