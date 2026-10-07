@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Annotated, Literal
@@ -137,6 +138,7 @@ def create_app(
     @api.on_event("startup")
     def start_bridge() -> None:
         bridge_worker.start()
+        threading.Thread(target=getattr(speech, "warm", lambda: None), daemon=True).start()
 
     @api.on_event("shutdown")
     def stop_bridge() -> None:

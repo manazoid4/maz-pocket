@@ -195,6 +195,14 @@ public:
             return;
         }
 
+        std::string early;
+        if (host_worker::peekTalkText(early)) {
+            g.setFont(&fonts::Font0);
+            g.setTextColor(ACCENT, BG);
+            g.drawString("MAZ> voice loading...", PAD, BODY_Y + 18);
+            drawCommWrapped(g, early, BODY_Y + 34, 0);
+            return;
+        }
         if (host_worker::busy() || _sending) {
             retroPhone(g, host_worker::state() == host_worker::State::Queued ? "QUEUED" : "MAZ THINKING", WARN);
             return;
