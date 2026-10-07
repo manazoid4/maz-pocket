@@ -26,13 +26,13 @@ namespace {
 std::string gCallSession;
 
 void drawWrapped(M5Canvas& g, const std::string& text, int y, int first = 0) {
-    constexpr size_t W = 37;
+    const std::vector<std::string> lines = ui::wrap(text, 37);
     g.setFont(&fonts::Font0);
     g.setTextColor(TEXT, BG);
     for (int row = 0; row < 4; ++row) {
-        const size_t start = static_cast<size_t>(first + row) * W;
-        if (start >= text.size()) break;
-        g.drawString(text.substr(start, W).c_str(), PAD, y + row * 14);
+        const size_t idx = static_cast<size_t>(first + row);
+        if (idx >= lines.size()) break;
+        g.drawString(lines[idx].c_str(), PAD, y + row * 14);
     }
 }
 

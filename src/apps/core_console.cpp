@@ -157,16 +157,9 @@ private:
             return;
         }
         const std::string text = !_result.empty() ? _result : (!_job.error.empty() ? _job.error : "No output");
-        size_t pos = 0;
-        int row = 1;
-        while (pos < text.size() && row < 6) {
-            size_t end = text.find('\n', pos);
-            if (end == std::string::npos) end = text.size();
-            std::string part = text.substr(pos, end - pos);
-            if (part.size() > 37) part.resize(37);
-            line(g, row++, part.c_str(), _job.ok ? TEXT : WARN);
-            pos = end + 1;
-        }
+        const std::vector<std::string> lines = ui::wrap(text, 37);
+        for (size_t k = 0; k < lines.size() && k < 5; ++k)
+            line(g, 1 + static_cast<int>(k), lines[k].c_str(), _job.ok ? TEXT : ERR);
     }
 
     static void line(M5Canvas& g, int row, const char* text, uint16_t color) {

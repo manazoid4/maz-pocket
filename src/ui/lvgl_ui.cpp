@@ -23,8 +23,7 @@ void drawStatus(M5Canvas& g, const Status& st) {
     g.setFont(&fonts::Font4);
     // Long agent/outbox phrases drop to the smaller font instead of clipping.
     if (g.textWidth(st.line) > SCREEN_W - TEXT_X - PAD) g.setFont(&fonts::Font2);
-    g.setTextColor(st.colour, BG);
-    g.drawString(st.line, TEXT_X, BODY_Y + 3);
+    ui::stateWord(g, TEXT_X, BODY_Y + 3, st.phase, st.line);
 
     g.setFont(&fonts::Font0);
     g.setTextColor(DIM, BG);

@@ -30,25 +30,7 @@ std::string gCommSession;
 
 // Word-wrap `text` to REPLY_CHARS columns and draw REPLY_LINES lines from `first`.
 void drawCommWrapped(M5Canvas& g, const std::string& text, int y, int first = 0) {
-    std::vector<std::string> lines;
-    std::string line;
-    size_t i = 0;
-    while (i < text.size()) {
-        size_t e = text.find(' ', i);
-        if (e == std::string::npos) e = text.size();
-        std::string word = text.substr(i, e - i);
-        i = e + 1;
-        while (word.size() > static_cast<size_t>(REPLY_CHARS)) {  // very long token
-            if (!line.empty()) { lines.push_back(line); line.clear(); }
-            lines.push_back(word.substr(0, REPLY_CHARS));
-            word.erase(0, REPLY_CHARS);
-        }
-        if (!line.empty() && line.size() + 1 + word.size() > static_cast<size_t>(REPLY_CHARS)) {
-            lines.push_back(line); line.clear();
-        }
-        line += line.empty() ? word : " " + word;
-    }
-    if (!line.empty()) lines.push_back(line);
+    const std::vector<std::string> lines = ui::wrap(text, REPLY_CHARS);
     g.setFont(&fonts::Font0);
     g.setTextColor(TEXT, BG);
     g.setTextDatum(top_left);
@@ -238,6 +220,7 @@ public:
             const std::string t = "00:" + two(voice::elapsedSeconds());
             state(g, Phase::Listening,
                   (t + (field::contextArmed() ? "  asking about screen" : "  release to send")).c_str());
+            ui::progress(g, PAD, REPLY_Y, SCREEN_W - PAD * 2, 6, voice::level(), LIVE);
         } else if (working() && host_worker::peekTalkText(early)) {
             state(g, Phase::Thinking, "voice loading...");
             drawCommWrapped(g, early, REPLY_Y, 0);
@@ -249,6 +232,9 @@ public:
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
         } else if (!_err.empty()) {
             state(g, Phase::Error, _err.c_str());
+            g.setFont(&fonts::Font0);
+            g.setTextColor(ERR, BG);
+            g.drawString("ESC back", PAD, REPLY_Y);
         } else if (!_reply.empty()) {
             state(g, Phase::Ready, (std::string(routeName()) + (Cfg.ttsEnabled ? " / voice on" : " / text only")).c_str());
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
@@ -280,9 +266,7 @@ private:
         float scale = STATE_SCALE;  // shrink until the word fits the screen
         g.setTextSize(scale);
         while (scale > 1.f && g.textWidth(word) > SCREEN_W - SIDE * 2) { scale -= 0.25f; g.setTextSize(scale); }
-        g.setTextDatum(top_center);
-        g.setTextColor(sw.colour, BG);
-        g.drawString(word, SCREEN_W / 2, STATE_Y);
+        ui::stateWord(g, SCREEN_W / 2, STATE_Y, p, word, true);
         g.setTextSize(1);
         g.setFont(&fonts::Font2);
         g.setTextColor(DIM, BG);

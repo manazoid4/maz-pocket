@@ -27,17 +27,20 @@ constexpr int TABLE_CELL_W = SCREEN_W / TABLE_COLS;
 constexpr int TABLE_CELL_H = 30;
 constexpr int TABLE_PAGE   = TABLE_COLS * TABLE_ROWS;
 
-// RGB565 — dark terminal body with phosphor-like amber/cyan state accents.
+// RGB565 — One Lamp: white/grey on black. LIVE (orange) is lit ONLY while the
+// mic is live. ACCENT is the bright-white emphasis; selection is an inverse
+// block. OK (green) means SAVED, ERR (red) means error and nothing else.
 constexpr uint16_t BG      = 0x0862;  // #0B0D10
 constexpr uint16_t PANEL   = 0x10A3;  // #14181D
 constexpr uint16_t LINE    = 0x2124;  // #202428
 constexpr uint16_t TEXT    = 0xE73D;  // #E6E9EC
 constexpr uint16_t DIM     = 0x9D35;  // #9AA4AE
 constexpr uint16_t HINT    = 0xC659;  // #C3CAD1
-constexpr uint16_t ACCENT  = 0xFBC0;  // #FF7A18
-constexpr uint16_t ACCENT2 = 0x269D;  // #22D3EE
+constexpr uint16_t LIVE    = 0xFBC0;  // #FF7A18 mic is live
+constexpr uint16_t ACCENT  = 0xFFFF;  // #FFFFFF
+constexpr uint16_t ACCENT2 = TEXT;
 constexpr uint16_t OK      = 0x3E90;  // #3DDC84
-constexpr uint16_t WARN    = 0xFD00;  // #FFA200
+constexpr uint16_t WARN    = TEXT;
 constexpr uint16_t ERR     = 0xFA4A;  // #FF4D50
 
 namespace rgb {
@@ -46,10 +49,11 @@ constexpr uint32_t PANEL  = 0x14181D;
 constexpr uint32_t LINE   = 0x202428;
 constexpr uint32_t TEXT   = 0xE6E9EC;
 constexpr uint32_t DIM    = 0x9AA4AE;
-constexpr uint32_t ACCENT = 0xFF7A18;
-constexpr uint32_t ACCENT2 = 0x22D3EE;
+constexpr uint32_t LIVE   = 0xFF7A18;
+constexpr uint32_t ACCENT = 0xFFFFFF;
+constexpr uint32_t ACCENT2 = 0xE6E9EC;
 constexpr uint32_t OK     = 0x3DDC84;
-constexpr uint32_t WARN   = 0xFFA200;
+constexpr uint32_t WARN   = 0xE6E9EC;
 constexpr uint32_t ERR    = 0xFF4D50;
 }  // namespace rgb
 

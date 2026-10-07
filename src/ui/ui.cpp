@@ -18,14 +18,14 @@ void mark(M5Canvas& g, int cx, int cy, int r, uint16_t colour, float energy) {
     // always looks the same wherever you are.
     if (energy > 0.f) {
         const int er = r + 3 + static_cast<int>(energy * 7.f);
-        g.drawCircle(cx, cy, er, ACCENT2);
+        g.drawCircle(cx, cy, er, LIVE);
         if (energy > 0.55f) g.drawCircle(cx, cy, er + 4, PANEL);
     }
     g.drawCircle(cx, cy, r, colour);
     g.drawCircle(cx, cy, r - 1, colour);
     g.fillCircle(cx, cy, r / 2, colour);
     // The strike through the ring's lower right: the one detail that makes
-    // this mark MAZ and not a generic record dot.
+    // this mark nod and not a generic record dot.
     g.drawLine(cx + r - 1, cy + r - 1, cx + r + 3, cy + r + 3, colour);
 }
 
@@ -33,17 +33,14 @@ void wordmark(M5Canvas& g, int cx, int y, uint16_t colour) {
     g.setTextDatum(top_center);
     g.setTextColor(colour, BG);
     g.setFont(&fonts::Font4);
-    g.drawString("MAZ", cx, y);
-    g.setFont(&fonts::Font2);
-    g.setTextColor(DIM, BG);
-    g.drawString("POCKET", cx, y + 26);
+    g.drawString("nod", cx, y);
     g.setTextDatum(top_left);
 }
 
 // ------------------------------------------------------------------ chrome
 static void batteryGlyph(M5Canvas& g, int x, int y, int pct, bool charging) {
     const uint16_t c =
-        charging ? ACCENT2 : (pct <= 15 ? ERR : (pct <= 30 ? WARN : DIM));
+        charging ? TEXT : (pct <= 15 ? ERR : DIM);
     g.drawRect(x, y, 18, 9, c);
     g.fillRect(x + 18, y + 3, 2, 3, c);
     if (pct > 0) g.fillRect(x + 2, y + 2, (14 * pct) / 100, 5, c);
@@ -55,9 +52,10 @@ void statusBar(M5Canvas& g) {
     g.setFont(&fonts::Font0);
     g.setTextDatum(top_left);
 
-    // Left: the mark, small, always present — the device's signature.
-    g.fillCircle(6, 7, 3, ACCENT);
-    g.drawCircle(6, 7, 5, ACCENT);
+    // Left: the lamp. Orange only while the mic is live, grey otherwise.
+    const uint16_t lamp = Sys.recording ? LIVE : DIM;
+    g.fillCircle(6, 7, 3, lamp);
+    g.drawCircle(6, 7, 5, lamp);
 
     g.setTextColor(TEXT, PANEL);
     if (Sys.timeValid) {
@@ -75,29 +73,29 @@ void statusBar(M5Canvas& g) {
     // Left zone ends before SB_BUDDY_X even with a 1h+ timer: see theme.h.
     int x = SB_UPD_X;
     if (host::updateReady()) {
-        g.fillRoundRect(x - 2, 2, 22, 11, 2, ACCENT);  // chip, same accent as Home's UPDATE READY
-        g.setTextColor(BG, ACCENT);
+        g.fillRoundRect(x - 2, 2, 22, 11, 2, TEXT);  // inverse chip = needs you
+        g.setTextColor(BG, TEXT);
         g.drawString("UPD", x, 4);
         x = SB_ACT_X;
     }
     if (Sys.recording) {
-        g.fillCircle(x + 3, 7, 3, ERR);
-        g.setTextColor(ERR, PANEL);
+        g.fillCircle(x + 3, 7, 3, LIVE);
+        g.setTextColor(LIVE, PANEL);
         g.drawString(hhmmss(Sys.recSeconds).c_str(), x + 9, 4);
     } else if (Sys.focusRunning) {
-        g.setTextColor(ACCENT, PANEL);
+        g.setTextColor(TEXT, PANEL);
         g.drawString(hhmmss(Sys.focusRemain).c_str(), x, 4);
     }
 
-    // Claude Code status light (Core /buddy): amber = waiting on you, green = working.
-    if (Sys.buddy) g.fillCircle(SB_BUDDY_X, 7, 3, Sys.buddy == 2 ? WARN : OK);
+    // Claude Code status light (hub /buddy): bright = waiting on you, grey = working.
+    if (Sys.buddy) g.fillCircle(SB_BUDDY_X, 7, 3, Sys.buddy == 2 ? TEXT : DIM);
 
-    // Core dot: green = answering, red = Wi-Fi is up but Core is not, hollow = no Wi-Fi.
-    if (Sys.hostOnline) g.fillCircle(SB_CORE_X, 7, 3, OK);
+    // Hub dot: white = answering, red = Wi-Fi is up but hub is not, hollow = no Wi-Fi.
+    if (Sys.hostOnline) g.fillCircle(SB_CORE_X, 7, 3, TEXT);
     else if (Sys.wifiConnected) g.fillCircle(SB_CORE_X, 7, 3, ERR);
     else g.drawCircle(SB_CORE_X, 7, 3, DIM);
 
-    g.setTextColor(Sys.wifiConnected ? OK : (Sys.wifiOn ? WARN : DIM), PANEL);
+    g.setTextColor(Sys.wifiConnected ? TEXT : DIM, PANEL);
     g.drawString("WiFi", SB_WIFI_X, 4);
 
     // Battery sits on the right edge with its percentage just inside it.
@@ -125,12 +123,12 @@ void hintBar(M5Canvas& g, const char* hints) {
     // amber when there is somewhere to return to, hairline grey on Home when
     // there is not — a control that vanishes is a control you stop trusting.
     const bool canBack = Sys.navDepth > 1;
-    g.fillRoundRect(2, y + 1, 32, 11, 2, canBack ? ACCENT : LINE);
-    g.setTextColor(canBack ? BG : DIM, canBack ? ACCENT : LINE);
+    g.fillRoundRect(2, y + 1, 32, 11, 2, canBack ? TEXT : LINE);
+    g.setTextColor(canBack ? BG : DIM, canBack ? TEXT : LINE);
     g.drawString("<ESC", 6, y + 3);
     // Two or more deep: a tick past the chip says there is still more behind
     // this screen, so you hold ESC for Home rather than mashing it.
-    if (Sys.navDepth > 2) g.fillRect(36, y + 1, 2, 11, ACCENT);
+    if (Sys.navDepth > 2) g.fillRect(36, y + 1, 2, 11, TEXT);
 
     // HINT_CHARS is what fits beside the chip at Font0's 6px advance. Hints used
     // to run off the right edge silently; now they are cut where they land.
@@ -150,7 +148,7 @@ void header(M5Canvas& g, const char* title, const char* right) {
         g.setTextColor(DIM, BG);
         g.drawString("<", PAD, BODY_Y + 2);
     }
-    g.setTextColor(ACCENT, BG);
+    g.setTextColor(TEXT, BG);
     g.drawString(title, titleX, BODY_Y + 2);
     if (right) {
         g.setFont(&fonts::Font0);
@@ -171,17 +169,16 @@ void listRow(M5Canvas& g, int visibleIndex, bool selected, const char* label,
              const char* right) {
     const int y = BODY_Y + 1 + visibleIndex * ROW_H;
     if (selected) {
-        g.fillRoundRect(2, y, SCREEN_W - 8, ROW_H - 2, 3, ACCENT);
-        g.fillRect(2, y, 3, ROW_H - 2, TEXT);
+        g.fillRoundRect(2, y, SCREEN_W - 8, ROW_H - 2, 3, TEXT);  // inverse block
     }
     g.setFont(&fonts::Font2);
     g.setTextDatum(top_left);
-    g.setTextColor(selected ? BG : TEXT, selected ? ACCENT : BG);
+    g.setTextColor(selected ? BG : TEXT, selected ? TEXT : BG);
     g.drawString(label, 9, y + 1);
     if (right && *right) {
         g.setFont(&fonts::Font0);
         g.setTextDatum(top_right);
-        g.setTextColor(selected ? BG : DIM, selected ? ACCENT : BG);
+        g.setTextColor(selected ? BG : DIM, selected ? TEXT : BG);
         g.drawString(right, SCREEN_W - 12, y + 5);
         g.setTextDatum(top_left);
     }
@@ -193,7 +190,7 @@ void scrollBar(M5Canvas& g, int total, int firstVisible, int visible) {
     const int h      = trackH * visible / total;
     const int y = BODY_Y + 2 + (trackH - h) * firstVisible / (total - visible);
     g.fillRect(SCREEN_W - 4, BODY_Y + 2, 2, trackH, PANEL);
-    g.fillRect(SCREEN_W - 4, y, 2, h < 6 ? 6 : h, ACCENT);
+    g.fillRect(SCREEN_W - 4, y, 2, h < 6 ? 6 : h, DIM);
 }
 
 void emptyState(M5Canvas& g, const char* line1, const char* line2) {
@@ -235,8 +232,9 @@ void progress(M5Canvas& g, int x, int y, int w, int h, float pct,
 StatusWord statusWord(Phase p) {
     using namespace theme;
     static const StatusWord W[] = {
-        {"READY", TEXT},       {"LISTENING", ACCENT}, {"THINKING", WARN},       {"SPEAKING", ACCENT},
-        {"NEEDS YOU", WARN},   {"OFFLINE", DIM},      {"ERROR", ERR},           {"UPDATE READY", ACCENT},
+        {"READY", TEXT},     {"LISTENING", LIVE}, {"THINKING", TEXT},  {"SPEAKING", TEXT},
+        {"NEEDS YOU", TEXT}, {"OFFLINE", DIM},    {"ERROR", ERR},      {"UPDATE READY", TEXT},
+        {"SAVED", OK},
     };
     return W[static_cast<int>(p)];
 }
@@ -260,7 +258,53 @@ void glyph(M5Canvas& g, int x, int y, int s, Phase p) {
     }
     if (p == Phase::Listening || p == Phase::Speaking) g.fillCircle(cx, cy + s / 4, s / 10 + 1, c);
     else g.fillRect(cx - s / 6, cy + s / 4, s / 3, 2, c);
-    if (p == Phase::Ready) g.fillCircle(x + s - s / 6, y + s - s / 6, s / 8 + 1, OK);
+}
+
+void stateWord(M5Canvas& g, int x, int y, Phase p, const char* text, bool center) {
+    const StatusWord sw = statusWord(p);
+    if (!text) text = sw.text;
+    const int w = g.textWidth(text);
+    const int h = g.fontHeight();
+    const bool box = p == Phase::NeedsYou || p == Phase::Update;  // inverse block
+    if (center) x -= (w + (box ? 8 : 0)) / 2;
+    if (box) {
+        g.fillRect(x, y, w + 8, h + 2, TEXT);
+        g.setTextColor(BG, TEXT);
+        g.setTextDatum(top_left);
+        g.drawString(text, x + 4, y + 1);
+        return;
+    }
+    g.setTextColor(sw.colour, BG);
+    g.setTextDatum(top_left);
+    g.drawString(text, x, y);
+    if (p == Phase::Thinking && ((millis() / 500) & 1)) g.fillCircle(x + w + 6, y + h / 2, 3, TEXT);
+}
+
+// Word-wrap on spaces/newlines to `cols` columns; a token longer than a line is
+// split. One implementation for every screen that shows free text.
+std::vector<std::string> wrap(const std::string& text, size_t cols) {
+    std::vector<std::string> lines;
+    std::string line;
+    size_t i = 0;
+    while (i <= text.size()) {
+        size_t e = text.find_first_of(" 
+", i);
+        if (e == std::string::npos) e = text.size();
+        std::string word = text.substr(i, e - i);
+        const bool nl = e < text.size() && text[e] == '
+';
+        i = e + 1;
+        while (word.size() > cols) {
+            if (!line.empty()) { lines.push_back(line); line.clear(); }
+            lines.push_back(word.substr(0, cols));
+            word.erase(0, cols);
+        }
+        if (!line.empty() && line.size() + 1 + word.size() > cols) { lines.push_back(line); line.clear(); }
+        line += line.empty() ? word : " " + word;
+        if (nl) { lines.push_back(line); line.clear(); }
+    }
+    if (!line.empty()) lines.push_back(line);
+    return lines;
 }
 
 std::string ellipsis(const std::string& s, size_t maxChars) {
