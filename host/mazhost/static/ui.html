@@ -78,7 +78,16 @@ summary { cursor: pointer; color: var(--dim); display: block; min-height: 44px; 
 .btn { background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px 14px; min-height: 44px; cursor: pointer; }
 .btn:hover { border-color: var(--text); }
 .btn:disabled { opacity: .6; cursor: not-allowed; }
-body.view-needs #app { display: none; }
+body.view-needs #app, body.view-device #app { display: none; }
+#device { max-width: 760px; margin: 0 auto; }
+#device[hidden] { display: none; }
+#devline { margin: 0 0 4px; overflow-wrap: anywhere; }
+#devline b { font-family: var(--mono); font-weight: 600; }
+#screen { display: block; width: 100%; max-width: 720px; aspect-ratio: 240 / 135; margin-top: 16px; image-rendering: pixelated; background: #000; border: 2px solid var(--ctl); border-radius: 8px; cursor: text; }
+#screen:focus-visible, #screen:focus { outline: none; border-color: var(--accent); }
+#screen.off { opacity: .35; }
+#devkeys .btn { min-width: 56px; font-family: var(--mono); }
+@media (max-width: 520px) { #conn { display: none; } #tabs .chip { padding: 4px 12px; white-space: nowrap; } header { gap: 8px; } }
 #needs { max-width: 1100px; margin: 0 auto; }
 #needs[hidden] { display: none; }
 #needhead { margin: 0 0 8px; font-size: 2rem; }
@@ -129,6 +138,7 @@ body.view-needs #app { display: none; }
   <nav class="chips" id="tabs" role="group" aria-label="View" style="margin:0">
     <button class="chip" type="button" id="tab-inbox" aria-pressed="true">Inbox</button>
     <button class="chip" type="button" id="tab-needs" aria-pressed="false">Needs you <span id="needn"></span></button>
+    <button class="chip" type="button" id="tab-device" aria-pressed="false">Device</button>
   </nav>
   <span id="conn"></span>
 </header>
@@ -144,6 +154,17 @@ body.view-needs #app { display: none; }
   <div id="needwarn" class="hint" role="status"></div>
   <ul id="needlist"></ul>
   <p class="hint"><kbd>J</kbd>/<kbd>K</kbd> move, <kbd>E</kbd> done, <kbd>H</kbd> snooze 24 h. Approvals are decided on the device.</p>
+</section>
+
+<section id="device" aria-label="Device" hidden>
+  <p id="devline" role="status">Looking for nod...</p>
+  <div id="devsub" class="hint"></div>
+  <div class="row"><button id="devupd" class="btn primary" type="button" disabled>Update device</button><button id="devcheck" class="btn" type="button">Check for a new build</button></div>
+  <canvas id="screen" width="240" height="135" tabindex="0" aria-label="Live nod screen. Focus it and type to press keys on nod."></canvas>
+  <div class="row" id="devkeys">
+    <button class="btn" type="button" data-k="41">Esc</button><button class="btn" type="button" data-k="80">&larr;</button><button class="btn" type="button" data-k="82">&uarr;</button><button class="btn" type="button" data-k="81">&darr;</button><button class="btn" type="button" data-k="79">&rarr;</button><button class="btn" type="button" data-k="40">Enter</button>
+  </div>
+  <p class="hint">Click the screen, then type: your keys go to nod. Agent approvals still need a press on nod itself.</p>
 </section>
 
 <main id="app">
@@ -207,6 +228,14 @@ const API = {
   saveText: (text) => API.call("POST", "/dumps", { json: { text, source: "web" } }), // -> {dump_id, project}
   done: (id) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/done", { json: { agent: "web", note: "" } }),
   needs: () => API.call("GET", "/needs"),
+  device: () => API.call("GET", "/core/device"),
+  devAction: (action) => API.call("POST", "/core/cardputer/action", { json: { action } }),
+  hubCheck: () => API.call("POST", "/core/update/check"),
+  async screen() {
+    const r = await fetch("/core/cardputer/screen", { headers: this.token ? { Authorization: "Bearer " + this.token } : {}, cache: "no-store" });
+    if (!r.ok) throw new ApiError(r.status, "HTTP " + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  },
   needDone: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/done"),
   needSnooze: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/snooze?hours=24"),
   assign: (id, project) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/assign", { json: { project } }),
@@ -394,14 +423,19 @@ function renderNeeds(r) {
 async function refreshNeeds() {
   try { renderNeeds(await API.needs()); needToken(false); } catch (e) { toast(fail(e)); }
 }
-function showView(needs) {
-  N.on = needs; document.body.classList.toggle("view-needs", needs); $("needs").hidden = !needs;
-  $("tab-needs").setAttribute("aria-pressed", String(needs)); $("tab-inbox").setAttribute("aria-pressed", String(!needs));
-  $("rec").style.display = needs ? "none" : ""; document.body.style.setProperty("--barh", "0px");
+function showView(v) {
+  const needs = v === "needs", dev = v === "device";
+  N.on = needs; D.on = dev;
+  document.body.classList.toggle("view-needs", needs); document.body.classList.toggle("view-device", dev);
+  $("needs").hidden = !needs; $("device").hidden = !dev;
+  for (const t of ["inbox", "needs", "device"]) $("tab-" + t).setAttribute("aria-pressed", String(t === v));
+  $("rec").style.display = v === "inbox" ? "" : "none"; document.body.style.setProperty("--barh", "0px");
   if (needs) refreshNeeds();
+  if (dev) { refreshDevice(); liveLoop(); }
 }
-$("tab-inbox").onclick = () => showView(false);
-$("tab-needs").onclick = () => showView(true);
+$("tab-inbox").onclick = () => showView("inbox");
+$("tab-needs").onclick = () => showView("needs");
+$("tab-device").onclick = () => showView("device");
 async function needAct(fn, msg) {
   const i = N.items.find((x) => x.id === N.sel); if (!i) return;
   if (i.tier === "approvals") { toast("Decide approvals on the device"); return; }
@@ -513,6 +547,74 @@ async function toWav(blob) {
 }
 $("recbtn").onclick = () => (R.rec ? stopRec() : startRec());
 
+/* ---- device: live screen, remote keys, one-click update ---- */
+const D = { on: false, looping: false, info: null, keys: Promise.resolve() };
+const short = (v) => (v || "").slice(0, 7);
+async function refreshDevice() {
+  let r; try { r = await API.device(); needToken(false); } catch (e) { $("devline").textContent = fail(e); return; }
+  D.info = r; const d = r.device || {}, hub = r.hub_fw;
+  const line = $("devline"); line.replaceChildren();
+  if (r.online) line.append("nod ", el("b", "v" + d.version + " (" + short(d.fw_build) + ")"), " · battery " + (d.battery < 0 ? "?" : d.battery + "%") + " · " + (d.app || ""));
+  else line.append("nod is not answering. Is it on and on home Wi-Fi?");
+  const sub = [];
+  if (hub) sub.push("Hub has " + hub.version + " (" + short(hub.sha) + ")" + (r.update_available ? ": newer than nod." : ": nod is up to date."));
+  else sub.push("Hub has no firmware staged yet.");
+  const hu = r.hub_update || {}; if (hu.latest_tag) sub.push("Latest release " + hu.latest_tag + (hu.last_check ? ", checked " + age(hu.last_check) : "") + ".");
+  const rep = r.last_report; if (rep && rep.stage && rep.stage !== "ok" && rep.error) sub.push("Last device update stopped at " + rep.stage + ": " + rep.error + ".");
+  $("devsub").textContent = sub.join(" ");
+  $("devupd").disabled = !(r.online && r.update_available);
+}
+function drawFrame(b) {
+  const c = $("screen").getContext("2d"), im = c.createImageData(240, 135);
+  for (let p = 0, i = 0; p < 32400; p++, i += 2) { const v = b[i] | (b[i + 1] << 8), o = p * 4; im.data[o] = ((v >> 11) & 31) * 255 / 31; im.data[o + 1] = ((v >> 5) & 63) * 255 / 63; im.data[o + 2] = (v & 31) * 255 / 31; im.data[o + 3] = 255; }
+  c.putImageData(im, 0, 0);
+}
+async function liveLoop() {
+  if (D.looping) return; D.looping = true;
+  while (D.on) {
+    let wait = 250;
+    if (!document.hidden) {
+      try { const b = await API.screen(); if (b.length === 64800) { drawFrame(b); $("screen").classList.remove("off"); } }
+      catch (e) { $("screen").classList.add("off"); wait = 2000; }
+    } else wait = 1000;
+    await new Promise((res) => setTimeout(res, wait));
+  }
+  D.looping = false;
+}
+setInterval(() => { if (!document.hidden && D.on) refreshDevice(); }, 5000);
+const HID = { Enter: 0x28, Escape: 0x29, Backspace: 0x2a, Tab: 0x2b, Space: 0x2c, Minus: 0x2d, Equal: 0x2e, BracketLeft: 0x2f, BracketRight: 0x30, Backslash: 0x31,
+  Semicolon: 0x33, Quote: 0x34, Backquote: 0x35, Comma: 0x36, Period: 0x37, Slash: 0x38, Delete: 0x4c, ArrowRight: 0x4f, ArrowLeft: 0x50, ArrowDown: 0x51, ArrowUp: 0x52, Digit0: 0x27 };
+function hidOf(code) {
+  if (/^Key[A-Z]$/.test(code)) return 4 + code.charCodeAt(3) - 65;
+  if (/^Digit[1-9]$/.test(code)) return 0x1e + code.charCodeAt(5) - 49;
+  return HID[code] || 0;
+}
+function sendKey(code, ch, mods) {
+  D.keys = D.keys.then(() => API.devAction("key:" + code + "," + ch + "," + mods)).catch((e) => toast(fail(e)));
+}
+$("screen").addEventListener("keydown", (e) => {
+  if (e.metaKey) return;
+  const code = hidOf(e.code); if (!code) return;
+  e.preventDefault(); e.stopPropagation();
+  const ch = e.key.length === 1 && e.key.charCodeAt(0) < 127 ? e.key.charCodeAt(0) : 0;
+  sendKey(code, ch, (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0));
+});
+$("screen").addEventListener("keyup", (e) => e.stopPropagation());
+$("screen").addEventListener("click", () => $("screen").focus());
+for (const b of document.querySelectorAll("#devkeys [data-k]")) b.onclick = () => { sendKey(+b.dataset.k, 0, 0); $("screen").focus(); };
+$("devupd").onclick = async () => {
+  const hub = D.info && D.info.hub_fw;
+  if (!confirm("Install " + (hub ? hub.version + " (" + short(hub.sha) + ")" : "the new build") + " on nod? It restarts when done. Keep it on Wi-Fi, 30%+ battery or charging.")) return;
+  $("devupd").disabled = true;
+  try { const r = await API.devAction("update"); toast(r.text || "Update started"); } catch (e) { toast(fail(e)); }
+  setTimeout(refreshDevice, 4000);
+};
+$("devcheck").onclick = async () => {
+  $("devcheck").disabled = true; toast("Checking GitHub for a new build...");
+  try { const r = await API.hubCheck(); toast(r.last_error ? "Check failed: " + r.last_error : "Hub: " + (r.last_result || "checked")); } catch (e) { toast(fail(e)); }
+  $("devcheck").disabled = false; refreshDevice();
+};
+
 /* ---- keyboard: hold Space to talk; j/k move; Esc cancels recording / closes detail ---- */
 // Only real text entry blocks shortcuts; a focused button/summary must not (clicking a chip would otherwise kill them).
 const typing = () => { const a = document.activeElement; return !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable); };
@@ -520,6 +622,7 @@ let spaceHeld = false;
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "Escape") { if (cancelRec() || (!typing() && closeDetail())) e.preventDefault(); return; }
+  if (D.on) return; // Device tab: keys only go to nod when the screen is focused (handled above)
   if (e.code === "Space" && !typing() && !N.on) {
     e.preventDefault(); // also stops a focused button from scrolling/clicking on keydown
     if (!e.repeat) { spaceHeld = true; R.holdStart = true; startRec(); }

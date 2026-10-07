@@ -152,6 +152,14 @@ void Keyboard::push(const KeyEvent& e) {
     _qTail         = next;
 }
 
+void Keyboard::inject(uint8_t code, char ch, uint8_t mods) {
+    KeyEvent e;
+    e.code = code; e.ch = ch; e.mods = mods; e.down = true;
+    push(e);
+    e.down = false;
+    push(e);
+}
+
 bool Keyboard::pop(KeyEvent& out) {
     if (_qHead == _qTail) return false;
     out    = _queue[_qHead];
