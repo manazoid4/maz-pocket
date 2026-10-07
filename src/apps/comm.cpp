@@ -108,6 +108,7 @@ public:
         }
 
         if (e.down && e.code == KEY_SPACE) {
+            _speechCancelled = true;  // late parts must not restart a reply the user just cut
             if (voice::isPlaying()) voice::stopPlayback();
             consumeWorkerResult();
             if (host_worker::busy()) {
@@ -155,7 +156,7 @@ public:
             invalidate();
             return true;
         }
-        if (e.code == KEY_P && !_speechPath.empty() && !voice::isPlaying()) { voice::play(_speechPath); return true; }
+        if (e.code == KEY_P && !_speechPath.empty() && !voice::isPlaying()) { replaySpeech(); return true; }
         if (e.code == KEY_DOWN && !_reply.empty()) { ++_scroll; invalidate(); return true; }
         if (e.code == KEY_UP && _scroll > 0) { --_scroll; invalidate(); return true; }
         return false;
@@ -163,6 +164,7 @@ public:
 
     void update() override {
         if (_sending && _sendAt && millis() >= _sendAt) startWorker();
+        if (host_worker::busy()) queueSpeechParts(host_worker::speechPartsReady(), host_worker::speechPartsExpected());
         consumeWorkerResult();
         if (voice::state() == voice::State::Listening || voice::isPlaying()) {
             invalidate();
@@ -315,6 +317,9 @@ private:
         _sendAt = 0;
         if (!_haveTake || _takePath.empty()) { _sending = false; return; }
         std::string speechPath;
+        removeSpeechFiles();
+        _speechCancelled = false;
+        _partsQueued = 0;
         if (Cfg.ttsEnabled && store::ready()) speechPath = store::newPath("cache", "wav");
         const std::string context = field::context();
         if (!host_worker::submitTalkAudio(gCommSession, _takePath, speechPath, context)) {
@@ -401,14 +406,48 @@ private:
         }
         if (!result.wavPath.empty()) store::remove(result.wavPath);
         if (result.speechReady && !result.speechPath.empty()) {
-            if (!_speechPath.empty() && _speechPath != result.speechPath) store::remove(_speechPath);
             _speechPath = result.speechPath;
-            voice::play(_speechPath);
+            _speechParts = result.speechParts ? result.speechParts : 1;
+            queueSpeechParts(_speechParts, _speechParts);  // normally already playing from update()
+            voice::holdOpen(false);
         }
         sfx::confirm();
         notify::post(Note::Success, result.context.empty() ? "MAZ answered" : "Screen answer ready",
                      result.reply.provider.empty() ? "MAZ Core" : result.reply.provider);
         invalidate();
+    }
+
+    // Hand parts to the speaker as they land: part 0 starts playback at once, later parts
+    // are queued behind it with no gap. Files stay on SD, so this costs no heap.
+    void queueSpeechParts(uint8_t ready, uint8_t expected) {
+        if (_speechCancelled || !Cfg.ttsEnabled || _partsQueued >= ready) return;
+        const std::string base = host_worker::speechBase();
+        if (base.empty()) return;
+        while (_partsQueued < ready) {
+            const std::string path = host_worker::speechPartPath(base, _partsQueued);
+            if (_partsQueued == 0) {
+                _speechPath = base;
+                voice::play(path);
+            } else {
+                voice::enqueue(path);
+            }
+            ++_partsQueued;
+            if (_partsQueued > _speechParts) _speechParts = _partsQueued;
+        }
+        if (_partsQueued < expected) voice::holdOpen(true);  // more is coming: do not end on silence
+        else voice::holdOpen(false);
+    }
+
+    void replaySpeech() {
+        voice::play(_speechPath);
+        for (uint8_t p = 1; p < _speechParts; ++p) voice::enqueue(host_worker::speechPartPath(_speechPath, p));
+    }
+
+    void removeSpeechFiles() {
+        if (_speechPath.empty()) return;
+        for (uint8_t p = 0; p < _speechParts; ++p) store::remove(host_worker::speechPartPath(_speechPath, p));
+        _speechPath.clear();
+        _speechParts = 0;
     }
 
     // Short on-screen reason for a failed turn (never idle silently).
@@ -446,6 +485,9 @@ private:
     voice::WavFileSink* _sink = nullptr;
     std::string _takePath;
     std::string _speechPath;
+    uint8_t _speechParts = 0;     // files on disk for the last reply (for replay / cleanup)
+    uint8_t _partsQueued = 0;     // parts already handed to voice:: for this reply
+    bool _speechCancelled = false;
     std::string _reply;
     std::string _err;
     std::string _sendContext;

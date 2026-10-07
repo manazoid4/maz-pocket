@@ -87,6 +87,8 @@ host::TeachStatus runTeach() {
 
 std::string gPartial;
 std::atomic<bool> gPartialReady{false};
+std::atomic<uint8_t> gPartsReady{0};
+std::atomic<uint8_t> gPartsExpected{0};
 
 void worker(void*) {
     for (;;) {
@@ -107,7 +109,25 @@ void worker(void*) {
             if (session.empty()) reply.error = "PC unreachable";
             else reply = contextAudio(session, path, context);
             if (reply.ok && !reply.text.empty()) { gPartial = reply.text; gPartialReady.store(true, std::memory_order_release); }
-            if (reply.ok && !speechPath.empty() && !reply.text.empty()) speechReady = host::speak(reply.text, speechPath);
+            uint8_t speechParts = 0;
+            if (reply.ok && !speechPath.empty() && !reply.text.empty()) {
+                if (reply.speakParts > 0) {
+                    // Core is already synthesising: part 0 (first sentence) is quick, play it
+                    // while the rest downloads.
+                    gPartsExpected.store(reply.speakParts, std::memory_order_release);
+                    for (uint8_t p = 0; p < reply.speakParts; ++p) {
+                        if (!host::speakPart(reply.speakId, p, speechPartPath(speechPath, p))) break;
+                        speechParts = p + 1;
+                        gPartsReady.store(speechParts, std::memory_order_release);
+                    }
+                    speechReady = speechParts > 0;
+                }
+                if (!speechReady) {  // old Core, or part 0 failed: classic single-file path
+                    speechReady = host::speak(reply.text, speechPath);
+                    if (speechReady) speechParts = 1;
+                }
+            }
+            gTalkResult.speechParts = speechParts;
             gTalkResult.session = std::move(session);
             gTalkResult.wavPath = path;
             gTalkResult.speechPath = speechReady ? speechPath : "";
@@ -178,6 +198,8 @@ bool canSubmit() {
 
 void clearResults() {
     gPartialReady.store(false, std::memory_order_release);
+    gPartsReady.store(0, std::memory_order_release);
+    gPartsExpected.store(0, std::memory_order_release);
     gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gOutboxAudioResult = OutboxAudioResult{};
     gOutboxBeamResult = OutboxBeamResult{}; gBeamPullResult = host::BeamMessage{};
     gSystemResult = host::SystemStatus{}; gWorkResult = host::WorkSummary{};
@@ -235,6 +257,15 @@ bool submitTeach(TeachKind kind, const std::string& sessionId,
     clearResults(); publish(JobKind::Teach); return true;
 }
 
+uint8_t speechPartsReady() { return busy() && jobKind() == JobKind::TalkAudio ? gPartsReady.load(std::memory_order_acquire) : 0; }
+uint8_t speechPartsExpected() { return gPartsExpected.load(std::memory_order_acquire); }
+std::string speechBase() { return busy() && jobKind() == JobKind::TalkAudio ? gSpeechPath : std::string(); }
+std::string speechPartPath(const std::string& base, uint8_t part) {
+    if (part == 0) return base;
+    const size_t dot = base.rfind('.');
+    const std::string tag = "_p" + std::to_string(part);
+    return dot == std::string::npos ? base + tag : base.substr(0, dot) + tag + base.substr(dot);
+}
 bool peekTalkText(std::string& out) {
     if (!busy() || jobKind() != JobKind::TalkAudio || !gPartialReady.load(std::memory_order_acquire)) return false;
     out = gPartial; return true;
