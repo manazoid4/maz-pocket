@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../ui/theme.h"
+#include "../ui/ui.h"
 #include "shell.h"
 
 namespace maz {
@@ -71,11 +72,11 @@ void render(M5Canvas& g) {
     g.setTextDatum(top_left);
     g.setFont(&fonts::Font2);
     g.setTextColor(c, PANEL);
-    g.drawString(t.title.c_str(), 14, y + 2);
+    g.drawString(ui::ellipsis(t.title, TOAST_TITLE_CHARS).c_str(), 14, y + 2);
     if (!t.detail.empty()) {
         g.setFont(&fonts::Font0);
         g.setTextColor(DIM, PANEL);
-        g.drawString(t.detail.c_str(), 14, y + 20);
+        g.drawString(ui::ellipsis(t.detail, TOAST_TEXT_CHARS).c_str(), 14, y + 20);
     }
 }
 

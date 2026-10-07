@@ -72,8 +72,13 @@ void statusBar(M5Canvas& g) {
         g.drawString("--:--", 16, 4);
     }
 
-    int x = 48;
-    // Live activity beats everything else for attention.
+    // Left zone ends before SB_BUDDY_X even with a 1h+ timer: see theme.h.
+    int x = SB_UPD_X;
+    if (host::updateReady()) {
+        g.setTextColor(ACCENT, PANEL);
+        g.drawString("UPD", x, 4);
+        x = SB_ACT_X;
+    }
     if (Sys.recording) {
         g.fillCircle(x + 3, 7, 3, ERR);
         g.setTextColor(ERR, PANEL);
@@ -81,15 +86,20 @@ void statusBar(M5Canvas& g) {
     } else if (Sys.focusRunning) {
         g.setTextColor(ACCENT, PANEL);
         g.drawString(hhmmss(Sys.focusRemain).c_str(), x, 4);
-    } else if (host::updateReady()) {
-        g.setTextColor(ACCENT, PANEL);
-        g.drawString("^U upd", x, 4);
     }
 
     // Claude Code status light (Core /buddy): amber = waiting on you, green = working.
-    if (Sys.buddy) g.fillCircle(104, 7, 3, Sys.buddy == 2 ? WARN : OK);
+    if (Sys.buddy) g.fillCircle(SB_BUDDY_X, 7, 3, Sys.buddy == 2 ? WARN : OK);
 
-    // Right side, laid out from the edge inwards.
+    // Core dot: green = answering, red = Wi-Fi is up but Core is not, hollow = no Wi-Fi.
+    if (Sys.hostOnline) g.fillCircle(SB_CORE_X, 7, 3, OK);
+    else if (Sys.wifiConnected) g.fillCircle(SB_CORE_X, 7, 3, ERR);
+    else g.drawCircle(SB_CORE_X, 7, 3, DIM);
+
+    g.setTextColor(Sys.wifiConnected ? OK : (Sys.wifiOn ? WARN : DIM), PANEL);
+    g.drawString("WiFi", SB_WIFI_X, 4);
+
+    // Battery sits on the right edge with its percentage just inside it.
     batteryGlyph(g, SCREEN_W - 24, 3, Sys.batteryPct < 0 ? 0 : Sys.batteryPct,
                  Sys.charging);
     if (Sys.batteryPct >= 0) {
@@ -97,22 +107,8 @@ void statusBar(M5Canvas& g) {
         snprintf(b, sizeof(b), "%d%%", Sys.batteryPct);
         g.setTextDatum(top_right);
         g.setTextColor(DIM, PANEL);
-        g.drawString(b, SCREEN_W - 28, 4);
+        g.drawString(b, SB_PCT_R, 4);
         g.setTextDatum(top_left);
-    }
-
-    int rx = SCREEN_W - 56;
-    if (Sys.storage == Storage::SD) {
-        g.setTextColor(DIM, PANEL);
-        g.drawString("SD", rx, 4);
-        rx -= 16;
-    }
-    if (Sys.wifiConnected) {
-        g.setTextColor(Sys.hostOnline ? OK : ACCENT2, PANEL);
-        g.drawString("WiFi", rx - 8, 4);
-    } else if (Sys.wifiOn) {
-        g.setTextColor(WARN, PANEL);
-        g.drawString("WiFi", rx - 8, 4);
     }
 }
 
@@ -135,10 +131,10 @@ void hintBar(M5Canvas& g, const char* hints) {
     // this screen, so you hold ESC for Home rather than mashing it.
     if (Sys.navDepth > 2) g.fillRect(36, y + 1, 2, 11, ACCENT);
 
-    // 33 chars is what fits beside the chip at Font0's 6px advance. Hints used
+    // HINT_CHARS is what fits beside the chip at Font0's 6px advance. Hints used
     // to run off the right edge silently; now they are cut where they land.
-    char buf[34];
-    snprintf(buf, sizeof(buf), "%.33s", hints ? hints : "");
+    char buf[HINT_CHARS + 1];
+    snprintf(buf, sizeof(buf), "%.*s", HINT_CHARS, hints ? hints : "");
     g.setTextColor(HINT, PANEL);
     g.drawString(buf, 41, y + 3);
 }
