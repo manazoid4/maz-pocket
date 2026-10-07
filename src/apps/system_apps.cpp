@@ -237,7 +237,8 @@ private:
 // --------------------------------------------------------------- Settings
 const char* SET_NAMES[] = {"Brightness",    "Volume",        "UI sounds",
                            "Screen timeout", "Mic gain",     "Storage",
-                           "Time zone",      "Wi-Fi & host", "Keys & help"};
+                           "Time zone",      "Wi-Fi & host", "Keys & help",
+                           "Voice"};
 constexpr int SET_COUNT = sizeof(SET_NAMES) / sizeof(SET_NAMES[0]);
 
 class SettingsApp : public App {
@@ -301,6 +302,9 @@ public:
             case 8:
                 if (e.code == KEY_ENTER) shell::pushById("help");
                 break;
+            case 9:
+                if (e.code == KEY_ENTER) shell::pushById("voice");
+                break;
             default:
                 break;
         }
@@ -361,6 +365,111 @@ private:
     }
 
     ListCursor _cursor;
+};
+
+// ------------------------------------------------------------------ Voice
+// Pick the reply voice (Fish library, chosen on Core). ENTER saves the choice
+// and plays a cached preview through the normal reply playback path.
+class VoiceApp : public App {
+public:
+    const char* id() const override { return "voice"; }
+    const char* title() const override { return "Voice"; }
+    const char* hints() const override { return "UP/DOWN move   ENTER use + hear   ESC back"; }
+
+    void onEnter() override {
+        _items.clear();
+        _status  = "Loading voices...";
+        _pending = Load;
+        _at      = millis();
+        invalidate();
+    }
+
+    void onExit() override {
+        if (!_path.empty()) store::remove(_path);
+    }
+
+    bool onKey(const KeyEvent& e) override {
+        if (!e.down) return false;
+        if (_cursor.onKey(e, (int)_items.size())) {
+            invalidate();
+            return true;
+        }
+        if (e.code == KEY_ENTER && !_items.empty() && _pending == None) {
+            _status  = "Switching...";
+            _pending = Pick;
+            _at      = millis();
+            invalidate();
+            return true;
+        }
+        return false;
+    }
+
+    void update() override {
+        if (_pending == None || millis() - _at < 80) return;  // let the status paint first
+        const Pending what = _pending;
+        _pending           = None;
+        if (what == Load) {
+            std::string err;
+            if (!host::voiceList(_items, err)) _status = err.empty() ? "no voices" : err;
+            else {
+                _status.clear();
+                for (size_t i = 0; i < _items.size(); ++i)
+                    if (_items[i].current) _cursor.sel = (int)i;
+                _cursor.clamp((int)_items.size());
+            }
+        } else {
+            host::VoiceItem& v = _items[_cursor.sel];
+            if (!host::voiceSelect(v.id, v.name)) {
+                _status = "Could not save voice";
+            } else {
+                for (auto& it : _items) it.current = false;
+                v.current = true;
+                _status   = "Voice: " + v.name;
+                if (store::ready()) {
+                    if (!_path.empty()) store::remove(_path);
+                    _path = store::newPath("cache", "wav");
+                    if (host::voicePreview(v.id, _path)) voice::play(_path);
+                    else _status = "Saved; no preview";
+                }
+            }
+        }
+        invalidate();
+    }
+
+    void render(M5Canvas& g) override {
+        g.fillScreen(BG);
+        ui::header(g, "Voice", _items.empty() ? nullptr : "Fish");
+        if (_items.empty()) {
+            ui::emptyState(g, _status.c_str(), "Core must be reachable");
+            return;
+        }
+        const int total = (int)_items.size();
+        const int rows  = std::min(ROWS_VISIBLE - 1, total);
+        for (int i = 0; i < rows; ++i) {
+            const int idx = _cursor.first + i;
+            if (idx >= total) break;
+            const auto& v = _items[idx];
+            std::string label = (v.current ? "* " : "  ") + v.name;
+            std::string desc  = v.description.size() > 18 ? v.description.substr(0, 18) : v.description;
+            ui::listRow(g, i + 1, idx == _cursor.sel, label.c_str(), desc.c_str());
+        }
+        ui::scrollBar(g, total, _cursor.first, ROWS_VISIBLE - 1);
+        if (!_status.empty()) {
+            g.setFont(&fonts::Font0);
+            g.setTextDatum(top_left);
+            g.setTextColor(DIM, BG);
+            g.drawString(_status.c_str(), PAD, BODY_Y + BODY_H - 10);
+        }
+    }
+
+private:
+    enum Pending : uint8_t { None, Load, Pick };
+    ListCursor                _cursor;
+    std::vector<host::VoiceItem> _items;
+    std::string               _status;
+    std::string               _path;
+    Pending                   _pending = None;
+    uint32_t                  _at      = 0;
 };
 
 // ------------------------------------------------------------ Connections
@@ -639,6 +748,7 @@ private:
 
 App* makeTools() { return new ToolsApp(); }
 App* makeSettings() { return new SettingsApp(); }
+App* makeVoice() { return new VoiceApp(); }
 App* makeConnections() { return new ConnectionsApp(); }
 App* makeHelp() { return new HelpApp(); }
 

@@ -46,6 +46,7 @@ App* makeTasks();
 App* makeRecorder();
 App* makeTools();
 App* makeSettings();
+App* makeVoice();
 App* makeConnections();
 App* makeSnippets();
 App* makeCalculator();

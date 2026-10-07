@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     fish_api_key: str = ""
     tts_voice: str = "bf322df2096a46f18c579d0baa36f41d"  # Fish "Adrian"
     tts_model: str = "s2.1-pro-free"
+    data_dir: str = ""  # MAZ_DATA_DIR; empty = host/data in the install dir (voice choice, previews)
     nudge_url: str = "http://127.0.0.1:47831"
     nudge_token: str = ""
     nudge_token_file: str = "~/.agent-nudge/control-plane.key"

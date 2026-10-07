@@ -46,6 +46,7 @@ from .sessions import SessionStore
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
 from .tts import SpeechOut
+from .voices import install_voice_routes
 from .validation import install_validation_exception_handler
 from .version import CORE_VERSION
 from .work_service import WorkService
@@ -568,6 +569,8 @@ def create_app(
         }
 
     # --------------------------------------------------------------- speech
+    install_voice_routes(api, speech_out.voices)
+
     @api.post("/speak")
     def speak(body: SpeakRequest, background_tasks: BackgroundTasks):
         try:
@@ -783,6 +786,7 @@ def create_app(
             nudge_client=nudge_client,
             device_monitor=device_monitor,
             work_store=work_store,
+            voices=speech_out.voices,
         )
 
     return api
