@@ -126,6 +126,7 @@ void worker(void*) {
                     speechReady = speechParts > 0;
                 }
                 if (!speechReady) {  // old Core, or part 0 failed: classic single-file path
+                    Serial.printf("[speak] part fetch failed (parts=%u), falling back to POST /speak\n", reply.speakParts);
                     speechReady = host::speak(reply.text, speechPath);
                     if (speechReady) speechParts = 1;
                 }

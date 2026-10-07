@@ -426,9 +426,16 @@ private:
     // Hand parts to the speaker as they land: part 0 starts playback at once, later parts
     // are queued behind it with no gap. Files stay on SD, so this costs no heap.
     void queueSpeechParts(uint8_t ready, uint8_t expected) {
-        if (_speechCancelled || !Cfg.ttsEnabled || _partsQueued >= ready) return;
+        if (_partsQueued >= ready) return;
+        if (_speechCancelled || !Cfg.ttsEnabled) {
+            Serial.printf("[speak] skip: cancelled=%d tts=%d ready=%u\n", _speechCancelled, Cfg.ttsEnabled, ready);
+            return;
+        }
         const std::string base = host_worker::speechBase();
-        if (base.empty()) return;
+        if (base.empty()) {
+            Serial.println("[speak] skip: no speech base path");
+            return;
+        }
         while (_partsQueued < ready) {
             const std::string path = host_worker::speechPartPath(base, _partsQueued);
             if (_partsQueued == 0) {

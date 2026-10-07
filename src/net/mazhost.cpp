@@ -304,23 +304,27 @@ bool postWav(const char* path, const std::string& body, const std::string& wavPa
             continue;
         }
         if (status != 200) {
+            Serial.printf("[speak] %s -> HTTP %d\n", path, status);
             http.end();
             return false;
         }
         store::remove(wavPath);
         File out = store::fs()->open(wavPath.c_str(), FILE_WRITE);
         if (!out) {
+            Serial.printf("[speak] SD open failed: %s\n", wavPath.c_str());
             http.end();
             return false;
         }
+        const int expect = http.getSize();
         const int written = http.writeToStream(&out);
         Serial.printf("[speak] path=%s status=%d bytes=%d\n", wavPath.c_str(), status, written);
         out.close();
         http.end();
-        if (written > 44) {
+        if (written > 44 && (expect <= 0 || written == expect)) {
             markOnline(base.second);
             return true;
         }
+        Serial.printf("[speak] bad download: wrote %d expected %d\n", written, expect);
         store::remove(wavPath);
         return false;
     }
