@@ -32,3 +32,11 @@ the free model was not auditioned here (no key in the build sandbox).
 - `POST /voices/preview {reference_id}` WAV of "Hi, I'm nod.", cached in `data/voice-previews/`
 
 An id Fish rejects (400/404/422) is logged once and the selection reverts to Adrian.
+
+## Say (test any text in the current voice)
+
+`POST /say {"text": "...", "voice": "<optional id>"}` returns a WAV. Text is trimmed,
+1-300 chars, else 400. `voice` defaults to the selected voice. It reuses the same
+single Fish call as previews with the configured free model (`MAZ_TTS_MODEL`), no
+fallback voice. Use it from the phone page (VOICE tab, SAY card) or on the device:
+Tools > Say, type, ENTER (downloads the WAV and plays it like a reply). Not cached.
