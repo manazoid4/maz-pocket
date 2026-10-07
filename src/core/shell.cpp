@@ -18,6 +18,7 @@
 #include "approvals.h"
 #include "field.h"
 #include "notify.h"
+#include "power.h"
 #include "settings.h"
 #include "launcher.h"
 #include "sys.h"
@@ -38,6 +39,7 @@ uint32_t          gLastPowerMs = 0;
 bool              gEscHandled  = false;
 bool              gEscClaimed  = false;
 bool              gFwConfirm   = false;  // "Update firmware?" modal, any screen
+uint32_t          gDockOfferUntil = 0;   // "Docked? ENTER = yes" toast is live until then
 
 struct FocusTimer {
     bool        running  = false;
@@ -64,28 +66,55 @@ void tickFocus() {
     }
 }
 
+bool dockedNow() { return !gStack.empty() && !strcmp(gStack.back()->id(), "dock"); }
+
+// Sampling, trend and the low-battery latch live in power.cpp. The board cannot
+// report charging, so "Battery low" only fires while the voltage is not rising.
 void pollPower() {
-    const uint32_t cadence = Cfg.fieldMode ? 10000u : 5000u;
-    if (millis() - gLastPowerMs < cadence) return;
-    gLastPowerMs = millis();
+    const bool offer = power::update();
 
-    Sys.batteryPct = M5.Power.getBatteryLevel();
-    Sys.charging   = M5.Power.isCharging() == m5::Power_Class::is_charging;
-
-    if (Sys.batteryPct >= 0 && Sys.batteryPct <= 10 && !Sys.charging &&
+    if (Sys.batteryPct >= 0 && Sys.batteryPct <= 10 && power::lowBattery() &&
         !Sys.lowBatteryWarned) {
         Sys.lowBatteryWarned = true;
-        notify::post(Note::Warn, "Battery low", "about to run out");
+        notify::post(Note::Warn, "Charge me", "plug in, switch ON");
     }
     if (Sys.batteryPct > 20) Sys.lowBatteryWarned = false;
+
+    // Voltage started rising: offer Docked, never enter it silently.
+    if (offer && !dockedNow() && !approvals::active() && !Sys.recording) {
+        gDockOfferUntil = millis() + 8000;
+        notify::post(Note::Info, "Docked?", "ENTER = yes, any other key = no");
+        wake();  // a toast on a dark screen is no offer
+    }
+}
+
+// Low-power CPU while docked or dimmed. Nothing here runs during a call, an
+// update, recording or playback: those start from a key press, and wake() (or
+// leaving the dock) has already restored full speed by then.
+void updateCpu() {
+    const bool low = (dockedNow() || gDimmed || gScreenOff) && !gFwConfirm &&
+                     !approvals::active() && !Sys.recording;
+    const bool busy = host_worker::busy() || voice::isPlaying() ||
+                      voice::state() != voice::State::Idle ||
+                      dictate::state() != dictate::State::Idle ||
+                      M5.Speaker.isPlaying() || M5.Mic.isRecording();
+    power::applyCpu(low, busy);
 }
 
 void applyScreenTimeout() {
-    uint16_t timeout = Cfg.screenTimeout;
-    if (Cfg.fieldMode && (timeout == 0 || timeout > 20)) timeout = 20;
+    const bool dock = dockedNow();
+    uint16_t timeout = dock ? power::DOCK_DARK_S : Cfg.screenTimeout;
+    if (!dock && Cfg.fieldMode && (timeout == 0 || timeout > 20)) timeout = 20;
     if (timeout == 0 || Sys.recording || host_worker::busy()) return;
 
     const uint32_t idle = (millis() - gLastInput) / 1000;
+    if (dock) {  // dock light until the timeout, then dark; no middle step
+        if (!gScreenOff && idle >= timeout) {
+            M5.Display.setBrightness(0);
+            gDimmed = gScreenOff = true;
+        }
+        return;
+    }
     if (!gDimmed && idle >= timeout) {
         M5.Display.setBrightness(Cfg.fieldMode ? 8 : 12);
         gDimmed = true;
@@ -283,6 +312,7 @@ bool handleGlobalKey(const KeyEvent& e) {
     if (gFwConfirm) {  // modal: one key yes, ESC no, everything else swallowed
         if (e.code == KEY_Y || e.code == KEY_ENTER) {
             gFwConfirm = false;
+            power::cpuFull();
             host::fwUpdate();  // reboots on success; shows its own error otherwise
             invalidate();
         } else if (e.code == KEY_ESC || e.code == KEY_N) {
@@ -347,6 +377,8 @@ void wake() {
     gLastInput = millis();
     if (gDimmed || gScreenOff) {
         Cfg.applyToHardware();
+        if (dockedNow() && !approvals::active()) M5.Display.setBrightness(power::DOCK_LIGHT);
+        else power::cpuFull();  // approvals and everything off the dock run at full speed
         gDimmed = false;
         gScreenOff = false;
         invalidate();
@@ -398,6 +430,20 @@ void dispatchKey(const KeyEvent& e) {
     if (approvals::active()) {
         if (!wasAsleep) approvals::handleKey(e);
         return;
+    }
+    // On the dock the first key after the screen went dark only wakes it.
+    if (wasAsleep && e.down && dockedNow()) {
+        if (e.code == KEY_ESC) gEscClaimed = true;  // its release must not leave the dock
+        return;
+    }
+    if (e.down && gDockOfferUntil) {
+        const bool yes = e.code == KEY_ENTER && millis() < gDockOfferUntil;
+        gDockOfferUntil = 0;
+        if (yes && !dockedNow()) {
+            notify::dismiss();
+            pushById("dock");
+            return;
+        }
     }
     if (notify::active() && e.down) notify::dismiss();
 
@@ -515,6 +561,8 @@ void loop() {
     apps::updateProductServices();
     lvui::tick();
     applyScreenTimeout();
+    updateCpu();
+    // Light/deep sleep would go here. Not implemented: keyboard-interrupt wake is unproven on this board.
 
     if (gStack.empty()) return;
     App* top = gStack.back();
@@ -526,7 +574,7 @@ void loop() {
     if (gScreenOff) return;
 
     top->render(gCanvas);
-    ui::statusBar(gCanvas);
+    if (!dockedNow()) ui::statusBar(gCanvas);  // the dock draws its own calm row
     ui::hintBar(gCanvas, top->hints());
     notify::render(gCanvas);
     approvals::render(gCanvas);

@@ -7,6 +7,7 @@
 #include "../core/field.h"
 #include "../core/settings.h"
 #include "../core/shell.h"
+#include "../core/power.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../net/mazhost.h"
@@ -113,7 +114,10 @@ private:
         const char* link = linkSentence(true);
         ui::Phase ph = ui::Phase::Ready;
         st.sentence = "Hold SPACE to talk, S to type";
-        if (link) {
+        if (power::lowBattery()) {
+            ph = ui::Phase::Error;
+            st.sentence = "Charge me: plug in, switch ON";
+        } else if (link) {
             ph = ui::Phase::Offline;
             st.sentence = link;
         } else if (host::updateReady()) {

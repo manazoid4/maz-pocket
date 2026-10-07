@@ -10,6 +10,7 @@
 #include "../core/notify.h"
 #include "../core/settings.h"
 #include "../core/shell.h"
+#include "../core/power.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../net/host_worker.h"
@@ -252,6 +253,8 @@ public:
         } else if (!_reply.empty()) {
             state(g, Phase::Ready, (std::string(routeName()) + (Cfg.ttsEnabled ? " / voice on" : " / text only")).c_str());
             drawCommWrapped(g, _reply, REPLY_Y, _scroll);
+        } else if (power::lowBattery()) {
+            state(g, Phase::Error, "Charge me: plug in, switch ON");
         } else if (const char* link = linkSentence(true)) {
             state(g, Phase::Offline, link);
         } else {

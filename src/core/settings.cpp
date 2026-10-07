@@ -27,6 +27,7 @@ void Settings::load() {
     screenTimeout    = prefs.getUShort("stimeout", screenTimeout);
     micGain          = prefs.getUChar("mgain", micGain);
     preferSd         = prefs.getBool("prefsd", preferSd);
+    lowPowerCpu      = prefs.getBool("lpcpu", lowPowerCpu);
     wifiSsid         = prefs.getString("ssid", "").c_str();
     wifiPass         = prefs.getString("pass", "").c_str();
     wifiSsid2        = prefs.getString("ssid2", "").c_str();
@@ -63,6 +64,7 @@ void Settings::save() const {
     prefs.putUShort("stimeout", screenTimeout);
     prefs.putUChar("mgain", micGain);
     prefs.putBool("prefsd", preferSd);
+    prefs.putBool("lpcpu", lowPowerCpu);
     prefs.putString("ssid", wifiSsid.c_str());
     prefs.putString("pass", wifiPass.c_str());
     prefs.putString("ssid2", wifiSsid2.c_str());

@@ -49,6 +49,7 @@ struct Settings {
     uint16_t screenTimeout = 60;
     uint8_t  micGain       = 12;
     bool     preferSd      = true;
+    bool     lowPowerCpu   = true;  // 80 MHz while docked/dim; off = never change CPU speed
 
     std::string wifiSsid, wifiPass;
     std::string wifiSsid2, wifiPass2;

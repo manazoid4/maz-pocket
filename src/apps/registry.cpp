@@ -47,6 +47,7 @@ const Descriptor TABLE[] = {
     {"gen",        "Generator",   nullptr, "generator password passphrase random",      KEY_G, false, makeGenerator},
     {"snippets",   "Snippets",    nullptr, "snippets text clip email phrase",           KEY_P, false, makeSnippets},
     {"wifi",       "Legacy Connections", "Conn", "legacy wifi host setup",              0,     false, makeConnections},
+    {"dock",       "Docked",      "DOCK",  "docked dock charge charging battery power desk clock low power", KEY_E, false, makeDock},
     {"say",        "Say",         "SAY",   "say type speak talk text",                  KEY_S, false, makeSay},
     {"tools",      "Device Tests", nullptr, "tools system diagnostics test",             0,     false, makeTools},
     {"settings",   "Settings",    nullptr, "settings brightness volume config",         0,     false, makeSettings},

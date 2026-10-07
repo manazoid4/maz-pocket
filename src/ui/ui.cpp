@@ -41,6 +41,19 @@ void wordmark(M5Canvas& g, int cx, int y, uint16_t colour) {
 }
 
 // ------------------------------------------------------------------ chrome
+uint16_t trendColour(uint8_t t) {
+    using namespace theme;
+    return t == 1 ? ACCENT2 : (t == 3 ? WARN : DIM);
+}
+
+void trendArrow(M5Canvas& g, int x, int y, int s, uint8_t t, uint16_t c) {
+    const int h = s / 2;
+    if (t == 1) g.fillTriangle(x + h, y, x, y + s, x + s, y + s, c);
+    else if (t == 3) g.fillTriangle(x, y, x + s, y, x + h, y + s, c);
+    else if (t == 2) g.fillRect(x, y + h - 1, s, 3, c);
+    else g.fillRect(x + h - 1, y + h - 1, 3, 3, c);
+}
+
 static void batteryGlyph(M5Canvas& g, int x, int y, int pct, bool charging) {
     const uint16_t c =
         charging ? ACCENT2 : (pct <= 15 ? ERR : (pct <= 30 ? WARN : DIM));
@@ -108,6 +121,9 @@ void statusBar(M5Canvas& g) {
         g.setTextDatum(top_right);
         g.setTextColor(DIM, PANEL);
         g.drawString(b, SB_PCT_R, 4);
+        const int pw = g.textWidth(b);
+        if (Sys.powerTrend && pw <= 18)
+            trendArrow(g, SB_PCT_R - pw - 9, 4, 7, Sys.powerTrend, trendColour(Sys.powerTrend));
         g.setTextDatum(top_left);
     }
 }

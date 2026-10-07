@@ -30,6 +30,7 @@ const Descriptor* find(const char* id);
 App*              create(const char* id);
 
 App* makeHome();
+App* makeDock();
 App* makeCall();
 App* makeCallV3();
 App* makeComm();

@@ -15,6 +15,7 @@
 #include "../core/settings.h"
 #include "../core/launcher.h"
 #include "../core/shell.h"
+#include "../core/power.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
 #include "../net/mazhost.h"
@@ -84,6 +85,7 @@ public:
 
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
+        if (_live && !_detail.empty()) _detail = batteryText();
         if (!_detail.empty()) {
             ui::header(g, TOOL_NAMES[_cursor.sel]);
             g.setFont(&fonts::Font0);
@@ -113,8 +115,22 @@ public:
     }
 
 private:
+    // Live power diagnostics. This board cannot read charge state, so show the
+    // voltage and what it is doing instead.
+    static std::string batteryText() {
+        char b[300];
+        snprintf(b, sizeof(b),
+                 "Now     %d mV  %d%%\nTrend   %s\nMin/Max %d / %d mV\nUptime  %s\n"
+                 "CPU     %d MHz\nLight   %d%%\nCharge state is unreadable.\nCharging needs the switch ON.",
+                 Sys.batteryMv, Sys.batteryPct, power::trendName(), power::minMv(), power::maxMv(),
+                 ui::hhmmss(Sys.uptimeSeconds()).c_str(), power::cpuMhz(),
+                 (int)M5.Display.getBrightness() * 100 / 255);
+        return b;
+    }
+
     void run(int idx) {
         char buf[360];
+        _live = idx == 4;
         switch (idx) {
             case 0:
                 micTest();
@@ -150,11 +166,7 @@ private:
                 break;
             }
             case 4:
-                snprintf(buf, sizeof(buf),
-                         "Level    %d%%\nCharging %s\nVoltage  %d mV",
-                         Sys.batteryPct, Sys.charging ? "yes" : "no",
-                         (int)M5.Power.getBatteryVoltage());
-                _detail = buf;
+                _detail = batteryText();
                 break;
             case 5:
                 snprintf(buf, sizeof(buf),
@@ -232,6 +244,7 @@ private:
     ListCursor  _cursor;
     std::string _detail;
     bool        _kbTest = false;
+    bool        _live   = false;  // Battery view refreshes itself
 };
 
 // ------------------------------------------------------------------ Say
@@ -294,7 +307,7 @@ private:
 const char* SET_NAMES[] = {"Brightness",    "Volume",        "UI sounds",
                            "Screen timeout", "Mic gain",     "Storage",
                            "Time zone",      "Wi-Fi & host", "Keys & help",
-                           "Voice"};
+                           "Voice",          "Low-power CPU"};
 constexpr int SET_COUNT = sizeof(SET_NAMES) / sizeof(SET_NAMES[0]);
 
 class SettingsApp : public App {
@@ -361,6 +374,12 @@ public:
             case 9:
                 if (e.code == KEY_ENTER) shell::pushById("voice");
                 break;
+            case 10:
+                if (e.code == KEY_ENTER) {
+                    Cfg.lowPowerCpu = !Cfg.lowPowerCpu;
+                    if (!Cfg.lowPowerCpu) power::cpuFull();
+                }
+                break;
             default:
                 break;
         }
@@ -414,6 +433,8 @@ private:
                 break;
             case 7:
                 return Sys.wifiConnected ? Sys.wifiSsid : "not connected";
+            case 10:
+                return Cfg.lowPowerCpu ? "on" : "off";
             default:
                 return "";
         }

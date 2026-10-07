@@ -9,6 +9,7 @@
 #include "../core/notify.h"
 #include "../core/settings.h"
 #include "../core/shell.h"
+#include "../core/power.h"
 #include "../core/sys.h"
 #include "../net/mazhost.h"
 #include "../net/net.h"
@@ -129,8 +130,8 @@ private:
             draw(g, 2, line);
             snprintf(line, sizeof(line), "Agents %u work / %u wait", Sys.agentsWorking, Sys.agentsWaiting);
             draw(g, 3, line);
-            snprintf(line, sizeof(line), "Power  %d%%   SD %s", Sys.batteryPct,
-                     Sys.sdPresent ? "ready" : "none");
+            snprintf(line, sizeof(line), "Power  %d%% %s  SD %s", Sys.batteryPct,
+                     power::trendName(), Sys.sdPresent ? "ready" : "none");
             draw(g, 4, line);
             return;
         }

@@ -9,6 +9,7 @@
 #include "../core/launcher.h"
 #include "../core/settings.h"
 #include "../core/shell.h"
+#include "../core/power.h"
 #include "../core/sys.h"
 #include "../storage/store.h"
 #include "host_worker.h"
@@ -269,7 +270,8 @@ String statusJson(bool unlocked) {
     j += ",\"unlocked\":"; j += unlocked ? "true" : "false";
     j += ",\"app\":\"" + jsonEscape(shell::currentId()) + "\"";
     j += ",\"battery\":" + String(Sys.batteryPct);
-    j += ",\"charging\":"; j += Sys.charging ? "true" : "false";
+    j += ",\"charging\":"; j += Sys.charging ? "true" : "false";  // true only when power_trend is rising
+    j += ",\"power_trend\":\"" + String(power::trendName()) + "\",\"battery_mv\":" + String(Sys.batteryMv);
     j += ",\"storage\":\"" + String(store::backendName()) + "\"";
     j += ",\"sd_present\":"; j += Sys.sdPresent ? "true" : "false";
     j += ",\"sd_unreadable\":"; j += Sys.sdUnreadable ? "true" : "false";
