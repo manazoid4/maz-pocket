@@ -53,6 +53,41 @@ def pick_release(releases: list[dict]) -> dict | None:
     return ok[0] if ok else None
 
 
+RESTART_TASK = "nod Core restart"
+
+
+def restart_helper_args(repo: Path, python: str, new_sha: str, prev_sha: str, port: int,
+                        env_file: Path, ld: Path) -> list[str]:
+    """Full powershell.exe argv (including exe) for host/restart-core.ps1."""
+    return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+            "-File", str(repo / "host" / "restart-core.ps1"), "-Repo", str(repo), "-Python", python,
+            "-NewSha", new_sha, "-PrevSha", prev_sha, "-Port", str(port),
+            "-EnvFile", str(env_file), "-LogDir", str(ld)]
+
+
+def restart_task_xml(argv: list[str]) -> str:
+    """One-shot (no trigger, run on demand) task definition. XML avoids schtasks' 261-char /TR limit and
+    gives exact quoting for paths containing spaces."""
+    from xml.sax.saxutils import escape
+    return f"""<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{escape(argv[0])}</Command>
+      <Arguments>{escape(subprocess.list2cmdline(argv[1:]))}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"""
+
+
 class SelfUpdater:
     def __init__(
         self,
@@ -275,20 +310,38 @@ class SelfUpdater:
         if os.name != "nt":
             log.info("selfupdate: restart required (non-Windows); new code %s on disk", new_sha[:10])
             return
-        script = self.repo / "host" / "restart-core.ps1"
         ld = log_dir()
         ld.mkdir(parents=True, exist_ok=True)
-        cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-               "-File", str(script), "-Repo", str(self.repo), "-Python", self._python(),
-               "-NewSha", new_sha, "-PrevSha", prev_sha, "-Port", str(self.port),
-               "-EnvFile", str(Path.cwd() / ".env"), "-LogDir", str(ld)]
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        kw = dict(close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Task Scheduler runs Core inside a job object; "schtasks /End" kills the whole job, which would
-        # take this helper with it. Break away from the job when allowed, else fall back.
-        try:
-            subprocess.Popen(cmd, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kw)  # type: ignore[attr-defined]
-        except OSError:
-            log.warning("selfupdate: job breakaway refused; helper may die with the task")
-            subprocess.Popen(cmd, creationflags=flags, **kw)
-        log.info("selfupdate: spawned restart helper")
+        helper_log = ld / "selfupdate.log"
+        offset = helper_log.stat().st_size if helper_log.exists() else 0
+        args = restart_helper_args(self.repo, self._python(), new_sha, prev_sha, self.port,
+                                   Path.cwd() / ".env", ld)
+        # Run the helper from its OWN one-shot scheduled task, not as a child of Core. A child dies with
+        # the "nod Core" task job (which the helper itself ends), and a DETACHED_PROCESS powershell launched
+        # from windowless pythonw never executes its script at all (reproduced).
+        xml = ld / "restart-task.xml"
+        xml.write_text(restart_task_xml(args), encoding="utf-16")
+        flags = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        for cmd in (["schtasks", "/Create", "/TN", RESTART_TASK, "/XML", str(xml), "/F"],
+                    ["schtasks", "/Run", "/TN", RESTART_TASK]):
+            p = subprocess.run(cmd, capture_output=True, text=True, creationflags=flags, timeout=30)
+            if p.returncode != 0:
+                log.error("selfupdate: restart helper task failed (%s): %s", cmd[1], (p.stdout + p.stderr).strip())
+                return
+        log.info("selfupdate: started restart helper task %r", RESTART_TASK)
+        marker = f"restarting into {new_sha}"
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                with open(helper_log, "rb") as f:
+                    f.seek(offset)
+                    tail = f.read().decode("ascii", "replace")
+            except OSError:
+                tail = ""
+            for line in tail.splitlines():
+                if marker in line:
+                    log.info("selfupdate: restart helper confirmed running: %s", line.strip())
+                    return
+            time.sleep(0.5)
+        log.error("selfupdate: restart helper did NOT start within 15 s (no line in %s); Core stays on old code",
+                  helper_log)

@@ -5,7 +5,7 @@ param([string]$Repo, [string]$Python, [string]$NewSha, [string]$PrevSha, [int]$P
 $ErrorActionPreference = "Continue"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $Log = Join-Path $LogDir "selfupdate.log"
-function Note($m) { Add-Content -Path $Log -Value ("{0} restart-core: {1}" -f (Get-Date -Format s), $m) -Encoding ascii }
+function Note($m) { Add-Content -Path $Log -Value ("{0} restart-core[{1}]: {2}" -f (Get-Date -Format s), $PID, $m) -Encoding ascii }
 
 function Restart-Task {
     schtasks /End /TN $Task 2>&1 | Out-Null

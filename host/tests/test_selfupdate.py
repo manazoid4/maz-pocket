@@ -154,3 +154,19 @@ def test_status_endpoints_need_auth():
     assert "running_git_sha" in body and "last_result" in body and "staged_fw" in body
     health = api.get("/health", headers=AUTH).json()
     assert "git_sha" in health and "update" in health
+
+
+def test_restart_helper_task_quotes_paths_with_spaces():
+    import subprocess as sp
+    from pathlib import Path
+    from xml.etree import ElementTree as ET
+    from mazhost.selfupdate import restart_helper_args, restart_task_xml
+    argv = restart_helper_args(Path("C:/My Repo/x"), "C:/MAZ Core/py.exe", "n" * 40, "p" * 40, 8787,
+                               Path("C:/MAZ Core/.env"), Path("C:/MAZ Core/logs"))
+    assert argv[0] == "powershell.exe" and argv[argv.index("-NewSha") + 1] == "n" * 40
+    root = ET.fromstring(restart_task_xml(argv).encode("utf-16"))
+    ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
+    assert root.find(".//t:Command", ns).text == "powershell.exe"
+    args = root.find(".//t:Arguments", ns).text
+    assert args == sp.list2cmdline(argv[1:])
+    assert '"C:/MAZ Core/py.exe"' in args and 'logs"' in args
