@@ -87,6 +87,9 @@ class CoreActionRequest(BaseModel):
     project: str = Field(min_length=1, max_length=160)
 
 
+FALLBACK_REPLY = "Sorry, my brain is offline, try again"
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -262,10 +265,21 @@ def create_app(
             reply, provider = model_router.chat(
                 grounded_messages(session_id, refined.text, pocket_context), route
             )
-        except RouteError:
-            raise
         except Exception as error:
-            raise RouteError(ErrorCode.INTERNAL_ERROR, route, requested_route=route) from error
+            if route not in ("auto", "local"):  # explicit cloud routes keep their typed errors
+                if isinstance(error, RouteError):
+                    raise
+                raise RouteError(ErrorCode.INTERNAL_ERROR, route, requested_route=route) from error
+            # whole AUTO/LOCAL chain failed: speak a short fallback instead of going silent
+            logging.getLogger("uvicorn.error").warning("brain chain failed; spoken fallback", exc_info=True)
+            return {
+                "text": refined.text,
+                "reply": FALLBACK_REPLY,
+                "provider": "fallback",
+                "actions": refined.actions,
+                "degraded": True,
+                "timings": {"llm_ms": round((time.perf_counter() - started) * 1000)},
+            }
         llm_ms = round((time.perf_counter() - started) * 1000)
         sessions.add_turn(session_id, refined.text, reply)
         return {

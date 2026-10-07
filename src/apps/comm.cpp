@@ -208,6 +208,7 @@ public:
             return;
         }
         if (voice::isPlaying()) { retroPhone(g, "MAZ SPEAKING", OK); return; }
+        if (!_err.empty()) { retroPhone(g, _err.c_str(), ERR); return; }
         if (!_reply.empty()) {
             g.setFont(&fonts::Font0);
             g.setTextColor(ACCENT, BG);
@@ -278,6 +279,7 @@ private:
 
     void beginTake() {
         if (host_worker::busy()) return;
+        _err.clear();
         discardTake();
         _sink = new voice::WavFileSink("outbox");
         if (!_sink || !voice::start(_sink, 60)) {
@@ -367,13 +369,18 @@ private:
                       result.reply.error.c_str(), result.wavPath.c_str());
         if (!result.reply.ok) {
             queueRaw(result.wavPath, result.reply.error.empty() ? "PC unavailable" : result.reply.error, result.context);
-            notify::post(Note::Warn, "MAZ unavailable", "voice call kept in outbox");
+            _err = failReason(result.reply);
+            sfx::error();
+            notify::post(Note::Warn, _err, "voice call kept in outbox");
             invalidate();
             return;
         }
 
         _reply = result.reply.text;
+        _err.clear();
         _scroll = 0;
+        if (Cfg.ttsEnabled && !result.speechReady && !_reply.empty())
+            notify::post(Note::Warn, "Voice failed", "showing text only");
         store::Record answer;
         answer.kind = "inbox";
         answer.status = "open";
@@ -404,6 +411,19 @@ private:
         invalidate();
     }
 
+    // Short on-screen reason for a failed turn (never idle silently).
+    static std::string failReason(const host::Reply& r) {
+        const std::string& e = r.error;
+        auto has = [&](const char* k) { return e.find(k) != std::string::npos; };
+        if (r.status <= 0 || has("unreachable") || has("offline") || has("Core")) return "No Core";
+        if (r.status == 429 || r.status == 502 || r.status == 503 || r.status == 504 ||
+            has("busy") || has("LLM") || has("brain") || has("model"))
+            return "AI busy, retry";
+        if (has("transcri") || has("STT") || has("audio") || has("speech") || r.status == 400 || r.status == 415 || r.status == 422)
+            return "Voice failed";
+        return "Call failed, retry";
+    }
+
     void queueRaw(const std::string& path, const std::string& reason,
                   const std::string& context = "") {
         if (path.empty()) return;
@@ -427,6 +447,7 @@ private:
     std::string _takePath;
     std::string _speechPath;
     std::string _reply;
+    std::string _err;
     std::string _sendContext;
     int _scroll = 0;
     int _controlSel = 0;
