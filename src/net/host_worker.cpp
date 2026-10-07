@@ -85,6 +85,9 @@ host::TeachStatus runTeach() {
     }
 }
 
+std::string gPartial;
+std::atomic<bool> gPartialReady{false};
+
 void worker(void*) {
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -103,6 +106,7 @@ void worker(void*) {
             Serial.printf("[worker] talk session=%s path=%s\n", session.c_str(), path.c_str());
             if (session.empty()) reply.error = "PC unreachable";
             else reply = contextAudio(session, path, context);
+            if (reply.ok && !reply.text.empty()) { gPartial = reply.text; gPartialReady.store(true, std::memory_order_release); }
             if (reply.ok && !speechPath.empty() && !reply.text.empty()) speechReady = host::speak(reply.text, speechPath);
             gTalkResult.session = std::move(session);
             gTalkResult.wavPath = path;
@@ -173,6 +177,7 @@ bool canSubmit() {
 }
 
 void clearResults() {
+    gPartialReady.store(false, std::memory_order_release);
     gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gOutboxAudioResult = OutboxAudioResult{};
     gOutboxBeamResult = OutboxBeamResult{}; gBeamPullResult = host::BeamMessage{};
     gSystemResult = host::SystemStatus{}; gWorkResult = host::WorkSummary{};
@@ -230,6 +235,10 @@ bool submitTeach(TeachKind kind, const std::string& sessionId,
     clearResults(); publish(JobKind::Teach); return true;
 }
 
+bool peekTalkText(std::string& out) {
+    if (!busy() || jobKind() != JobKind::TalkAudio || !gPartialReady.load(std::memory_order_acquire)) return false;
+    out = gPartial; return true;
+}
 bool takeTalkResult(TalkResult& result) { if (state()!=State::Done||jobKind()!=JobKind::TalkAudio)return false; result=std::move(gTalkResult); resetToIdle(); return true; }
 bool takePcActionResult(PcActionResult& result) { if (state()!=State::Done||jobKind()!=JobKind::PcAction)return false; result=std::move(gPcResult); resetToIdle(); return true; }
 bool takeOutboxAudioResult(OutboxAudioResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxAudio)return false; result=std::move(gOutboxAudioResult); resetToIdle(); return true; }

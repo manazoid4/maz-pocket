@@ -56,6 +56,8 @@ bool submitTeach(TeachKind kind, const std::string& sessionId = "",
                  const std::string& displayId = "primary", const std::string& note = "");
 
 bool takeTalkResult(TalkResult& result);
+// Reply text as soon as the PC answered, while the voice WAV is still downloading.
+bool peekTalkText(std::string& out);
 bool takePcActionResult(PcActionResult& result);
 bool takeOutboxAudioResult(OutboxAudioResult& result);
 bool takeOutboxBeamResult(OutboxBeamResult& result);

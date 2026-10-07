@@ -280,14 +280,12 @@ def test_all_provider_failure_returns_explicit_degraded_state_never_500():
         json={"session_id": sid, "route": "auto", "text": "hello"},
     )
 
-    assert response.status_code == 503
-    assert response.json() == {
-        "ok": False,
-        "route": "degraded",
-        "error": "LOCAL_UNAVAILABLE",
-        "retryable": True,
-        "requested_route": "auto",
-    }
+    # AUTO chain exhausted: still 200 with a short spoken fallback so /speak says something.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["degraded"] is True
+    assert body["reply"] == "Sorry, my brain is offline, try again"
+
 
 def test_context_ask_is_added_as_untrusted_screen_evidence():
     models = FakeModels()
@@ -430,3 +428,19 @@ def test_raw_audio_turn_accepts_streamed_wav_and_context_header():
     assert response.status_code == 200
     assert response.json()["text"] == "what should I focus on"
     assert "selected=SHIFT" in models.last_messages[0]["content"]
+
+
+def test_auto_chain_failure_returns_spoken_fallback():
+    class DeadModels(FakeModels):
+        def chat(self, _messages, _route):
+            raise RuntimeError("all providers down")
+
+    api = client(models=DeadModels(), core=FakeCore())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+    response = api.post(
+        "/turn/text", headers=headers, json={"session_id": sid, "route": "auto", "text": "hello"}
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Sorry, my brain is offline, try again"
+    assert response.json()["degraded"] is True

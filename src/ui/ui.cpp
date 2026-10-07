@@ -4,6 +4,7 @@
 
 #include "../core/settings.h"
 #include "../core/sys.h"
+#include "../net/mazhost.h"
 
 namespace maz {
 namespace ui {
@@ -80,6 +81,9 @@ void statusBar(M5Canvas& g) {
     } else if (Sys.focusRunning) {
         g.setTextColor(ACCENT, PANEL);
         g.drawString(hhmmss(Sys.focusRemain).c_str(), x, 4);
+    } else if (host::updateReady()) {
+        g.setTextColor(ACCENT, PANEL);
+        g.drawString("^U upd", x, 4);
     }
 
     // Right side, laid out from the edge inwards.
