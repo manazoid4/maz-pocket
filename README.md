@@ -2,22 +2,13 @@
 
 **A pocket-sized physical control surface for your PC, AI models and coding agents — built for the M5Stack Cardputer ADV.**
 
-## Current release candidate: v1.0.0 — WORK CONSISTENCY
+## v1.0.0 — WORK CONSISTENCY + Dictation, Approvals, Focus
 
 MAZ Pocket is deliberately not an ESP32 app drawer. The Cardputer handles voice, short text, status, approvals and quick commands while **MAZ Core** on the PC handles models, projects, screen recording, coding agents and heavier work.
 
-## The six things on Home
+**Features**: Call (voice), Groq + local brain chain, Wi-Fi OTA, phone approvals, focus sprint, dictation, WORK ledger, Teach-by-Demo.
 
-| Home tile | What it does |
-|---|---|
-| **CALL** | Hold Space, talk to MAZ, get an AI answer and hear it spoken back. |
-| **CAPTURE** | Teach a PC workflow by recording it, make a Brain Dump, or save a voice recording. |
-| **AGENTS** | Agent status, PLAN, CREW, RETRO and project/build tools. |
-| **CONTROL** | Pair your phone, see Token ID, inspect laptop/Wi-Fi/Core/device state and settings. |
-| **MEMORY** | Results Inbox, Prompt Deck, notes, snippets, Beam and viewer. |
-| **WORK** | JOB HUNT, MAZ WORKS and custom consistency tracks; Focus/Sprint/Tasks/Reminders/Shift/Retro remain under WORK TOOLS. |
-
-There is intentionally **no seventh top-level app**.
+**See [docs/NOD-FEATURES.md](docs/NOD-FEATURES.md) for the complete feature table and setup instructions for dictation, approvals and focus.**
 
 ## WORK consistency
 

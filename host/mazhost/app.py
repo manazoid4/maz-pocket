@@ -22,6 +22,7 @@ from .authority import AuthorityBroker
 from .beam import BeamStore
 from .braindump import structure_braindump
 from .bridge import BridgeWorker
+from .buddy import install_buddy_routes
 from .commands import parse_command
 from .config import Settings
 from .control_routes import install_control_routes
@@ -30,6 +31,7 @@ from .debug_capsule import DebugCapsules
 from .device import DeviceMonitor
 from . import fw
 from .errors import ErrorCode, RouteError
+from .focus import Focus, install_focus_routes
 from .executor import ElevatedExecutor
 from .jobs import CoreJobs
 from .llm import Models, Route
@@ -43,6 +45,8 @@ from .remote import RemoteInfo
 from .security import RemoteGuardMiddleware, Security
 from .selfupdate import SelfUpdater
 from .sessions import SessionStore
+from starlette.concurrency import run_in_threadpool
+from .flow import Flow, paste as paste_text
 from .stt import SpeechToText
 from .telemetry import SystemTelemetry
 from .tts import SpeechOut
@@ -121,6 +125,7 @@ def create_app(
     bridge_worker = bridge or BridgeWorker(cfg, core_service)
     beam_store = beam or BeamStore()
     system_telemetry = telemetry or SystemTelemetry(cfg)
+    focus = Focus()
     sessions = SessionStore(cfg.max_turns, cfg.session_ttl_minutes)
     authority = AuthorityBroker(cfg)
     elevated_executor = ElevatedExecutor(cfg, authority)
@@ -659,6 +664,29 @@ def create_app(
         finally:
             path.unlink(missing_ok=True)
 
+    flow_service = Flow(cfg, speech, model_router)
+
+    @api.post("/dictate")
+    async def dictate(request: Request, target: str = "text"):
+        """wav in -> cleaned text out. target=pc-paste also pastes on the PC."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > cfg.max_upload_mb * 1024 * 1024:
+                    Path(tmp.name).unlink(missing_ok=True)
+                    raise HTTPException(413, "audio_too_large")
+                tmp.write(chunk)
+            path = Path(tmp.name)
+        try:
+            security.validate_upload(path, size)
+            result = await run_in_threadpool(flow_service.dictate, path)
+            if target == "pc-paste" and result["intent"] in ("paste", "claude") and result["text"]:
+                await run_in_threadpool(paste_text, result["text"], result["intent"] == "claude")
+            return result
+        finally:
+            path.unlink(missing_ok=True)
+
     # ---------------------------------------------------------- extraction
     @api.post("/extract")
     def extract(body: ExtractRequest):
@@ -761,6 +789,8 @@ def create_app(
 
     @api.post("/nudge/{session_id}/nudge")
     def send_nudge(session_id: str):
+        if focus.muted:
+            return {"ok": False, "muted": True, "reason": "focus_sprint"}
         try:
             return nudge_client.nudge(session_id)
         except (RuntimeError, httpx.HTTPError) as error:
@@ -771,6 +801,9 @@ def create_app(
     # intentionally reachable with no token, since exchanging a short-lived
     # code for the real credential is the whole point.
     api.mount("/pair", build_pairing_app(cfg, security))
+
+    install_buddy_routes(api)
+    install_focus_routes(api, focus)
 
     if cfg.control_enabled:
         install_control_routes(
@@ -793,3 +826,6 @@ def create_app(
 
 
 app = create_app()
+
+
+

@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     # llama-3.3-70b was removed from this account (404). Each model is one AUTO stage. Empty key = stages skipped.
     groq_url: str = "https://api.groq.com/openai/v1"
     groq_key: str = ""
+    groq_api_key: str = ""  # Alias for groq_key (PR #43 uses this name)
     groq_models: str = "openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b"
     # Conversational turns on LOCAL/AUTO use the full free chain (local last).
     smart_voice: bool = True
@@ -57,6 +58,9 @@ class Settings(BaseSettings):
     # Last free cloud hop before local (key: MAZ_OPENROUTER_API_KEY; ~3 s, still beats local 7-14 s).
     openrouter_api_key: str = ""
     openrouter_free_model: str = "openrouter/free"
+
+    # Dictation flow directory (PR #43)
+    flow_dir: str = "~/.maz-pocket/flow"
 
     cloud_url: str = "https://openrouter.ai/api/v1"
     cloud_key: str = ""
@@ -188,3 +192,5 @@ class Settings(BaseSettings):
     @property
     def web_origin_list(self) -> list[str]:
         return [x.strip() for x in self.web_origins.split(",") if x.strip()]
+
+
