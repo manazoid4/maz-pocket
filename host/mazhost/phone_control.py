@@ -3,7 +3,7 @@ from __future__ import annotations
 import hmac
 from typing import Annotated
 
-from fastapi import Cookie, FastAPI, Form, HTTPException, Request
+from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ from .work_routes import install_work_routes
 from .work_service import WorkService
 from .work_store import WorkStore
 from .validation import install_validation_exception_handler
+from .voices import install_voice_routes
 
 
 CONTROL_HEADER = "X-MAZ-Control"
@@ -31,7 +32,7 @@ PAGE = r"""<!doctype html>
 :root{color-scheme:dark;--b:#080b0e;--p:#11171c;--p2:#0c1115;--l:#27323b;--t:#f2f4f5;--d:#91a0aa;--a:#ff7a18;--g:#42d58a;--r:#ff676d;--w:#ffc04d}*{box-sizing:border-box}body{margin:0;background:var(--b);color:var(--t);font:14px ui-monospace,SFMono-Regular,Consolas,monospace;overflow-x:hidden}main{max-width:760px;margin:auto;padding:12px}.top{position:sticky;top:0;z-index:4;background:#080b0ef3;border-bottom:1px solid var(--l);padding:10px 0;display:flex;justify-content:space-between;align-items:center;gap:8px}.brand{font-size:20px;font-weight:900}.brand b{color:var(--a)}.token{font-size:11px;color:var(--d);border:1px solid var(--l);border-radius:999px;padding:5px 8px}.tabs{display:flex;gap:6px;margin:10px 0 0}.tabbtn{flex:1;text-align:center;padding:9px;border:1px solid var(--l);border-radius:8px;background:#080c0f;color:var(--d);cursor:pointer;font-weight:900;font-size:12px;letter-spacing:.08em}.tabbtn.active{background:var(--a);border-color:var(--a);color:#08090a}.pane{display:none}.pane.active{display:block}.hero{padding:17px 0 7px}.hero h1{font-size:24px;margin:0 0 5px}.hero p{color:var(--d);line-height:1.45;margin:0}.sec{margin-top:15px}.sec h2{font-size:10px;letter-spacing:.14em;color:var(--d)}.card{border:1px solid var(--l);border-radius:10px;background:var(--p);padding:12px;margin:7px 0;max-width:100%}.req{border-left:3px solid var(--w)}.grant{border-left:3px solid var(--g)}.kv{display:grid;grid-template-columns:1fr auto;gap:7px 10px}.kv span{color:var(--d)}.row{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.row>*{flex:1 1 140px}button,input,select{font:inherit;border:1px solid var(--l);border-radius:7px;background:#080c0f;color:var(--t);padding:9px;min-width:0;max-width:100%}button{cursor:pointer;min-width:110px;min-height:44px}.yes{background:var(--a);border-color:var(--a);color:#08090a;font-weight:900}.danger{border-color:#6a3438;color:var(--r)}.muted{color:var(--d);font-size:12px;line-height:1.4}.bad{color:var(--r)}.good{color:var(--g)}.warn{color:var(--w)}pre{white-space:pre-wrap;word-break:break-word;background:var(--p2);border-radius:7px;padding:9px;font-size:11px;color:var(--d);max-height:220px;overflow:auto}.empty{padding:16px;text-align:center;color:var(--d);border:1px dashed var(--l);border-radius:9px}.stale{color:var(--w);font-weight:900}.quickgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.histgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:8px;font-size:10px;text-align:center}.histday{background:var(--p2);border-radius:6px;padding:6px 2px;min-width:0}.eventedit{display:grid;grid-template-columns:1fr;gap:6px;margin-top:9px}.eventrow{display:grid;grid-template-columns:minmax(120px,1fr) auto auto auto;gap:6px;align-items:center;padding:7px;border:1px solid var(--l);border-radius:7px}.eventrow.inactive{opacity:.58}.eventrow button{min-width:84px}.check{display:flex;gap:7px;align-items:center;color:var(--d)}.check input{flex:0 0 auto}.pipelinegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pipelinegrid .card{margin:0}.pipeline-item{border-left:3px solid var(--a)}.pipeline-item a{color:var(--g);word-break:break-all}.pipeline-item summary{cursor:pointer;font-weight:900}.today-action{border-left:3px solid var(--g)}@media(max-width:520px){main{padding:9px}.hero h1{font-size:20px}.kv{grid-template-columns:1fr}.kv b{text-align:left}.top{align-items:flex-start;flex-direction:column}.quickgrid,.pipelinegrid{grid-template-columns:1fr}.eventrow{grid-template-columns:1fr 1fr}.eventrow [data-field=event-label]{grid-column:1/-1}}
 </style></head><body><main>
 <div class="top"><div class="brand"><b>MAZ</b> CONTROL</div><div class="token">TOKEN ID <b id="tokenId">-</b></div></div>
-<div class="tabs"><button class="tabbtn active" id="tabbtn-work" onclick="showTab('work')">WORK</button><button class="tabbtn" id="tabbtn-authority" onclick="showTab('authority')">AUTHORITY</button></div>
+<div class="tabs"><button class="tabbtn active" id="tabbtn-work" onclick="showTab('work')">WORK</button><button class="tabbtn" id="tabbtn-authority" onclick="showTab('authority')">AUTHORITY</button><button class="tabbtn" id="tabbtn-voice" data-testid="tab-voice" onclick="showTab('voice')">VOICE</button></div>
 
 <div class="pane active" id="pane-work">
 <div class="hero"><h1>Today</h1><p id="workFreshness" class="muted">Loading...</p></div>
@@ -64,9 +65,14 @@ PAGE = r"""<!doctype html>
 <div class="sec"><h2>SESSION</h2><div class="card"><div class="row"><button onclick="logout()">LOG OUT THIS PHONE</button></div><p class="muted">The pairing token is never displayed here. TOKEN ID is a non-secret fingerprint so you can tell which MAZ installation you are authorising.</p></div></div>
 </div>
 
+<div class="pane" id="pane-voice">
+<div class="hero"><h1>Reply voice</h1><p id="voiceNow" class="muted">Loading...</p></div>
+<div class="sec"><h2>SEARCH FISH LIBRARY</h2><div class="card"><div class="row"><input id="voiceQ" data-testid="voice-search" placeholder="Search voices (needs Fish key)" onkeydown="if(event.key==='Enter')searchVoices()"><button onclick="searchVoices()">SEARCH</button></div><div id="voiceSearchRes"></div></div></div>
+<div class="sec"><h2>VOICES</h2><div id="voiceList"></div><div id="voiceStatus" class="muted"></div></div>
+</div>
 <script>
 const H={'X-MAZ-Control':'1','Content-Type':'application/json'};const $=x=>document.getElementById(x);function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}async function api(path,opt={}){let r=await fetch(path,{cache:'no-store',...opt,headers:{...H,...(opt.headers||{})}});if(r.status===401){location.href='./';throw new Error('login required')}let d=await r.json();if(!r.ok)throw new Error(d.detail||d.error||'request failed');return d}function secs(t){return Math.max(0,Math.round(t-Date.now()/1000))+'s'}
-function showTab(name){for(const t of ['work','authority']){$('pane-'+t).classList.toggle('active',t===name);$('tabbtn-'+t).classList.toggle('active',t===name)}}
+function showTab(name){if(name==='voice')loadVoices();for(const t of ['work','authority','voice']){$('pane-'+t).classList.toggle('active',t===name);$('tabbtn-'+t).classList.toggle('active',t===name)}}
 
 // ------------------------------------------------------------------- WORK
 let workBusy=false;let lastEventId=null;let managedTracks=[];let managedTracksLoaded=false;let pipelineItems=[];
@@ -103,6 +109,14 @@ async function revokeAll(){await api('api/revoke-all',{method:'POST'});refreshAl
 async function manualGrant(){await api('api/manual-grant',{method:'POST',body:JSON.stringify({scope:$('manualScope').value,seconds:Number($('manualSeconds').value),task:'Manual phone-authorized MAZ session'})});refreshAll()}
 async function logout(){await api('api/logout',{method:'POST'});location.href='./'}
 
+// ------------------------------------------------------------------ VOICE
+let voiceAudio=null;
+function voiceRow(v,cur){return `<div class="card voice" data-voice-id="${esc(v.reference_id)}"><div class="row"><b>${esc(v.name)}</b>${v.reference_id===cur?' <span class="good">IN USE</span>':''}</div><p class="muted">${esc(v.description||'')}</p><div class="row"><button data-act="preview" data-id="${esc(v.reference_id)}" onclick="previewVoice(this.dataset.id)">PLAY</button><button class="yes" data-act="use" data-id="${esc(v.reference_id)}" data-name="${esc(v.name)}" onclick="useVoice(this.dataset.id,this.dataset.name)">USE</button></div></div>`}
+async function loadVoices(){try{let d=await api('api/voices');$('voiceNow').textContent='Now speaking: '+(d.current_name||d.current);$('voiceList').innerHTML=d.voices.map(v=>voiceRow(v,d.current)).join('');window.voiceCur=d.current}catch(e){$('voiceStatus').textContent=e.message}}
+async function previewVoice(id){$('voiceStatus').textContent='Loading preview...';try{let r=await fetch('api/voices/preview',{method:'POST',headers:H,body:JSON.stringify({reference_id:id})});if(!r.ok){let d=await r.json().catch(()=>({}));throw new Error(d.detail||'preview failed')}let b=await r.blob();if(voiceAudio)voiceAudio.pause();voiceAudio=new Audio(URL.createObjectURL(b));await voiceAudio.play();$('voiceStatus').textContent=''}catch(e){$('voiceStatus').textContent='Preview: '+e.message}}
+async function useVoice(id,name){try{await api('api/voices/select',{method:'POST',body:JSON.stringify({reference_id:id,name:name||''})});$('voiceStatus').textContent='Voice saved.';loadVoices()}catch(e){$('voiceStatus').textContent=e.message}}
+async function searchVoices(){let q=$('voiceQ').value.trim();if(!q)return;$('voiceSearchRes').textContent='Searching...';try{let d=await api('api/voices/search?q='+encodeURIComponent(q));$('voiceSearchRes').innerHTML=d.voices.length?d.voices.map(v=>voiceRow(v,window.voiceCur)).join(''):'<p class="muted">No matches.</p>'}catch(e){$('voiceSearchRes').textContent=e.message}}
+
 loadWork(true);refreshAll();setInterval(()=>loadWork(false),4000);setInterval(refreshAll,3000);
 </script></main></body></html>"""
 
@@ -111,7 +125,7 @@ LOGIN = r"""<!doctype html><html><head><meta name="viewport" content="width=devi
 
 
 def build_phone_app(
-    settings: Settings, broker: AuthorityBroker, *, work_store: WorkStore | None = None
+    settings: Settings, broker: AuthorityBroker, *, work_store: WorkStore | None = None, voices=None
 ) -> FastAPI:
     phone = FastAPI(title="MAZ Phone Control", docs_url=None, redoc_url=None, openapi_url=None)
     install_validation_exception_handler(phone)
@@ -228,6 +242,12 @@ def build_phone_app(
         response = JSONResponse({"ok": True})
         response.delete_cookie(COOKIE, path="/control")
         return response
+
+    if voices is not None:
+        def voice_guard(request: Request, maz_control_session: Annotated[str | None, Cookie()] = None) -> None:
+            require_session(request, maz_control_session)
+
+        install_voice_routes(phone, voices, prefix="/api", dependencies=[Depends(voice_guard)])
 
     install_work_routes(
         phone,

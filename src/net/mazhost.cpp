@@ -280,21 +280,16 @@ Reply pcAction(const std::string& action) {
     return jsonPost("/pc/action", body.c_str());
 }
 
-bool speak(const std::string& text, const std::string& wavPath) {
-    if (!configured() || WiFi.status() != WL_CONNECTED || !store::ready() ||
-        text.empty())
-        return false;
-
-    JsonDocument doc;
-    doc["text"] = text.size() > 1400 ? text.substr(0, 1400) : text;
-    String body;
-    serializeJson(doc, body);
+namespace {
+// POST a JSON body to a Core route that answers with a WAV, save it to wavPath.
+bool postWav(const char* path, const std::string& body, const std::string& wavPath) {
+    if (!configured() || WiFi.status() != WL_CONNECTED || !store::ready()) return false;
 
     for (const auto& base : bases()) {
         NodHttp http;
-        if (!beginRequest(http, base.first, "/speak", base.second)) continue;
+        if (!beginRequest(http, base.first, path, base.second)) continue;
         http.addHeader("Content-Type", "application/json");
-        const int status = http.POST(body);
+        const int status = http.POST(body.c_str());
         if (status <= 0) {
             http.end();
             continue;
@@ -321,6 +316,69 @@ bool speak(const std::string& text, const std::string& wavPath) {
         return false;
     }
     return false;
+}
+}  // namespace
+
+bool speak(const std::string& text, const std::string& wavPath) {
+    if (text.empty()) return false;
+    JsonDocument doc;
+    doc["text"] = text.size() > 1400 ? text.substr(0, 1400) : text;
+    String body;
+    serializeJson(doc, body);
+    return postWav("/speak", body.c_str(), wavPath);
+}
+
+bool voiceList(std::vector<VoiceItem>& out, std::string& error) {
+    out.clear();
+    if (!configured() || WiFi.status() != WL_CONNECTED) {
+        error = "host offline";
+        return false;
+    }
+    for (const auto& base : bases()) {
+        NodHttp http;
+        if (!beginRequest(http, base.first, "/voices", base.second)) continue;
+        const int status = http.GET();
+        if (status <= 0) {
+            http.end();
+            continue;
+        }
+        const String body = http.getString();
+        http.end();
+        JsonDocument doc;
+        if (status != 200 || deserializeJson(doc, body)) {
+            error = "voices unavailable";
+            return false;
+        }
+        markOnline(base.second);
+        for (JsonObject v : doc["voices"].as<JsonArray>()) {
+            VoiceItem item;
+            item.name = v["name"] | "";
+            item.id = v["reference_id"] | "";
+            item.description = v["description"] | "";
+            item.current = v["current"] | false;
+            if (!item.id.empty()) out.push_back(item);
+        }
+        return !out.empty();
+    }
+    error = "PC unreachable";
+    return false;
+}
+
+bool voiceSelect(const std::string& id, const std::string& name) {
+    JsonDocument doc;
+    doc["reference_id"] = id;
+    doc["name"] = name;
+    String body;
+    serializeJson(doc, body);
+    return jsonPost("/voices/select", body.c_str()).ok;
+}
+
+bool voicePreview(const std::string& id, const std::string& wavPath) {
+    JsonDocument doc;
+    doc["reference_id"] = id;
+    String body;
+    serializeJson(doc, body);
+    return postWav("/voices/preview", body.c_str(), wavPath);
 }
 
 Assurance assurance() {

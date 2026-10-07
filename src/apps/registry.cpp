@@ -51,6 +51,7 @@ const Descriptor TABLE[] = {
     {"wifi",       "Legacy Connections", "Conn", "legacy wifi host setup",              0,     false, makeConnections},
     {"tools",      "Device Tests", nullptr, "tools system diagnostics test",             0,     false, makeTools},
     {"settings",   "Settings",    nullptr, "settings brightness volume config",         0,     false, makeSettings},
+    {"voice",      "Voice",       nullptr, "voice reply tts speaker fish",              0,     false, makeVoice},
     {"help",       "Keys & Help", "Help",  "help keys shortcuts about version",         KEY_H, false, makeHelp},
 };
 }  // namespace

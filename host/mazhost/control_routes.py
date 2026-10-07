@@ -81,11 +81,12 @@ def install_control_routes(
     nudge_client,
     device_monitor,
     work_store: WorkStore | None = None,
+    voices=None,
 ) -> None:
     work_store = work_store or WorkStore(settings.work_dir)
     work_store.bootstrap()
     work_service = WorkService(work_store)
-    api.mount("/control", build_phone_app(settings, broker, work_store=work_store))
+    api.mount("/control", build_phone_app(settings, broker, work_store=work_store, voices=voices))
 
     # Bearer-token boundary (same as every other Cardputer-facing route on
     # this app, e.g. /core/cardputer/status) — the firmware never holds a

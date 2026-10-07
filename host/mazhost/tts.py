@@ -15,35 +15,46 @@ import httpx
 import pyttsx3
 
 from .config import Settings
+from .voices import ADRIAN_ID, VoiceService
 
 
 log = logging.getLogger("uvicorn.error")
 
 
 class SpeechOut:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, voices: VoiceService | None = None) -> None:
         self.settings = settings
         self.last_provider = ""
+        self.voices = voices or VoiceService(settings)
+        self.voices._synth = self._fish_voice
 
     def available(self) -> bool:
         return self.settings.tts_enabled
 
-    def _fish(self, text: str, path: Path) -> None:
+    def _fish_voice(self, text: str, path: Path, voice: str) -> None:
+        """Single Fish call for an explicit voice (used by cached previews); no fallback."""
+        self._fish(text, path, voice, fallback=False)
+
+    def _fish(self, text: str, path: Path, voice: str | None = None, fallback: bool = True) -> None:
         key = self.settings.fish_api_key
         if not key:
             raise RuntimeError("no_fish_key")
         model = self.settings.tts_model
+        voice = voice or self.voices.current()
         resp = httpx.post(
             "https://api.fish.audio/v1/tts",
             headers={"Authorization": f"Bearer {key}", "model": model},
             json={
                 "text": text,
-                "reference_id": self.settings.tts_voice,
+                "reference_id": voice,
                 "format": "wav",
                 "sample_rate": 16000,
             },
             timeout=30,
         )
+        if fallback and resp.status_code in (400, 404, 422) and voice != ADRIAN_ID:
+            self.voices.reject(voice)
+            return self._fish(text, path, ADRIAN_ID, fallback=False)
         if resp.status_code != 200 or len(resp.content) <= 44:
             raise RuntimeError(f"fish_http_{resp.status_code}:{resp.text[:120]}")
         data = resp.content
@@ -72,7 +83,7 @@ class SpeechOut:
                 self._fish(clean, path)
                 self.last_provider = "fish"
                 log.info("tts_provider=fish voice=%s model=%s bytes=%d",
-                         self.settings.tts_voice[:8] + "...", self.settings.tts_model, path.stat().st_size)
+                         self.voices.current()[:8] + "...", self.settings.tts_model, path.stat().st_size)
                 return path
             except (RuntimeError, httpx.HTTPError) as error:
                 reason = str(error)

@@ -157,6 +157,18 @@ Reply transcribe(const std::string& wavPath);
 Reply brainDump(const std::string& wavPath, const std::vector<uint32_t>& highlights);
 Reply pcAction(const std::string& action);
 bool speak(const std::string& text, const std::string& wavPath);
+
+// Reply voice (Core /voices). voiceSelect persists the choice on the PC;
+// voicePreview downloads a cached "Hi, I'm nod." wav in that voice.
+struct VoiceItem {
+    std::string name;
+    std::string id;
+    std::string description;
+    bool        current = false;
+};
+bool voiceList(std::vector<VoiceItem>& out, std::string& error);
+bool voiceSelect(const std::string& id, const std::string& name);
+bool voicePreview(const std::string& id, const std::string& wavPath);
 Assurance assurance();
 Reply sendNudge(const std::string& sessionId);
 

@@ -12,3 +12,4 @@ host/.env
 host/.env.*
 *.pyc
 host/fw/
+host/data/
