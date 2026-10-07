@@ -19,6 +19,7 @@ void lineClose();  // remote PC session cleared
 void saved();      // written to storage
 void timerDone();  // Focus complete — the one sound allowed to be insistent
 void error();
+void approval();   // Claude Code needs a decision: rising double chirp, plays even when UI sounds are muted
 
 void forNote(Note kind);
 

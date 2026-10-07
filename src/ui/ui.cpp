@@ -86,6 +86,9 @@ void statusBar(M5Canvas& g) {
         g.drawString("^U upd", x, 4);
     }
 
+    // Claude Code status light (Core /buddy): amber = waiting on you, green = working.
+    if (Sys.buddy) g.fillCircle(104, 7, 3, Sys.buddy == 2 ? WARN : OK);
+
     // Right side, laid out from the edge inwards.
     batteryGlyph(g, SCREEN_W - 24, 3, Sys.batteryPct < 0 ? 0 : Sys.batteryPct,
                  Sys.charging);

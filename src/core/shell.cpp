@@ -15,6 +15,7 @@
 #include "../storage/store.h"
 #include "../ui/ui.h"
 #include "../ui/lvgl_ui.h"
+#include "approvals.h"
 #include "field.h"
 #include "notify.h"
 #include "settings.h"
@@ -386,7 +387,13 @@ void openPalette() {
 }
 
 void dispatchKey(const KeyEvent& e) {
+    const bool wasAsleep = gDimmed || gScreenOff;
     if (e.down) wake();
+    // Approvals sit above everything. A key that only woke the screen never decides.
+    if (approvals::active()) {
+        if (!wasAsleep) approvals::handleKey(e);
+        return;
+    }
     if (notify::active() && e.down) notify::dismiss();
 
     if (handleGlobalKey(e)) return;
@@ -498,6 +505,7 @@ void loop() {
     dictate::update();
     net::update();
     field::update();
+    if (approvals::update(gScreenOff)) wake();
     notify::update();
     apps::updateProductServices();
     lvui::tick();
@@ -516,6 +524,7 @@ void loop() {
     ui::statusBar(gCanvas);
     ui::hintBar(gCanvas, top->hints());
     notify::render(gCanvas);
+    approvals::render(gCanvas);
     if (gFwConfirm) {
         gCanvas.fillRoundRect(20, 38, SCREEN_W - 40, 52, 4, PANEL);
         gCanvas.drawRoundRect(20, 38, SCREEN_W - 40, 52, 4, ACCENT);
