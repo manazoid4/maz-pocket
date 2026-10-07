@@ -1,64 +1,45 @@
-# MAZ Pocket v1.0.0 Feature Reference
+# nod feature status (honest)
 
-## Features
+Rule: PROVEN = owner live test or device evidence. Merged or CI-green is NOT proven.
+Status words: PROVEN / UNPROVEN (built, tests pass, nobody has seen it work) / BROKEN-UNKNOWN (was failing, fix merged, not re-tested).
+Firmware/Core version: see `VERSION`. Core and device paths below are relative to the repo root.
 
-| Feature | How to Use | Core Endpoint/File | Status |
-|---------|-----------|-------------------|--------|
-| **Call (voice)** | Hold SPACE in Call, or Ctrl+SPACE anywhere; speak & release | POST `/turn/raw`, voice playback via `tts.py` | PROVEN |
-| **Reply text before voice** | Type before pressing SPACE in Call reply | Text buffering in Call screen | PROVEN |
-| **Voice playback** | P key to replay; V to toggle; Tools > Speaker test; serial MAZSPK | `SpeechOut` class, TTS via Fish API | PROVEN |
-| **Groq brain chain** | Dictate or chat; Groq Whisper + cleanup via Groq API | `/dictate`, `flow.py`, `stt.transcribe_prompted()` | UNPROVEN |
-| **Spoken fallback** | If Groq unavailable, fall back to local Whisper | `flow.py` exception handling | UNPROVEN |
-| **About version** | Home > About > firmware & Core version display | `/system/status`, device firmware version string | PROVEN |
-| **Wi-Fi OTA update** | Home U or Ctrl+U anywhere; badge "^U upd" | Device-side: staged firmware pull via `mazpocket.local/update` | PROVEN |
-| **Core self-update** | Auto-check GitHub Releases every 5 min; manual via UI | `selfupdate.py`, GitHub API token, `host/AUTOUPDATE.md` | PROVEN |
-| **CI + releases** | GitHub Actions workflow; auto-builds & releases v1.0.0-b* | `.github/workflows/`, packaging scripts | PROVEN |
-| **Tailscale remote** | MAZ_REMOTE_URL or auto-detect via Tailscale Funnel | `remote.py`, `RemoteGuardMiddleware`, Funnel polling | PROVEN |
-| **On-screen call errors** | Network/model failures shown on Call screen | Error display in Call UI, `errors.py` | PROVEN |
-| **Dictation (/dictate)** | POST audio WAV; returns cleaned text + intent (note/remind/paste) | POST `/dictate`, `flow.py`, Groq Whisper turbo + cleanup | UNPROVEN |
-| **Approvals (buddy)** | Claude Code requests → Core `/buddy/*` → device approval | POST `/buddy/request`, `/buddy/state`, `buddy.py`, hook in `~/.claude/settings.json` | UNPROVEN |
-| **Focus (sprint)** | Start timed focus; mutes nudges; fires "Done?" event on timer | POST `/focus/start`, `/focus/state`, `focus.py` | UNPROVEN |
+| Feature | How to use (keys / action) | Where in code | Status |
+|---|---|---|---|
+| Call (voice to Core, smart reply) | Hold SPACE in Call, speak, release | `src/apps/comm.cpp`, `POST /turn/raw` in `host/mazhost/app.py` | PROVEN (owner live calls; 10/10 no-refusal test) |
+| Call from any screen | Hold Ctrl+SPACE | `src/core/shell.cpp` | UNPROVEN |
+| Spoken reply (hear the voice) | Reply plays after Call; P replay, V toggle voice | `src/audio/voice.cpp`, `host/mazhost/tts.py` | BROKEN-UNKNOWN (owner heard nothing on v1.0.1; fix #49 merged, not re-tested) |
+| Speaker test | Tools > Speaker test, or serial `MAZSPK` | `src/apps/system_apps.cpp`, `src/net/control.cpp` | UNPROVEN |
+| Voice picker | Settings > Voice (ENTER saves); phone control page | `src/apps/system_apps.cpp` (VoiceApp), `host/mazhost/voices.py`, `host/VOICES.md` | UNPROVEN |
+| Voice endpoints | `GET /voices`, `POST /voices/select`, `GET /voices/search`, `POST /voices/preview` (Bearer token) | `host/mazhost/voices.py` | UNPROVEN |
+| About screen shows version | Home > About | `src/apps/home.cpp`, `/system/status` | PROVEN |
+| Wi-Fi OTA to device (manual stage) | Stage bin in Core, Home shows "U: update", press U | `src/net/host_worker.cpp`, `GET /fw/manifest`, `GET /fw/latest.bin` | PROVEN (1.0.0 -> 1.0.1) |
+| Update from any screen | Ctrl+U, then Y to confirm | `src/core/shell.cpp` | UNPROVEN |
+| Core self-update | Automatic poll (default 5 min); `GET /core/update`, `POST /core/update/check` | `host/mazhost/selfupdate.py`, `host/AUTOUPDATE.md` | UNPROVEN (repo is private: needs `MAZ_GITHUB_TOKEN` or a public repo) |
+| CI + release | PR runs `nod-ci.yml`; merge to deploy/local runs `nod-release.yml` | `.github/workflows/` | PROVEN for release `nod-v1.0.0-b1` (published by CI) |
+| Core survives reboot | Scheduled task "nod Core" | `host/install-core-task.ps1` | PROVEN |
+| Tailscale remote | `host/setup-remote.ps1` (admin), Funnel URL in `MAZ_REMOTE_URL`; device falls back LAN -> remote | `host/mazhost/remote.py`, `host/REMOTE.md` | UNPROVEN (Funnel not on yet) |
+| Approvals, Core side | Claude Code `PermissionRequest` hook asks Core; decide with `POST /buddy/decide {id, decision}`; 60 s timeout falls back to terminal prompt | `host/hooks/nod_permission_hook.py`, `host/mazhost/buddy.py` (`/buddy/request`, `/buddy/state`, `/buddy/pending`, `/buddy/allow-all`) | UNPROVEN; no device screen yet |
+| Dictation, Core side | `POST /dictate` (wav in, cleaned text out; `?target=pc-paste` pastes on PC) | `host/mazhost/app.py`, `host/mazhost/flow.py` | UNPROVEN |
+| Dictation, PC agent | Hold Right Ctrl, speak, release, text pastes at cursor | `host/nodflow.py`, `host/install-nodflow.ps1` | UNPROVEN |
+| Dictation, device | Hold Ctrl+SPACE in Command palette (Ctrl+K), speak | `src/audio/dictate.cpp`, `src/core/shell.cpp` | UNPROVEN |
+| Focus sprint, Core side | `POST /focus/start {minutes 1-180, task}`, `GET /focus/state`, `POST /focus/end`, `GET /focus/events` | `host/mazhost/focus.py` | UNPROVEN; no device screen for it |
+| On-screen call errors | Failures shown on Call screen | `src/apps/comm.cpp`, `host/mazhost/errors.py` | UNPROVEN |
+
+Dropped from the old table (no such code or no proof of the claim): "Reply text before voice", "Spoken fallback", "Groq brain chain" as a separate feature (the smart reply is covered by Call), zip packages.
 
 ## Update flow
 
-1. **Phone/Claude**: Create PR or commit to repo
-2. **CI**: Builds firmware, runs tests, creates release tagged `nod-v1.0.0-b<N>`
-3. **GitHub Releases**: Publishes `MAZ-Core-v1.0.0.zip`, `MAZ-Cardputer-v1.0.0.zip`, `MAZ-Pocket-v1.0.0-Install.zip`
-4. **Core auto-update**: Detects release via GitHub API; downloads & stages to `~/.maz-pocket/updates/`
-5. **Device fetch**: User presses Ctrl+U (Home U) on Cardputer; pulls staged firmware
-6. **Reboot**: Cardputer boots updated firmware; Core restarts cleanly
+1. Open a PR into `deploy/local`.
+2. CI (`nod-ci.yml`): Core tests, firmware build, 1.5 MB size gate, manifest. Must be green.
+3. Merge to `deploy/local`. `nod-release.yml` publishes release `nod-v{VERSION}-b{N}` with two assets: `nod-fw.bin` and `nod-manifest.json`. No zip packages.
+4. Core self-update (`selfupdate.py`) finds the newest `nod-v*` release, verifies size and sha256, stages the firmware, and git-pulls Core code with rollback if `/health` does not come back. Needs the repo public or `MAZ_GITHUB_TOKEN`; the repo is currently private, so this step is the likely blocker until one of those is done. One-time owner step: `host\BOOTSTRAP-AUTOUPDATE.cmd`.
+5. On the device: the Home screen shows "U: update". Press Ctrl+U (any screen), then Y to confirm. Device reboots into the new firmware.
 
-See `host/AUTOUPDATE.md` for Core update mechanics; `host/REMOTE.md` for Tailscale setup.
+Only step 5 pressed by hand plus the Wi-Fi OTA itself are owner-proven; steps 3-4 end to end are not.
 
-## New feature setup (owner device)
+## Setup notes
 
-### Dictation (#43)
-- **PC**: No additional setup; uses existing `MAZ_GROQ_API_KEY` or `MAZ_GROQ_KEY`
-- **Device**: No screen UI yet; backend ready at `/dictate` endpoint
-- **Use case**: Rapid capture via `/dictate` endpoint from mobile app or scripts
-
-### Approvals (#41)
-- **PC**: Add to `~/.claude/settings.json`:
-  ```json
-  {
-    "hooks": {
-      "PermissionRequest": [
-        {
-          "matcher": "",
-          "hooks": [
-            { "type": "command", "command": "python /path/to/maz-pocket/host/hooks/nod_permission_hook.py", "timeout": 75 }
-          ]
-        }
-      ]
-    }
-  }
-  ```
-- **Env vars**: `MAZ_TOKEN`, `MAZ_CORE_URL` (default `http://127.0.0.1:8787`), `MAZ_BUDDY_TIMEOUT` (default 60)
-- **Device**: No screen UI yet; pending requests visible at `GET /buddy/pending`
-- **Use case**: Claude Code hook submits permission requests; device/phone approves before command executes
-
-### Focus (#42)
-- **PC**: No configuration needed; POST `/focus/start` with `minutes` (1–180) and optional `task`
-- **Env**: Optional `MAZ_NOW_FILE` (defaults to `~/Desktop/Maz Works Knowledge Vault/NOW.md`) and `MAZ_FOCUS_LOG` for event logging
-- **Device**: No screen UI yet; state at `GET /focus/state`, events at `GET /focus/events`
-- **Use case**: Timed focus sessions; nudge mute; "Done?" prompt at timer end
+- Approvals hook: merge the `PermissionRequest` block from `host/hooks/README.md` into `~/.claude/settings.json`. Env: `MAZ_TOKEN`, `MAZ_CORE_URL` (default `http://127.0.0.1:8787`), `MAZ_BUDDY_TIMEOUT` (default 60).
+- Dictation and the smart reply need `MAZ_GROQ_KEY` in Core's `.env` (the field is `groq_key` in `host/mazhost/config.py`; earlier docs named `MAZ_GROQ_API_KEY`, which may be a different name: check the installed `.env`).
+- Tailscale: follow `host/REMOTE.md`.
