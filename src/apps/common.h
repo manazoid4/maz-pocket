@@ -117,8 +117,9 @@ struct ListCursor {
         if (sel >= count) sel = count - 1;
         if (sel < 0) sel = 0;
         if (sel < first) first = sel;
-        if (sel >= first + theme::ROWS_VISIBLE)
-            first = sel - theme::ROWS_VISIBLE + 1;
+        // The header takes the first body row, so lists show LIST_ROWS items, not ROWS_VISIBLE.
+        if (sel >= first + theme::LIST_ROWS)
+            first = sel - theme::LIST_ROWS + 1;
         if (first < 0) first = 0;
     }
     bool onKey(const KeyEvent& e, int count) {

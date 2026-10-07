@@ -22,6 +22,7 @@ log = logging.getLogger("uvicorn.error")
 
 _SENT_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])")
 _ABBREV = ("mr.", "mrs.", "ms.", "dr.", "st.", "vs.", "e.g.", "i.e.", "etc.", "no.")
+FIRST_PART_MAX = 110  # cap on part 0 so first audio arrives sooner
 SHORT_REPLY_CHARS = 70  # at or below this a single TTS call is already quick
 
 
@@ -45,7 +46,12 @@ def plan_parts(text: str) -> list[str]:
     sentences = split_sentences(clean)
     if len(sentences) <= 1:
         return [clean]
-    return [sentences[0], " ".join(sentences[1:])]
+    first, rest = sentences[0], " ".join(sentences[1:])
+    if len(first) > FIRST_PART_MAX:  # long opener: cut at a clause so part 0 renders fast
+        cut = first.rfind(", ", 0, FIRST_PART_MAX)
+        if cut >= 30:
+            first, rest = first[:cut + 1].rstrip(), (first[cut + 1:].strip() + " " + rest).strip()
+    return [first, rest]
 
 
 def _discard(future: Future) -> None:

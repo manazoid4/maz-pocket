@@ -143,3 +143,10 @@ def test_timings_log_is_capped_at_20_and_has_no_text():
         log.add({"stt": i, "llm": i})
     assert len(log.recent()) == 20
     assert "hello" not in TimingLog.line({"stt": 1, "llm": 2, "tts_first_byte": 3})
+
+
+def test_long_first_sentence_is_capped():
+    text = ("Well, that is a really long opening sentence which keeps going and going "
+            "without any stop, then it ends right here. Second one.")
+    parts = plan_parts(text)
+    assert len(parts) == 2 and len(parts[0]) <= 110 and " ".join(parts) == text.replace("stop, then", "stop, then")
