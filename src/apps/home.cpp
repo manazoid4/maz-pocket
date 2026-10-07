@@ -5,6 +5,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/field.h"
+#include "../core/settings.h"
 #include "../core/shell.h"
 #include "../core/sys.h"
 #include "../input/keyboard.h"
@@ -119,29 +120,46 @@ public:
             cells[i].title = _primary[i]->cellTitle();
             cells[i].badge = iconFor(*_primary[i]);
         }
-        const std::string now = field::nowText();
-        lvui::renderHome(g, cells.data(), _primary.size(), _sel, "NOW", now.c_str(), 0, 1);
-        g.setFont(&fonts::Font0);
-        g.setTextDatum(bottom_right);
-        g.setTextColor(DIM);
-        g.drawString(host::updateReady() ? "v" NOD_FW_VERSION "  U: update" : "v" NOD_FW_VERSION, SCREEN_W - 2, SCREEN_H - 1);
+        lvui::Status st;
+        st.version = "v" NOD_FW_VERSION;
+        statusFor(st);
+        lvui::renderHome(g, cells.data(), _primary.size(), _sel, st);
     }
 
 private:
+    // Wi-Fi or Core down beats everything else: say what is wrong and what to
+    // press. Quiet for 12 s after boot while Wi-Fi and the first poll settle.
+    void statusFor(lvui::Status& st) {
+        static std::string now;
+        const bool settled = millis() - Sys.bootMillis > 12000;
+        if (settled && !Cfg.fieldMode && !Sys.wifiConnected) {
+            st.line = "NO WI-FI"; st.colour = WARN;
+            st.sentence = "No Wi-Fi. Press W to connect.";
+        } else if (settled && !Cfg.fieldMode && !host::configured()) {
+            st.line = "NO CORE"; st.colour = WARN;
+            st.sentence = "Not paired. Control > Pair.";
+        } else if (settled && !Cfg.fieldMode && !Sys.hostOnline) {
+            st.line = "CORE OFF"; st.colour = ERR;
+            st.sentence = "Core is off. Start it on PC.";
+        } else {
+            now = field::nowText();
+            st.line = now.c_str();
+            st.colour = now == "READY" ? OK : ACCENT;
+        }
+    }
+
     void buildPrimary() {
         _primary.clear();
         size_t n = 0;
         const Descriptor* t = apps::table(n);
         for (size_t i = 0; i < n; ++i)
-            if (t[i].onHome && strcmp(t[i].id, "home")) _primary.push_back(&t[i]);
+            if (t[i].onHome && strcmp(t[i].id, "home") && _primary.size() < TABLE_PAGE) _primary.push_back(&t[i]);
         if (_sel >= static_cast<int>(_primary.size())) _sel = 0;
     }
 
     void rebuildHints() {
-        _hints = "hold SPACE call | 1 "; _hints += field::quickLabel(1);
-        _hints += " 2 "; _hints += field::quickLabel(2);
-        _hints += " 3 "; _hints += field::quickLabel(3);
-        _hints += " 4 "; _hints += field::quickLabel(4);
+        _hints = host::updateReady() ? "SPACE call  ENTER open  U update"
+                                     : "SPACE call  ENTER open  1-4 quick";
     }
 
     static char iconFor(const Descriptor& d) {

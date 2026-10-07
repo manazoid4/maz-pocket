@@ -20,6 +20,7 @@ struct TalkResult {
     std::string speechPath;
     std::string context;
     bool speechReady = false;
+    uint8_t speechParts = 0;  // files on disk: speechPath, then speechPartPath(speechPath, 1..)
     host::Reply reply;
 };
 struct PcActionResult { std::string action; host::Reply reply; };
@@ -61,6 +62,11 @@ bool submitTeach(TeachKind kind, const std::string& sessionId = "",
 bool takeTalkResult(TalkResult& result);
 // Reply text as soon as the PC answered, while the voice WAV is still downloading.
 bool peekTalkText(std::string& out);
+// Voice parts land one by one while the worker is still downloading the next.
+uint8_t speechPartsReady();     // downloaded and safe to play
+uint8_t speechPartsExpected();  // total Core announced (0 = unknown / single file)
+std::string speechBase();  // base wav path of the talk job in flight
+std::string speechPartPath(const std::string& base, uint8_t part);
 bool takePcActionResult(PcActionResult& result);
 bool takeOutboxAudioResult(OutboxAudioResult& result);
 bool takeOutboxBeamResult(OutboxBeamResult& result);

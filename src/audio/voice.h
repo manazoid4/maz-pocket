@@ -72,6 +72,12 @@ const char* lastError();
 
 // --- playback -------------------------------------------------------------
 bool play(const std::string& wavPath);
+// Play wavPath right after the current one with no gap (starts it if idle). Lets a reply
+// start on its first sentence while the rest is still downloading. holdOpen(true) keeps
+// playback alive at the end of the queue (up to ~25 s) waiting for a part; holdOpen(false)
+// lets it finish. Both are main-loop only, like play().
+bool enqueue(const std::string& wavPath);
+void holdOpen(bool on);
 void stopPlayback();
 bool isPlaying();
 

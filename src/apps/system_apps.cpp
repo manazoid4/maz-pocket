@@ -288,7 +288,7 @@ public:
     const char* id() const override { return "settings"; }
     const char* title() const override { return "Settings"; }
     const char* hints() const override {
-        return "left/right change  ENTER toggle";
+        return "</> change  ENTER toggle";
     }
 
     void onExit() override { Cfg.save(); }
@@ -741,7 +741,8 @@ const char* HELP_LINES[] = {
     "up/down move   ENTER open",
     "D twice     delete",
     "#ABOUT",
-    "MAZ Pocket for Cardputer ADV",
+    "nod v" NOD_FW_VERSION " on Cardputer ADV",
+    "by Maz Works  mazworks.uk",
     "Bruce and Nemo stay available",
     "through M5Launcher.",
 };
@@ -751,7 +752,7 @@ class HelpApp : public App {
 public:
     const char* id() const override { return "help"; }
     const char* title() const override { return "Keys & Help"; }
-    const char* hints() const override { return "up/down scroll   ESC back"; }
+    const char* hints() const override { return "UP/DOWN scroll"; }
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) return false;

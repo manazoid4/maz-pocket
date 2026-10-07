@@ -5,6 +5,8 @@
 #include <math.h>
 #include <string.h>
 
+#include <vector>
+
 #include "../core/settings.h"
 #include "../core/sys.h"
 #include "../storage/store.h"
@@ -70,6 +72,11 @@ uint32_t gPlayStartMs = 0;
 uint32_t gPlayDeadlineMs = 0;
 uint8_t  gPlayIdx = 0;
 uint32_t gPlayBlocks = 0;
+std::vector<std::string> gPending;  // wavs queued behind the current one (max kMaxPending)
+bool     gHold = false;             // keep playing at EOF: another part is still downloading
+uint32_t gHoldUntil = 0;
+constexpr size_t   kMaxPending = 4;
+constexpr uint32_t kHoldMs = 25000;
 
 // Generated audio (speaker self-test) goes through the exact same queue.
 bool     gGen = false;
@@ -229,6 +236,65 @@ bool WavFileSink::close() {
 }
 
 // -------------------------------------------------------------------- setup
+// Reads up to one block of PCM from the open file.
+size_t readBlock(int16_t* out) {
+    if (!gPlayFile) return 0;
+    size_t want = kPlayBlock * sizeof(int16_t);
+    if (want > gPlayRemain) want = gPlayRemain;
+    want &= ~(size_t)1;
+    size_t n = 0;
+    if (want) n = gPlayFile.read(reinterpret_cast<uint8_t*>(out), want) / sizeof(int16_t);
+    gPlayRemain = gPlayRemain > n * 2 ? gPlayRemain - n * 2 : 0;
+    return n;
+}
+
+// Opens and validates a WAV for the queue; sets file, remaining bytes, rate, channels.
+bool openWav(const std::string& wavPath, uint32_t* durationMs) {
+    if (gPlayFile) gPlayFile.close();
+    gPlayFile = store::fs()->open(wavPath.c_str(), FILE_READ);
+    if (!gPlayFile) {
+        gErr = "cannot open recording";
+        Serial.printf("[voice] play open FAIL path=%s\n", wavPath.c_str());
+        return false;
+    }
+    const WavInfo w = parseWav(gPlayFile);
+    Serial.printf("[voice] play path=%s size=%u ok=%d fmt=%u ch=%u bits=%u rate=%lu dataOff=%u dataLen=%u vol=%u\n",
+                  wavPath.c_str(), (unsigned)gPlayFile.size(), w.ok, w.fmt, w.ch, w.bits,
+                  (unsigned long)w.rate, (unsigned)w.dataOff, (unsigned)w.dataLen, Cfg.volume);
+    if (!w.ok || w.fmt != 1 || w.bits != 16 || (w.ch != 1 && w.ch != 2) || w.rate < 8000 ||
+        w.rate > 48000 || w.dataLen < 2) {
+        gErr = "unsupported wav";
+        Serial.println("[voice] play FAIL: not 16-bit PCM mono/stereo wav");
+        gPlayFile.close();
+        return false;
+    }
+    if (w.rate != SAMPLE_RATE)
+        Serial.printf("[voice] note: wav rate %lu != %lu, speaker resamples\n", (unsigned long)w.rate,
+                      (unsigned long)SAMPLE_RATE);
+    gPlayFile.seek(w.dataOff);
+    gGen = false;
+    gPlayRemain = w.dataLen;
+    gPlayRate = w.rate;
+    gPlayStereo = w.ch == 2;
+    *durationMs = (uint32_t)((uint64_t)w.dataLen * 1000 / ((uint64_t)w.rate * w.ch * 2));
+    return true;
+}
+
+// Moves to the next queued part (unreadable ones are skipped).
+bool openNext() {
+    while (!gPending.empty()) {
+        const std::string next = gPending.front();
+        gPending.erase(gPending.begin());
+        uint32_t ms = 0;
+        if (!openWav(next, &ms)) continue;
+        gPlayEof = false;
+        const uint32_t until = millis() + ms + 3000 + (gHold ? kHoldMs : 0);
+        if ((int32_t)(until - gPlayDeadlineMs) > 0) gPlayDeadlineMs = until;
+        return true;
+    }
+    return false;
+}
+
 bool begin() {
     // The ADV routes both directions through one ES8311 codec, so mic and
     // speaker cannot be live at the same time; we flip between them.
@@ -314,11 +380,9 @@ void update() {
             if (gGen) {
                 n = genBlock(gPlayBuf[gPlayIdx]);
             } else {
-                size_t want = kPlayBlock * sizeof(int16_t);
-                if (want > gPlayRemain) want = gPlayRemain;
-                want &= ~(size_t)1;
-                if (want) n = gPlayFile.read(reinterpret_cast<uint8_t*>(gPlayBuf[gPlayIdx]), want) / sizeof(int16_t);
-                gPlayRemain = gPlayRemain > n * 2 ? gPlayRemain - n * 2 : 0;
+                n = readBlock(gPlayBuf[gPlayIdx]);
+                // End of this part: roll straight into the next queued one so there is no gap.
+                if (n == 0 && !gPending.empty() && openNext()) n = readBlock(gPlayBuf[gPlayIdx]);
             }
             if (n == 0) {
                 gPlayEof = true;
@@ -336,7 +400,9 @@ void update() {
             }
         }
         // Let the queued tail finish before closing, or the last words are cut.
-        const bool drained = gPlayEof && M5.Speaker.isPlaying(kPlayCh) == 0;
+        if (gPlayEof && !gPending.empty() && openNext()) gPlayEof = false;  // part arrived after EOF
+        if (gHold && gPlayEof && (int32_t)(millis() - gHoldUntil) > 0) gHold = false;  // never wait forever
+        const bool drained = gPlayEof && !gHold && M5.Speaker.isPlaying(kPlayCh) == 0;
         if (drained || (int32_t)(millis() - gPlayDeadlineMs) > 0) {
             Serial.printf("[voice] play end bytes=%u blocks=%u ms=%u%s\n", (unsigned)gPlayBytes,
                           (unsigned)gPlayBlocks, (unsigned)(millis() - gPlayStartMs),
@@ -436,32 +502,26 @@ bool play(const std::string& wavPath) {
     }
     stopPlayback();
 
-    gPlayFile = store::fs()->open(wavPath.c_str(), FILE_READ);
-    if (!gPlayFile) {
-        gErr = "cannot open recording";
-        Serial.printf("[voice] play open FAIL path=%s\n", wavPath.c_str());
-        return false;
-    }
-    const WavInfo w = parseWav(gPlayFile);
-    Serial.printf("[voice] play path=%s size=%u ok=%d fmt=%u ch=%u bits=%u rate=%lu dataOff=%u dataLen=%u vol=%u\n",
-                  wavPath.c_str(), (unsigned)gPlayFile.size(), w.ok, w.fmt, w.ch, w.bits,
-                  (unsigned long)w.rate, (unsigned)w.dataOff, (unsigned)w.dataLen, Cfg.volume);
-    if (!w.ok || w.fmt != 1 || w.bits != 16 || (w.ch != 1 && w.ch != 2) || w.rate < 8000 ||
-        w.rate > 48000 || w.dataLen < 2) {
-        gErr = "unsupported wav";
-        Serial.println("[voice] play FAIL: not 16-bit PCM mono/stereo wav");
-        gPlayFile.close();
-        return false;
-    }
-    if (w.rate != SAMPLE_RATE)
-        Serial.printf("[voice] note: wav rate %lu != %lu, speaker resamples\n", (unsigned long)w.rate,
-                      (unsigned long)SAMPLE_RATE);
-    gPlayFile.seek(w.dataOff);
-    gGen = false;
-    gPlayRemain = w.dataLen;
-    const uint32_t ms = (uint32_t)((uint64_t)w.dataLen * 1000 / ((uint64_t)w.rate * w.ch * 2));
-    beginQueue(w.rate, w.ch == 2, ms);
+    uint32_t ms = 0;
+    if (!openWav(wavPath, &ms)) return false;
+    beginQueue(gPlayRate, gPlayStereo, ms);
     return true;
+}
+
+bool enqueue(const std::string& wavPath) {
+    if (!store::ready() || wavPath.empty()) return false;
+    if (!gPlaying || gGen) return play(wavPath);
+    if (gPending.size() >= kMaxPending) return false;
+    gPending.push_back(wavPath);
+    return true;
+}
+
+void holdOpen(bool on) {
+    gHold = on && gPlaying;
+    if (gHold) {
+        gHoldUntil = millis() + kHoldMs;
+        gPlayDeadlineMs = gHoldUntil + 3000;
+    }
 }
 
 bool speakerTest(bool wait) {
@@ -487,6 +547,8 @@ void stopPlayback() {
     if (gPlayFile) gPlayFile.close();
     gPlaying = false;
     gGen = false;
+    gPending.clear();
+    gHold = false;
     if (gState == State::Playing) gState = State::Idle;
 }
 

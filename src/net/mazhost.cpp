@@ -69,6 +69,8 @@ Reply decodeReply(HTTPClient& http, int status) {
         out.transcript = doc["text"] | "";
         if (out.transcript.empty()) out.transcript = doc["transcript"] | "";
         out.provider = doc["provider"] | "";
+        out.speakId = doc["speak"]["id"] | "";
+        out.speakParts = out.speakId.empty() ? 0 : (uint8_t)(doc["speak"]["parts"] | 0);
         JsonArray commands = doc["commands"].as<JsonArray>();
         if (!commands.isNull() && commands.size() &&
             std::string(commands[0]["type"] | "") == "reminder.create") {
@@ -252,8 +254,10 @@ Reply talkText(const std::string& session, const std::string& text) {
 }
 
 Reply talkAudio(const std::string& session, const std::string& wavPath) {
-    return upload("/turn/raw", wavPath,
-                  {{"X-MAZ-Session", session}, {"X-MAZ-Route", route()}});
+    std::vector<std::pair<std::string, std::string>> headers = {
+        {"X-MAZ-Session", session}, {"X-MAZ-Route", route()}};
+    if (Cfg.ttsEnabled) headers.push_back({"X-MAZ-Speak", "1"});  // Core starts TTS as soon as the LLM answers
+    return upload("/turn/raw", wavPath, headers);
 }
 
 Reply transcribe(const std::string& wavPath) {
@@ -281,15 +285,20 @@ Reply pcAction(const std::string& action) {
 }
 
 namespace {
-// POST a JSON body to a Core route that answers with a WAV, save it to wavPath.
-bool postWav(const char* path, const std::string& body, const std::string& wavPath) {
+// Core route that answers with a WAV, saved to wavPath. body == nullptr means GET.
+bool postWav(const char* path, const std::string& body, const std::string& wavPath, bool get = false) {
     if (!configured() || WiFi.status() != WL_CONNECTED || !store::ready()) return false;
 
     for (const auto& base : bases()) {
         NodHttp http;
         if (!beginRequest(http, base.first, path, base.second)) continue;
-        http.addHeader("Content-Type", "application/json");
-        const int status = http.POST(body.c_str());
+        int status;
+        if (get) {
+            status = http.GET();
+        } else {
+            http.addHeader("Content-Type", "application/json");
+            status = http.POST(body.c_str());
+        }
         if (status <= 0) {
             http.end();
             continue;
@@ -335,6 +344,14 @@ bool say(const std::string& text, const std::string& wavPath) {
     String body;
     serializeJson(doc, body);
     return postWav("/say", body.c_str(), wavPath);
+}
+
+bool speakPart(const std::string& id, uint8_t part, const std::string& wavPath) {
+    if (id.empty() || id.size() > 32) return false;
+    for (char ch : id)
+        if (!isalnum((unsigned char)ch)) return false;
+    const std::string path = "/speak?id=" + id + "&part=" + std::to_string(part);
+    return postWav(path.c_str(), "", wavPath, true);
 }
 
 bool voiceList(std::vector<VoiceItem>& out, std::string& error) {

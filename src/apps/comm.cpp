@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <vector>
 
 #include "../audio/sfx.h"
 #include "../audio/voice.h"
@@ -25,14 +26,34 @@ namespace {
 
 std::string gCommSession;
 
+// Word-wrap `text` to REPLY_CHARS columns and draw REPLY_LINES lines from `first`.
 void drawCommWrapped(M5Canvas& g, const std::string& text, int y, int first = 0) {
-    constexpr size_t WIDTH = 37;
+    std::vector<std::string> lines;
+    std::string line;
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t e = text.find(' ', i);
+        if (e == std::string::npos) e = text.size();
+        std::string word = text.substr(i, e - i);
+        i = e + 1;
+        while (word.size() > static_cast<size_t>(REPLY_CHARS)) {  // very long token
+            if (!line.empty()) { lines.push_back(line); line.clear(); }
+            lines.push_back(word.substr(0, REPLY_CHARS));
+            word.erase(0, REPLY_CHARS);
+        }
+        if (!line.empty() && line.size() + 1 + word.size() > static_cast<size_t>(REPLY_CHARS)) {
+            lines.push_back(line); line.clear();
+        }
+        line += line.empty() ? word : " " + word;
+    }
+    if (!line.empty()) lines.push_back(line);
     g.setFont(&fonts::Font0);
     g.setTextColor(TEXT, BG);
-    for (int row = 0; row < 4; ++row) {
-        const size_t start = static_cast<size_t>(first + row) * WIDTH;
-        if (start >= text.size()) break;
-        g.drawString(text.substr(start, WIDTH).c_str(), PAD, y + row * 14);
+    g.setTextDatum(top_left);
+    for (int row = 0; row < REPLY_LINES; ++row) {
+        const size_t idx = static_cast<size_t>(first + row);
+        if (idx >= lines.size()) break;
+        g.drawString(lines[idx].c_str(), PAD, y + row * REPLY_LINE_H);
     }
 }
 
@@ -58,13 +79,13 @@ public:
     const char* title() const override { return "CALL MAZ"; }
 
     const char* hints() const override {
-        if (_controlMode) return "< > choose   ENTER send   C back";
+        if (_controlMode) return "</> choose  ENTER send  C back";
         if (voice::state() == voice::State::Listening)
-            return field::contextArmed() ? "release SPACE to ask about screen" : "release SPACE to send";
-        if (host_worker::busy()) return "MAZ thinking on PC   ESC safe";
-        if (voice::isPlaying()) return "SPACE stop voice   P replay";
-        if (!_reply.empty()) return "P replay   V voice ON/OFF   A AI   N new";
-        return "hold SPACE to call   A change AI   V voice";
+            return field::contextArmed() ? "SPACE release to ask" : "SPACE release to send";
+        if (host_worker::busy()) return "ESC leave, MAZ keeps going";
+        if (voice::isPlaying()) return "SPACE stop  P replay";
+        if (!_reply.empty()) return "SPACE talk  P replay  N new";
+        return "SPACE hold to talk  V voice";
     }
 
     void onEnter() override {
@@ -108,6 +129,7 @@ public:
         }
 
         if (e.down && e.code == KEY_SPACE) {
+            _speechCancelled = true;  // late parts must not restart a reply the user just cut
             if (voice::isPlaying()) voice::stopPlayback();
             consumeWorkerResult();
             if (host_worker::busy()) {
@@ -155,7 +177,7 @@ public:
             invalidate();
             return true;
         }
-        if (e.code == KEY_P && !_speechPath.empty() && !voice::isPlaying()) { voice::play(_speechPath); return true; }
+        if (e.code == KEY_P && !_speechPath.empty() && !voice::isPlaying()) { replaySpeech(); return true; }
         if (e.code == KEY_DOWN && !_reply.empty()) { ++_scroll; invalidate(); return true; }
         if (e.code == KEY_UP && _scroll > 0) { --_scroll; invalidate(); return true; }
         return false;
@@ -163,6 +185,7 @@ public:
 
     void update() override {
         if (_sending && _sendAt && millis() >= _sendAt) startWorker();
+        if (host_worker::busy()) queueSpeechParts(host_worker::speechPartsReady(), host_worker::speechPartsExpected());
         consumeWorkerResult();
         if (voice::state() == voice::State::Listening || voice::isPlaying()) {
             invalidate();
@@ -180,45 +203,30 @@ public:
     void render(M5Canvas& g) override {
         g.fillScreen(BG);
         if (_controlMode) { renderControl(g); return; }
-        ui::header(g, field::contextArmed() ? "ASK SCREEN" : "CALL MAZ", routeName());
 
-        if (voice::state() == voice::State::Listening) {
-            ui::panel(g, 71, BODY_Y + 19, 98, 52);
-            g.setTextDatum(middle_center);
-            g.setFont(&fonts::Font4);
-            g.setTextColor(field::contextArmed() ? WARN : ACCENT2, PANEL);
-            g.drawString(field::contextArmed() ? "ASK" : "TALK", SCREEN_W / 2, BODY_Y + 44);
-            g.setTextDatum(top_left);
-            g.setFont(&fonts::Font0);
-            g.setTextColor(DIM, BG);
-            g.drawString(("00:" + two(voice::elapsedSeconds())).c_str(), 104, BODY_Y + 78);
-            return;
-        }
-
+        // One huge state word, one short reason, then the reply text.
         std::string early;
-        if (host_worker::peekTalkText(early)) {
-            g.setFont(&fonts::Font0);
-            g.setTextColor(ACCENT, BG);
-            g.drawString("MAZ> voice loading...", PAD, BODY_Y + 18);
-            drawCommWrapped(g, early, BODY_Y + 34, 0);
-            return;
+        if (voice::state() == voice::State::Listening) {
+            const std::string t = "00:" + two(voice::elapsedSeconds());
+            state(g, "LISTENING", field::contextArmed() ? WARN : ACCENT2,
+                  (t + (field::contextArmed() ? "  asking about screen" : "  release to send")).c_str());
+        } else if (host_worker::peekTalkText(early)) {
+            state(g, "THINKING", WARN, "voice loading...");
+            drawCommWrapped(g, early, REPLY_Y, 0);
+        } else if (host_worker::busy() || _sending) {
+            state(g, "THINKING", WARN,
+                  host_worker::state() == host_worker::State::Queued ? "waiting for PC" : "MAZ is working on it");
+        } else if (voice::isPlaying()) {
+            state(g, "SPEAKING", OK, "SPACE stops the voice");
+            drawCommWrapped(g, _reply, REPLY_Y, _scroll);
+        } else if (!_err.empty()) {
+            state(g, "ERROR", ERR, ui::ellipsis(_err, 30).c_str());
+        } else if (!_reply.empty()) {
+            state(g, "READY", ACCENT, (std::string(routeName()) + (Cfg.ttsEnabled ? " / voice on" : " / text only")).c_str());
+            drawCommWrapped(g, _reply, REPLY_Y, _scroll);
+        } else {
+            state(g, "READY", ACCENT, gCommSession.empty() ? "hold SPACE and speak" : "hold SPACE for next turn");
         }
-        if (host_worker::busy() || _sending) {
-            retroPhone(g, host_worker::state() == host_worker::State::Queued ? "QUEUED" : "MAZ THINKING", WARN);
-            return;
-        }
-        if (voice::isPlaying()) { retroPhone(g, "MAZ SPEAKING", OK); return; }
-        if (!_err.empty()) { retroPhone(g, _err.c_str(), ERR); return; }
-        if (!_reply.empty()) {
-            g.setFont(&fonts::Font0);
-            g.setTextColor(ACCENT, BG);
-            std::string meta = std::string("MAZ> ") + routeName();
-            if (Cfg.ttsEnabled) meta += " / VOICE";
-            g.drawString(meta.c_str(), PAD, BODY_Y + 18);
-            drawCommWrapped(g, _reply, BODY_Y + 34, _scroll);
-            return;
-        }
-        retroPhone(g, gCommSession.empty() ? "HOLD SPACE TO CALL" : "CALL READY", ACCENT);
     }
 
 private:
@@ -228,18 +236,18 @@ private:
     }
     const char* routeName() const { return talkRouteLabel(Cfg.talkRoute); }
 
-    void retroPhone(M5Canvas& g, const char* status, uint16_t colour) {
-        ui::panel(g, 76, BODY_Y + 17, 88, 55);
-        g.drawRoundRect(93, BODY_Y + 26, 54, 28, 4, colour);
-        g.drawLine(100, BODY_Y + 58, 140, BODY_Y + 58, colour);
-        g.setFont(&fonts::Font2);
-        g.setTextColor(colour, PANEL);
-        g.setTextDatum(middle_center);
-        g.drawString("AI", SCREEN_W / 2, BODY_Y + 40);
+    void state(M5Canvas& g, const char* word, uint16_t colour, const char* reason) {
+        g.setFont(&fonts::Font4);
+        float scale = STATE_SCALE;  // shrink until the word fits the screen
+        g.setTextSize(scale);
+        while (scale > 1.f && g.textWidth(word) > SCREEN_W - PAD * 2) { scale -= 0.25f; g.setTextSize(scale); }
         g.setTextDatum(top_center);
-        g.setFont(&fonts::Font0);
         g.setTextColor(colour, BG);
-        g.drawString(status, SCREEN_W / 2, BODY_Y + 82);
+        g.drawString(word, SCREEN_W / 2, STATE_Y);
+        g.setTextSize(1);
+        g.setFont(&fonts::Font2);
+        g.setTextColor(DIM, BG);
+        g.drawString(reason, SCREEN_W / 2, REASON_Y);
         g.setTextDatum(top_left);
     }
 
@@ -315,6 +323,9 @@ private:
         _sendAt = 0;
         if (!_haveTake || _takePath.empty()) { _sending = false; return; }
         std::string speechPath;
+        removeSpeechFiles();
+        _speechCancelled = false;
+        _partsQueued = 0;
         if (Cfg.ttsEnabled && store::ready()) speechPath = store::newPath("cache", "wav");
         const std::string context = field::context();
         if (!host_worker::submitTalkAudio(gCommSession, _takePath, speechPath, context)) {
@@ -401,14 +412,48 @@ private:
         }
         if (!result.wavPath.empty()) store::remove(result.wavPath);
         if (result.speechReady && !result.speechPath.empty()) {
-            if (!_speechPath.empty() && _speechPath != result.speechPath) store::remove(_speechPath);
             _speechPath = result.speechPath;
-            voice::play(_speechPath);
+            _speechParts = result.speechParts ? result.speechParts : 1;
+            queueSpeechParts(_speechParts, _speechParts);  // normally already playing from update()
+            voice::holdOpen(false);
         }
         sfx::confirm();
         notify::post(Note::Success, result.context.empty() ? "MAZ answered" : "Screen answer ready",
                      result.reply.provider.empty() ? "MAZ Core" : result.reply.provider);
         invalidate();
+    }
+
+    // Hand parts to the speaker as they land: part 0 starts playback at once, later parts
+    // are queued behind it with no gap. Files stay on SD, so this costs no heap.
+    void queueSpeechParts(uint8_t ready, uint8_t expected) {
+        if (_speechCancelled || !Cfg.ttsEnabled || _partsQueued >= ready) return;
+        const std::string base = host_worker::speechBase();
+        if (base.empty()) return;
+        while (_partsQueued < ready) {
+            const std::string path = host_worker::speechPartPath(base, _partsQueued);
+            if (_partsQueued == 0) {
+                _speechPath = base;
+                voice::play(path);
+            } else {
+                voice::enqueue(path);
+            }
+            ++_partsQueued;
+            if (_partsQueued > _speechParts) _speechParts = _partsQueued;
+        }
+        if (_partsQueued < expected) voice::holdOpen(true);  // more is coming: do not end on silence
+        else voice::holdOpen(false);
+    }
+
+    void replaySpeech() {
+        voice::play(_speechPath);
+        for (uint8_t p = 1; p < _speechParts; ++p) voice::enqueue(host_worker::speechPartPath(_speechPath, p));
+    }
+
+    void removeSpeechFiles() {
+        if (_speechPath.empty()) return;
+        for (uint8_t p = 0; p < _speechParts; ++p) store::remove(host_worker::speechPartPath(_speechPath, p));
+        _speechPath.clear();
+        _speechParts = 0;
     }
 
     // Short on-screen reason for a failed turn (never idle silently).
@@ -446,6 +491,9 @@ private:
     voice::WavFileSink* _sink = nullptr;
     std::string _takePath;
     std::string _speechPath;
+    uint8_t _speechParts = 0;     // files on disk for the last reply (for replay / cleanup)
+    uint8_t _partsQueued = 0;     // parts already handed to voice:: for this reply
+    bool _speechCancelled = false;
     std::string _reply;
     std::string _err;
     std::string _sendContext;

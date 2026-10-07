@@ -23,12 +23,18 @@ bool begin(M5Canvas& canvas);
 void setActive(bool active);
 void tick();
 
-// `page`/`pageCount` drive the counter and dots. `selected` indexes `cells`,
-// not the whole app list. Connection state is deliberately absent: the status
-// bar already shows it, one row above.
+// Home's status area: `line` is the one big status line, `sentence` (optional)
+// is a plain sentence saying what is wrong and what to press, `version` is the
+// small firmware text. `selected` indexes `cells`.
+struct Status {
+    const char* line     = "READY";
+    uint16_t    colour   = 0xFFFF;
+    const char* sentence = nullptr;
+    const char* version  = "";
+};
+
 void renderHome(M5Canvas& canvas, const Cell* cells, size_t count, int selected,
-                const char* contextKind, const char* contextText, int page,
-                int pageCount);
+                const Status& status);
 
 }  // namespace lvui
 }  // namespace maz
