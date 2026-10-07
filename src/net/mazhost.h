@@ -187,7 +187,7 @@ Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 
 CoreStatus coreStatus();
 // Core /health: its version plus the firmware it holds (fw_latest). Polled in the background.
-struct CoreInfo { bool ok = false; std::string version, fwVersion, fwSha; };
+struct CoreInfo { bool ok = false; std::string version, fwVersion, fwSha, remoteUrl; };
 CoreInfo fetchCoreInfo();
 const CoreInfo& coreInfo();          // last poll result (cached)
 void setCoreInfo(const CoreInfo& info);

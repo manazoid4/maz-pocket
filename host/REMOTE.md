@@ -24,7 +24,7 @@ The PC firewall needs no inbound rule: Funnel connects outbound from the PC and 
 4. **PC:** make sure Core is running, then
    `powershell -ExecutionPolicy Bypass -File host\setup-remote.ps1`
    It prints your URL, e.g. `https://mypc.tail1234.ts.net`. (Stop publishing: `host\setup-remote.ps1 -Off`.)
-5. **Cardputer:** while on home Wi-Fi (or via its setup AP) open the device web page, unlock, paste the URL into **Remote URL**, Save. The same field exists in the phone control page and serial config. The device uses the LAN address first (1.8 s timeout) and switches to the remote URL only when LAN is unreachable; the header shows LAN or REMOTE.
+5. **Cardputer (automatic):** `setup-remote.ps1` writes `MAZ_REMOTE_URL` to Core's `.env` (Core also auto-detects a funneled port every 10 min). Core reports it in the authenticated `/health` (`remote_url`, plus `tailnet_ip` for the phone: `http://<tailnet_ip>:8787/control`); the device saves it when it next reads `/health` over the LAN. Manual alternative: while on home Wi-Fi (or via its setup AP) open the device web page, unlock, paste the URL into **Remote URL**, Save. The same field exists in the phone control page and serial config. The device uses the LAN address first (1.8 s timeout) and switches to the remote URL only when LAN is unreachable; the header shows LAN or REMOTE.
 
 ## Verify from the phone
 

@@ -535,6 +535,14 @@ public:
             snprintf(addr, sizeof(addr), "%s:%u", Cfg.hostAddr.c_str(),
                      (unsigned)Cfg.hostPort);
             row(g, y, "", addr, DIM);
+            y += 16;
+        }
+        if (!Cfg.hostRemoteUrl.empty()) {
+            std::string h = Cfg.hostRemoteUrl;
+            if (h.rfind("https://", 0) == 0) h = h.substr(8);
+            char rem[56];
+            snprintf(rem, sizeof(rem), "Remote: %.44s", h.c_str());
+            row(g, y, "", rem, DIM);
         }
     }
 

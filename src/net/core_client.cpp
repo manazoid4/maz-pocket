@@ -72,6 +72,7 @@ bool updateReady() {
 CoreInfo fetchCoreInfo() {
     CoreInfo out;
     NodHttp http;
+    const bool viaRemote = onRemoteLink();
     if (!coreBegin(http, "/health")) return out;
     const int status = http.GET();
     const String body = status > 0 ? http.getString() : String();
@@ -82,6 +83,26 @@ CoreInfo fetchCoreInfo() {
     out.version = doc["version"] | "";
     out.fwVersion = doc["fw_latest"]["version"] | "";
     out.fwSha = doc["fw_latest"]["sha"] | "";
+    // Core tells us its Tailscale Funnel URL. Accept only when read over the LAN
+    // (not via the remote link), https, a *.ts.net host, bounded length.
+    if (!viaRemote) {
+        std::string ru = doc["remote_url"] | "";
+        while (!ru.empty() && ru.back() == '/') ru.pop_back();
+        static const char kHttps[] = "https://";
+        static const char kSuffix[] = ".ts.net";
+        const size_t hostLen = ru.size() > 8 ? ru.size() - 8 : 0;
+        bool ok = ru.size() <= 96 && ru.rfind(kHttps, 0) == 0 && hostLen > 7 &&
+                  ru.compare(ru.size() - 7, 7, kSuffix) == 0;
+        for (size_t i = 8; ok && i < ru.size(); i++) {
+            const char c = ru[i];
+            ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.';
+        }
+        if (ok && ru != Cfg.hostRemoteUrl) {
+            Cfg.hostRemoteUrl = ru;
+            Cfg.save();
+        }
+        if (ok) out.remoteUrl = ru;
+    }
     return out;
 }
 

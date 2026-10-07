@@ -38,6 +38,7 @@ from .pc import PCController
 from .brain import maths_line, priorities_line, weather_line
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
+from .remote import RemoteInfo
 from .security import RemoteGuardMiddleware, Security
 from .selfupdate import SelfUpdater
 from .sessions import SessionStore
@@ -130,6 +131,8 @@ def create_app(
             j.get("state") == "running" for j in core_jobs.recent(50)),
     )
 
+    remote_info = RemoteInfo(cfg.remote_url, cfg.port, detector=None if cfg.remote_detect else (lambda _p: {}))
+
     api = FastAPI(
         title="MAZ Core",
         version=CORE_VERSION,
@@ -160,6 +163,14 @@ def create_app(
         finally:
             if busy:
                 inflight["n"] -= 1
+
+    @api.on_event("startup")
+    def start_remote_detect() -> None:
+        remote_info.start()
+
+    @api.on_event("shutdown")
+    def stop_remote_detect() -> None:
+        remote_info.stop()
 
     @api.on_event("startup")
     async def start_selfupdate() -> None:
@@ -324,6 +335,7 @@ def create_app(
             "pc_control": pc_controller.available,
             "core": core_status,
             "bridge": bridge_worker.status(),
+            **remote_info.get(),
             "authority": {
                 "enabled": cfg.control_enabled,
                 "token_id": authority.token_id,

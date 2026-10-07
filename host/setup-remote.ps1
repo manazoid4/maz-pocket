@@ -68,16 +68,65 @@ if (-not $dns) {
 }
 $url = "https://$dns"
 
+# Tell Core its own remote URL (Core hands it to the device over /health; zero typing on the device).
+$envFile = Join-Path $env:LOCALAPPDATA "MAZ Core\.env"
+try {
+    $dir = Split-Path $envFile
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $lines = @()
+    if (Test-Path $envFile) { $lines = @(Get-Content -LiteralPath $envFile | Where-Object { $_ -notmatch '^\s*MAZ_REMOTE_URL\s*=' }) }
+    $lines += "MAZ_REMOTE_URL=$url"
+    Set-Content -LiteralPath $envFile -Value $lines -Encoding ASCII
+    Write-Host "Saved MAZ_REMOTE_URL to $envFile"
+} catch {
+    Write-Host "Could not update $envFile : $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# Tailnet IPv4 for the phone (direct, no Funnel).
+$tip = ""
+try { $tip = (& $ts ip -4 | Select-Object -First 1) } catch { }
+
+# Windows Firewall: allow TCP $Port only from the Tailscale range (100.64.0.0/10). Needs admin.
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$ruleName = "nod Core (Tailscale)"
+if ($isAdmin) {
+    try {
+        Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -RemoteAddress "100.64.0.0/10" -Profile Any | Out-Null
+        Write-Host "Firewall rule '$ruleName' set (TCP $Port from 100.64.0.0/10 only)."
+    } catch {
+        Write-Host "Firewall rule failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "Not elevated: skipped the firewall rule. Re-run this script as Administrator so your phone can reach Core over the tailnet." -ForegroundColor Yellow
+}
+
+# Restart Core so it picks up the new setting.
+try {
+    if (Get-ScheduledTask -TaskName "nod Core" -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName "nod Core" -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Start-ScheduledTask -TaskName "nod Core"
+        Write-Host "Restarted the 'nod Core' task."
+    } else {
+        Write-Host "Task 'nod Core' not found; restart Core yourself." -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "Could not restart 'nod Core': $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 Write-Host ""
-Write-Host "Remote URL (public HTTPS, token still required):" -ForegroundColor Green
+Write-Host "Public URL (HTTPS, token still required):" -ForegroundColor Green
 Write-Host "    $url"
+Write-Host "    Check: $url/health (no token needed, returns only ok/name/version)"
+if ($tip) {
+    Write-Host "Phone over Tailscale (Tailscale app on, no Funnel needed):" -ForegroundColor Green
+    Write-Host "    http://${tip}:$Port/control"
+}
 Write-Host ""
-Write-Host "Check from your phone browser (no token needed, returns only ok/name/version):"
-Write-Host "    $url/health"
-Write-Host ""
-Write-Host "Enter it on the Cardputer (needs to be on your home Wi-Fi once, or use its setup AP):"
-Write-Host "    Open the device web page -> unlock -> 'Remote URL' field -> paste the URL above -> Save."
-Write-Host "    The device tries your home LAN first and falls back to this URL."
-Write-Host ""
+Write-Host "The Cardputer learns the public URL from Core automatically the next time it reaches Core on your home Wi-Fi. Nothing to type."
 Write-Host "Phone approvals: open $url/control/ and sign in with your MAZ token (once)."
+Write-Host ""
+Write-Host "REMINDER: in the Tailscale admin console (Machines), choose 'Disable key expiry' for this PC," -ForegroundColor Yellow
+Write-Host "          otherwise remote access silently stops when the node key expires."
 Write-Host "Stop publishing any time with:  host\setup-remote.ps1 -Off"
