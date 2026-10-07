@@ -190,7 +190,7 @@ public:
 
         if (dictate::active(this)) {
             const bool listening = dictate::state() == dictate::State::Listening;
-            g.setTextColor(listening ? ACCENT2 : WARN, PANEL);
+            g.setTextColor(listening ? LIVE : TEXT, PANEL);
             g.drawString(listening ? "listening..." : "transcribing...",
                          PAD + 4, BODY_Y + 23);
             return;

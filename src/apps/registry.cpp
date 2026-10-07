@@ -8,7 +8,7 @@ namespace apps {
 namespace {
 const Descriptor TABLE[] = {
     {"home",       "Home",        nullptr,   "home menu now quick actions field",                    0,     false, makeHome},
-    {"talk",       "Call MAZ",    "CALL",   "call maz voice assistant conversation playback cloud local context ask", KEY_T, true,  makeComm},
+    {"talk",       "Call nod",    "CALL",   "call maz voice assistant conversation playback cloud local context ask", KEY_T, true,  makeComm},
     {"capturehub", "Capture",     "CAPTURE","capture teach demo brain dump voice recorder screen workflow", KEY_B, true, makeCaptureHub},
     {"agents",     "Agents",      "AGENTS", "agents plan crew retro nudge status assurance sync",   KEY_N, true,  makeAgentsHub},
     {"desk",       "Control",     "CONTROL","control wifi pc device storage settings core laptop debug pairing phone", KEY_O, true, makeDesk},
@@ -27,8 +27,8 @@ const Descriptor TABLE[] = {
     {"network",    "Wi-Fi",       "WI-FI",  "wifi network scan connect reconnect hotspot",     KEY_W, false, makeNetworkV5},
     {"core",       "Projects & Builds", "CORE", "core pc projects builds tests git local ai",  0,     false, makeCoreConsole},
     {"pairing",    "Pairing & Phone", "PAIR", "pairing token token id phone approval full control", 0, false, makePairing},
-    {"laptop",     "Laptop Status", "LAP",  "laptop cpu ram gpu vram battery ollama status",    0,     false, makeLaptop},
-    {"beam",       "Send to PC",  "BEAM",   "beam laptop pocket text url clipboard offline",    0,     false, makeBeam},
+    {"laptop",     "Hub Status",    "LAP",  "laptop cpu ram gpu vram battery ollama status",    0,     false, makeLaptop},
+    {"beam",       "Send to hub", "BEAM",   "beam laptop pocket text url clipboard offline",    0,     false, makeBeam},
     {"shift",      "Shift Clock", "SHIFT",  "shift work field elapsed timer log",               0,     false, makeShift},
     {"flowtools",  "Work Tools",  "TOOLS",  "work tools focus timer sprint tasks reminders shift", 0,  false, makeFlowTools},
 

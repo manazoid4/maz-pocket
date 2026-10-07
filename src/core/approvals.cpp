@@ -112,7 +112,7 @@ bool update(bool screenOff) {
                     gSubmitted = false;  // retry on the next idle worker slot
                 } else {
                     markDone(r.id); drop(r.id);
-                    toast("Core unreachable - use terminal", WARN, 1800);
+                    toast("hub unreachable - use terminal", WARN, 1800);
                 }
             }
         }

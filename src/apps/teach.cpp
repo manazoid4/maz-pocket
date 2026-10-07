@@ -29,7 +29,7 @@ public:
             case TeachView::Recording: return "M mark important   ENTER stop";
             case TeachView::Result: return "ENTER save transcript   N new";
             case TeachView::Error: return "R retry   ESC back";
-            default: return "MAZ Core working   ESC safe";
+            default: return "hub working   ESC safe";
         }
     }
 
@@ -78,9 +78,9 @@ public:
 
     std::string contextSnapshot() const override {
         if (_view == TeachView::Recording)
-            return "Teach-by-Demonstration is actively recording the selected PC display; marks " + std::to_string(_marks);
+            return "Teach-by-Demonstration is actively recording the selected hub display; marks " + std::to_string(_marks);
         if (!_transcript.empty()) return "Teach demo transcript: " + _transcript.substr(0, 180);
-        return "Teach-by-Demonstration / selected PC screen workflow recorder";
+        return "Teach-by-Demonstration / selected hub screen workflow recorder";
     }
 
     void render(M5Canvas& g) override {
@@ -100,7 +100,7 @@ public:
         g.drawString(host_worker::stateName(), SCREEN_W / 2, BODY_Y + 44);
         g.setFont(&fonts::Font0);
         g.setTextColor(DIM, PANEL);
-        g.drawString(_view == TeachView::Processing ? "transcribe + scene frames" : "PC screen recorder", SCREEN_W / 2, BODY_Y + 63);
+        g.drawString(_view == TeachView::Processing ? "transcribe + scene frames" : "hub screen recorder", SCREEN_W / 2, BODY_Y + 63);
         g.setTextDatum(top_left);
     }
 
@@ -111,7 +111,7 @@ private:
             case TeachView::Processing: return "PROCESSING";
             case TeachView::Result: return "READY";
             case TeachView::Error: return "ERROR";
-            default: return "PC SCREEN";
+            default: return "HUB SCREEN";
         }
     }
 
@@ -122,10 +122,10 @@ private:
 
     void loadDisplays() {
         if (host_worker::busy()) {
-            _view = TeachView::Error; _error = "MAZ Core is busy with another job"; invalidate(); return;
+            _view = TeachView::Error; _error = "hub is busy with another job"; invalidate(); return;
         }
         if (!host_worker::submitTeach(host_worker::TeachKind::Displays)) {
-            _view = TeachView::Error; _error = "Could not request PC displays"; invalidate(); return;
+            _view = TeachView::Error; _error = "Could not request hub displays"; invalidate(); return;
         }
         _view = TeachView::Loading; invalidate();
     }
@@ -166,7 +166,7 @@ private:
             _displays = std::move(result.displays);
             if (!result.status.ok || _displays.empty()) {
                 _view = TeachView::Error;
-                _error = result.status.error.empty() ? "No PC displays found. Is ffmpeg installed?" : result.status.error;
+                _error = result.status.error.empty() ? "No hub displays found. Is ffmpeg installed?" : result.status.error;
             } else {
                 _cursor.sel = _cursor.first = 0;
                 _view = TeachView::Displays;
@@ -178,7 +178,7 @@ private:
                 _session = result.status.sessionId;
                 _startedAt = millis();
                 _view = TeachView::Recording;
-                notify::post(Note::Warn, "Teach recording", "PC screen capture is ON");
+                notify::post(Note::Warn, "Teach recording", "hub screen capture is ON");
                 sfx::recStart();
             }
         } else if (result.kind == host_worker::TeachKind::Mark) {
@@ -203,7 +203,7 @@ private:
     void renderDisplays(M5Canvas& g) {
         g.setFont(&fonts::Font0);
         g.setTextColor(DIM, BG);
-        g.drawString("Choose the PC screen to record", PAD, BODY_Y + 12);
+        g.drawString("Choose the hub screen to record", PAD, BODY_Y + 12);
         constexpr int visible = 4;
         if (_cursor.sel >= _cursor.first + visible) _cursor.first = _cursor.sel - visible + 1;
         if (_cursor.sel < _cursor.first) _cursor.first = _cursor.sel;
@@ -229,7 +229,7 @@ private:
         g.drawString((std::to_string(_marks) + " MARKS").c_str(), SCREEN_W / 2, BODY_Y + 61);
         g.setTextDatum(top_center);
         g.setTextColor(WARN, BG);
-        g.drawString("PC SCREEN RECORDING ACTIVE", SCREEN_W / 2, BODY_Y + 85);
+        g.drawString("HUB SCREEN RECORDING ACTIVE", SCREEN_W / 2, BODY_Y + 85);
         g.setTextDatum(top_left);
     }
 
@@ -252,7 +252,7 @@ private:
         row.kind = "inbox";
         row.status = "open";
         row.title = "Teach demonstration";
-        row.body = _transcript.empty() ? "Screen recording saved on MAZ Core" : _transcript;
+        row.body = _transcript.empty() ? "Screen recording saved on hub" : _transcript;
         row.source = "teach";
         row.ref = _session;
         if (store::addRecord(row)) notify::post(Note::Success, "Saved to Inbox", "Teach demo transcript");
@@ -273,7 +273,7 @@ private:
 
 struct CaptureItem { const char* label; const char* sub; const char* target; };
 constexpr CaptureItem CAPTURE_ITEMS[] = {
-    {"TEACH DEMO", "record PC workflow", "teach"},
+    {"TEACH DEMO", "record hub workflow", "teach"},
     {"BRAIN DUMP", "voice -> structured", "braindump"},
     {"VOICE RECORDER", "save a WAV", "recorder"},
 };

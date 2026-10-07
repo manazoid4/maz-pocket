@@ -30,8 +30,6 @@ const Descriptor* find(const char* id);
 App*              create(const char* id);
 
 App* makeHome();
-App* makeCall();
-App* makeCallV3();
 App* makeComm();
 App* makeCapture();
 App* makeCaptureHub();
@@ -64,7 +62,6 @@ App* makeHelp();
 App* makeInbox();
 App* makeDecision();
 App* makeSprint();
-App* makeNudge();
 App* makeAgentsV3();
 App* makeReminders();
 

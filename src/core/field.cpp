@@ -119,7 +119,7 @@ void finishOutboxAudio(const host_worker::OutboxAudioResult& result) {
     answer.status = "open";
     answer.title = result.context.empty() ? "COMM / delayed" : "CONTEXT ASK / delayed";
     answer.body = result.reply.text;
-    answer.source = result.reply.provider.empty() ? "MAZ Core" : result.reply.provider;
+    answer.source = result.reply.provider.empty() ? "hub" : result.reply.provider;
     answer.ref = result.recordId;
     store::addRecord(answer);
     saveReminderFrom(result.reply);
@@ -135,6 +135,15 @@ void finishOutboxBeam(const host_worker::OutboxBeamResult& result) {
     store::Record* queued = findRecord(rows, result.recordId);
     if (!queued) return;
     if (!result.reply.ok) {
+        // Core rejected it (400/422, e.g. blank text): retrying forever blocks the queue.
+        if (result.reply.status == 400 || result.reply.status == 422) {
+            queued->status = "failed";
+            store::updateRecord(*queued);
+            gNextOutboxTry = millis() + 500;
+            notify::post(Note::Error, "Beam rejected", result.reply.error.c_str());
+            refreshCounts();
+            return;
+        }
         gNextOutboxTry = millis() + gOutboxBackoffMs;
         gOutboxBackoffMs = std::min<uint32_t>(gOutboxBackoffMs * 2u, 300000u);
         return;
@@ -143,7 +152,7 @@ void finishOutboxBeam(const host_worker::OutboxBeamResult& result) {
     store::updateRecord(*queued);
     gOutboxBackoffMs = 15000;
     gNextOutboxTry = millis() + 500;
-    notify::post(Note::Success, "Beam delivered", "copied/saved on laptop");
+    notify::post(Note::Success, "Beam delivered", "copied/saved on hub");
     refreshCounts();
 }
 
@@ -359,14 +368,14 @@ bool contextArmed() { return !gContext.empty(); }
 void clearContext() { gContext.clear(); }
 
 std::string nowText() {
-    if (Sys.agentQuestion) return "AGENT NEEDS MAZ";
+    if (Sys.agentQuestion) return "AGENT NEEDS NOD";
     if (Sys.outboxQueued) return "OUTBOX " + std::to_string(Sys.outboxQueued) + " WAITING";
     if (Sys.shiftRunning) return "SHIFT " + elapsed(Sys.shiftSeconds).substr(0, 5);
     if (gReminderDue) return "REMINDER DUE";
     if (Sys.beamUnread) return "BEAM " + std::to_string(Sys.beamUnread) + " NEW";
     if (Sys.agentsStale) return std::to_string(Sys.agentsStale) + " AGENTS STALE";
     if (Sys.agentsWaiting) return std::to_string(Sys.agentsWaiting) + " AGENTS WAIT";
-    if (host::configured() && !Sys.hostOnline) return "CORE OFFLINE / QUEUE SAFE";
+    if (host::configured() && !Sys.hostOnline) return "HUB OFFLINE / QUEUE SAFE";
     if (Cfg.fieldMode) return "FIELD READY";
     return "READY";
 }
@@ -395,10 +404,10 @@ bool runQuick(int slot) {
     if (id == "launcher") { launcher::reboot(); return true; }
     if (id == "lock" || id == "play_pause" || id == "mute") {
         if (host_worker::submitPcAction(id, false)) {
-            notify::post(Note::Info, "PC command queued", quickLabel(slot));
+            notify::post(Note::Info, "hub command queued", quickLabel(slot));
             return true;
         }
-        notify::post(Note::Warn, "PC busy", "try again in a moment");
+        notify::post(Note::Warn, "hub busy", "try again in a moment");
         return false;
     }
     return false;
@@ -467,13 +476,13 @@ void queueBeam(const std::string& text) {
     store::Record r;
     r.kind = "outbox";
     r.status = "queued";
-    r.title = "BEAM to laptop";
+    r.title = "BEAM to hub";
     r.body = text.substr(0, 2000);
     r.source = "beam";
     if (store::addRecord(r)) {
         gNextOutboxTry = millis();
         refreshCounts();
-        notify::post(Note::Success, "Beam queued", "sends when Core is reachable");
+        notify::post(Note::Success, "Beam queued", "sends when hub is reachable");
     } else {
         notify::post(Note::Error, "Beam not saved", store::backendName());
     }

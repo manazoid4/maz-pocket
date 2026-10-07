@@ -196,54 +196,6 @@ private:
     std::vector<store::Record> _rows; ListCursor _cursor; TextField _field; bool _adding=false;
 };
 
-class NudgeApp : public App {
-public:
-    const char* id() const override { return "nudge"; }
-    const char* title() const override { return "Nudge"; }
-    const char* hints() const override { return "ENTER evidence N nudge R refresh"; }
-    void onEnter() override { refresh(); }
-    bool onKey(const KeyEvent& e) override {
-        if (!e.down) return false;
-        if (e.code == KEY_R) { refresh(); return true; }
-        if (_cursor.onKey(e, _summary.agents.size())) { invalidate(); return true; }
-        if (_summary.agents.empty()) return false;
-        if (e.code == KEY_ENTER) { _detail=!_detail; invalidate(); return true; }
-        if (e.code == KEY_N) {
-            const auto result=host::sendNudge(_summary.agents[_cursor.sel].id);
-            notify::post(result.ok?Note::Success:Note::Error, result.ok?"Nudge queued":"Nudge failed", result.error); refresh(); return true;
-        }
-        return false;
-    }
-    void render(M5Canvas& g) override {
-        g.fillScreen(BG); ui::header(g,"Nudge",_summary.ok?"EVIDENCE LIVE":"OFFLINE");
-        g.setFont(&fonts::Font2); g.setTextColor(_status=="ALL SYNCED"?OK:WARN,BG); g.drawString(_status.c_str(),PAD,BODY_Y+20);
-        if (_detail && !_summary.agents.empty()) {
-            const auto& a=_summary.agents[_cursor.sel]; g.setFont(&fonts::Font0); g.setTextColor(TEXT,BG);
-            g.drawString((a.provider+" / "+a.sessionState).c_str(),PAD,BODY_Y+45);
-            g.setTextColor(DIM,BG); g.drawString(ui::ellipsis(a.evidence.empty()?"no outstanding evidence":a.evidence,34).c_str(),PAD,BODY_Y+63);
-            return;
-        }
-        const int visible=std::min<int>(4,_summary.agents.size());
-        for (int row=0; row<visible; ++row) {
-            const int idx=_cursor.first+row; if (idx>=static_cast<int>(_summary.agents.size())) break;
-            const auto& a=_summary.agents[idx]; ui::listRow(g,row+2,idx==_cursor.sel,ui::ellipsis(a.name,17).c_str(),a.state.c_str());
-        }
-    }
-private:
-    void refresh() {
-        _summary=host::assurance();
-        if (!_summary.ok) _status="OFFLINE";
-        else if (_summary.questionForMaz) _status="QUESTION FOR MAZ";
-        else if (_summary.overdue) _status=std::to_string(_summary.overdue)+" OVERDUE";
-        else if (_summary.needsNudge) _status=std::to_string(_summary.needsNudge)+" NUDGE DUE";
-        else if (_summary.waiting) _status=std::to_string(_summary.waiting)+" WAITING";
-        else if (_summary.working) _status=std::to_string(_summary.working)+" WORKING";
-        else _status="ALL SYNCED";
-        _cursor.clamp(_summary.agents.size()); _detail=false; invalidate();
-    }
-    host::Assurance _summary; ListCursor _cursor; bool _detail=false; std::string _status="OFFLINE";
-};
-
 }  // namespace
 
 void updateProductServices() {
@@ -269,7 +221,7 @@ void updateProductServices() {
 
             store::Record answer;
             answer.kind="inbox"; answer.status="open";
-            answer.title=item.source == "talk" ? "MAZ answer" : "BrainDump processed";
+            answer.title=item.source == "talk" ? "nod answer" : "BrainDump processed";
             answer.body=result.text; answer.source=result.provider; answer.ref=item.ref;
             if (!store::addRecord(answer)) break;
 
@@ -328,7 +280,6 @@ void updateProductServices() {
 App* makeInbox() { return new InboxApp(); }
 App* makeDecision() { return new DecisionApp(); }
 App* makeSprint() { return new SprintApp(); }
-App* makeNudge() { return new NudgeApp(); }
 App* makeReminders() { return new RemindersApp(); }
 
 }  // namespace apps

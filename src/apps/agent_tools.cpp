@@ -4,6 +4,7 @@
 
 #include "../audio/sfx.h"
 #include "../core/notify.h"
+#include "../core/sys.h"
 #include "../net/host_worker.h"
 #include "../net/mazhost.h"
 #include "../storage/store.h"
@@ -33,7 +34,7 @@ constexpr DeckTemplate DECK[] = {
     {"repo-audit", "AUDIT REPO", "rank fixes"},
     {"research-build", "RESEARCH + BUILD", "compare first"},
     {"security-audit", "SECURITY AUDIT", "trust boundary"},
-    {"maz-feature", "MAZ FEATURE", "Pocket-native"},
+    {"maz-feature", "NOD FEATURE", "Pocket-native"},
     {"agent-workflow", "AGENT WORKFLOW", "reduce friction"},
 };
 constexpr int DECK_COUNT = sizeof(DECK) / sizeof(DECK[0]);
@@ -70,7 +71,7 @@ public:
     }
     const char* title() const override { return titleFor(_kind); }
     const char* hints() const override {
-        if (_view == View::Working) return "MAZ Core working   stay here / ESC safe";
+        if (_view == View::Working) return "hub working   stay here / ESC safe";
         if (_view == View::Result) return "ENTER save to Inbox   N new";
         if (_view == View::Template) return "UP/DOWN template   ENTER choose";
         if (_view == View::Project) return "UP/DOWN project   ENTER choose   S skip";
@@ -142,6 +143,13 @@ public:
 
     void update() override {
         if (_view == View::Working) consumeResult();
+        // Retry a failed project load, but only once a background poll saw Core
+        // online: coreProjects() blocks up to its connect timeout while it is down.
+        if ((_view == View::Template || _view == View::Project) && !_projectError.empty() &&
+            Sys.hostOnline && !host_worker::busy() && millis() - _lastTry >= 5000) {
+            refreshProjects();
+            invalidate();
+        }
         if (_view == View::Working && host_worker::busy() && millis() - _lastPaint > 250) {
             _lastPaint = millis();
             invalidate();
@@ -167,12 +175,13 @@ public:
         _task.draw(g, PAD, BODY_Y + 39, SCREEN_W - PAD * 2,
                    _kind == ToolKind::Retro ? "what happened / optional note..." : "what do you want done...");
         g.setTextColor(DIM, BG);
-        g.drawString("ENTER sends to MAZ Core", PAD, BODY_Y + 80);
+        g.drawString("ENTER sends to hub", PAD, BODY_Y + 80);
     }
 
 private:
     void refreshProjects() {
         std::string error;
+        _lastTry = millis();
         _projects = host::coreProjects(error);
         _projectError = error;
         _projectCursor.clamp(_projects.size());
@@ -229,7 +238,7 @@ private:
         g.setFont(&fonts::Font0);
         g.setTextColor(_ok ? OK : WARN, BG);
         const std::string status = (_ok ? std::string("READY / ") : std::string("FAILED / ")) +
-                                   (_provider.empty() ? "MAZ CORE" : _provider);
+                                   (_provider.empty() ? "HUB" : _provider);
         g.drawString(status.c_str(), PAD, BODY_Y + 17);
         constexpr size_t WIDTH = 37;
         for (int row = 0; row < 5; ++row) {
@@ -242,7 +251,7 @@ private:
 
     void submit() {
         if (host_worker::busy()) {
-            notify::post(Note::Info, "MAZ Core busy", "finish current PC job first");
+            notify::post(Note::Info, "hub busy", "finish current hub job first");
             return;
         }
         const std::string task = _task.text;
@@ -273,7 +282,7 @@ private:
         if (!host_worker::takeWorkflowResult(result)) return;
         _ok = result.reply.ok;
         _result = result.reply.ok ? result.reply.text : result.reply.error;
-        if (_result.empty()) _result = result.reply.ok ? "Ready on MAZ Core" : "Workflow failed";
+        if (_result.empty()) _result = result.reply.ok ? "Ready on hub" : "Workflow failed";
         _provider = result.reply.provider;
         _scroll = 0;
         _view = View::Result;
@@ -287,7 +296,7 @@ private:
         row.status = "open";
         row.title = titleFor(_kind);
         row.body = _result;
-        row.source = _provider.empty() ? "MAZ Core" : _provider;
+        row.source = _provider.empty() ? "hub" : _provider;
         if (!_project.empty()) row.ref = _project;
         if (store::addRecord(row)) {
             notify::post(Note::Success, "Saved to Inbox", titleFor(_kind));
@@ -309,6 +318,7 @@ private:
     int _scroll = 0;
     bool _ok = false;
     uint32_t _lastPaint = 0;
+    uint32_t _lastTry = 0;
 };
 
 }  // namespace

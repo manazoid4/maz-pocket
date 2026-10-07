@@ -40,11 +40,7 @@ public:
 
     bool onKey(const KeyEvent& e) override {
         if (!e.down) {
-            if (e.code == KEY_SPACE && _spaceArmed) {
-                _spaceArmed = false;
-                shell::pushById("talk");
-                return true;
-            }
+            if (e.code == KEY_SPACE) _spaceArmed = false;
             return false;
         }
 
@@ -80,7 +76,7 @@ public:
     void update() override {
         if (_spaceArmed && KB.heldFor(KEY_SPACE) > 250) {
             _spaceArmed = false;
-            shell::pushById("talk");
+            shell::pushById("braindump");  // keeps recording while SPACE is held
             return;
         }
         // The shell repaints every 250 ms anyway; only refresh the hint text here.
@@ -97,7 +93,7 @@ public:
         std::array<lvui::Cell, TABLE_PAGE> cells{};
         for (size_t i = 0; i < _primary.size() && i < cells.size(); ++i) {
             cells[i].title = _primary[i]->cellTitle();
-            cells[i].badge = _primary[i]->shortcut ? static_cast<char>('A' + (_primary[i]->shortcut - KEY_A)) : '-';
+            cells[i].badge = _primary[i]->shortcut ? static_cast<char>('A' + (_primary[i]->shortcut - KEY_A)) : ' ';
         }
         lvui::Status st;
         st.version = "v" NOD_FW_VERSION;
@@ -112,7 +108,7 @@ private:
         static std::string now;
         const char* link = linkSentence(true);
         ui::Phase ph = ui::Phase::Ready;
-        st.sentence = "Hold SPACE to talk, S to type";
+        st.sentence = "Hold SPACE: brain dump  T: talk  S: type";
         if (link) {
             ph = ui::Phase::Offline;
             st.sentence = link;
@@ -143,8 +139,10 @@ private:
     }
 
     void rebuildHints() {
-        _hints = host::updateReady() ? "SPACE call  ENTER open  U update"
-                                     : "SPACE call  ENTER open  1-4 quick";
+        // W opens Wi-Fi from Home (registry shortcut), so say so when Wi-Fi is down.
+        _hints = (linkSentence(true) && !Sys.wifiConnected) ? "SPACE dump  ENTER open  W wifi"
+               : host::updateReady()                        ? "SPACE dump  ENTER open  U update"
+                                                            : "SPACE dump  ENTER open  1-4 quick";
     }
 
     void move(int delta) {
