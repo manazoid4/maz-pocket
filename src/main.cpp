@@ -97,6 +97,7 @@ void loop() {
     portal::update();
     shell::loop();
     ambient::update();
+    host::linkIdle();  // WiFi power saving back on 20 s after the last voice request, from any screen
 
     health::observeLoop(millis() - loopStarted);
     health::update();

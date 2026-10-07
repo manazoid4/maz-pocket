@@ -45,7 +45,9 @@ bool beginRequest(NodHttp& http, const std::string& base, const char* path,
     // Modem sleep (the ESP32 default) parks every TCP ACK/reply until the next AP beacon
     // (~100-300 ms each), which throttles uploads and delays Core's reply. Stay awake while
     // talking; linkIdle() restores power saving.
-    if (strcmp(path, "/health") != 0) {
+    // Only the voice path: background polls (/nudge, /health) must not hold the radio awake.
+    if (!strncmp(path, "/turn", 5) || !strncmp(path, "/speak", 6) || !strncmp(path, "/say", 4) ||
+        !strncmp(path, "/session", 8)) {
         WiFi.setSleep(false);
         gFastLinkAt = millis();
     }
