@@ -56,9 +56,13 @@ class Buddy:
                 item = self._items.get(rid)
                 if item is None:
                     return {"id": rid, "decision": None, "known": False}
-                if not item["decision"] and time.monotonic() >= item["deadline"]:
-                    item["decision"] = "cancel"
-                    self._cv.notify_all()
+                if time.monotonic() >= item["deadline"]:
+                    if not item["decision"]:
+                        item["decision"] = "cancel"
+                        self._cv.notify_all()
+                    # A grant consumed after its deadline is never safe, even if
+                    # somebody approved it while the hook was temporarily offline.
+                    return {"id": rid, "decision": "cancel", "known": True, "expired": True}
                 if item["decision"] or time.monotonic() >= end:
                     return {"id": rid, "decision": item["decision"], "known": True}
                 self._cv.wait(end - time.monotonic())
@@ -88,14 +92,15 @@ class Buddy:
             item = self._items.get(rid)
             if item is None:
                 raise KeyError(rid)
-            if item["decision"]:
-                return dict(item)
             if decision == "allow_all":
                 raise ValueError("session_wide_approval_disabled")
             if time.monotonic() >= item["deadline"]:
-                item["decision"] = "cancel"
-                self._cv.notify_all()
+                if not item["decision"]:
+                    item["decision"] = "cancel"
+                    self._cv.notify_all()
                 raise TimeoutError("approval_expired")
+            if item["decision"]:
+                return dict(item)
             if decision not in ("allow", "deny", "cancel"):
                 raise ValueError("unsupported_decision")
             item["decision"] = decision
