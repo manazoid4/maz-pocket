@@ -35,14 +35,15 @@ class Buddy:
     def __init__(self) -> None:
         self._cv = threading.Condition()
         self._items: dict[str, dict] = {}
-        self._allow_all: set[str] = set()
+        # No persistent session-wide grants: every sensitive action needs a fresh decision.
 
     def request(self, tool: str, summary: str, session_id: str = "", project: str = "") -> dict:
         with self._cv:
             rid = uuid.uuid4().hex[:8]
-            auto = "allow" if session_id and session_id in self._allow_all else None
+            auto = None  # never inherit approval from another request
             self._items[rid] = {"id": rid, "tool": tool, "summary": summary,
                                 "session_id": session_id, "project": project, "t": time.time(),
+                                "deadline": time.monotonic() + TIMEOUT_S,
                                 "decision": auto}
             while len(self._items) > MAX_ITEMS:
                 self._items.pop(next(iter(self._items)))  # dicts keep insertion order
@@ -55,24 +56,30 @@ class Buddy:
                 item = self._items.get(rid)
                 if item is None:
                     return {"id": rid, "decision": None, "known": False}
+                if not item["decision"] and time.monotonic() >= item["deadline"]:
+                    item["decision"] = "cancel"
+                    self._cv.notify_all()
                 if item["decision"] or time.monotonic() >= end:
                     return {"id": rid, "decision": item["decision"], "known": True}
                 self._cv.wait(end - time.monotonic())
 
     def pending(self) -> list[dict]:
         with self._cv:
-            return [dict(i) for i in self._items.values() if not i["decision"]]
+            now = time.monotonic()
+            return [dict(i) for i in self._items.values()
+                    if not i["decision"] and now < i["deadline"]]
 
     def summary(self, limit: int = 3) -> dict:
         """Cheap device poll: oldest-first live pending items + idle/working/needs_you."""
         now = time.time()
+        monotonic_now = time.monotonic()
         with self._cv:
             live = [i for i in self._items.values()
-                    if not i["decision"] and now - i["t"] < TIMEOUT_S + 5]
+                    if not i["decision"] and monotonic_now < i["deadline"]]
             recent = any(now - i["t"] < WORKING_S for i in self._items.values())
             items = [{"id": i["id"], "tool": i["tool"], "summary": i["summary"],
                       "project": i.get("project", ""), "session_id": i["session_id"],
-                      "left": max(0, int(TIMEOUT_S - (now - i["t"])))} for i in live[:limit]]
+                      "left": max(0, int(i["deadline"] - monotonic_now))} for i in live[:limit]]
             return {"ok": True, "agent": "needs_you" if live else "working" if recent else "idle",
                     "count": len(live), "items": items}
 
@@ -84,19 +91,21 @@ class Buddy:
             if item["decision"]:
                 return dict(item)
             if decision == "allow_all":
-                if item["session_id"]:
-                    self._allow_all.add(item["session_id"])
-                for other in self._items.values():
-                    if not other["decision"] and other["session_id"] == item["session_id"]:
-                        other["decision"] = "allow"
-            else:
-                item["decision"] = decision
+                raise ValueError("session_wide_approval_disabled")
+            if time.monotonic() >= item["deadline"]:
+                item["decision"] = "cancel"
+                self._cv.notify_all()
+                raise TimeoutError("approval_expired")
+            if decision not in ("allow", "deny", "cancel"):
+                raise ValueError("unsupported_decision")
+            item["decision"] = decision
             self._cv.notify_all()
             return dict(item)
 
     def set_allow_all(self, session_id: str, on: bool) -> None:
-        with self._cv:
-            (self._allow_all.add if on else self._allow_all.discard)(session_id)
+        if on:
+            raise ValueError("session_wide_approval_disabled")
+        # Revocation stays backwards-compatible for old clients. Nothing to revoke.
 
 
 def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
@@ -124,10 +133,17 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
             return buddy.decide(body.id, body.decision)
         except KeyError:
             raise HTTPException(404, "request_not_found")
+        except TimeoutError:
+            raise HTTPException(409, "approval_expired")
+        except ValueError as error:
+            raise HTTPException(400, str(error))
 
     @api.post("/buddy/allow-all")
     def buddy_allow_all(body: AllowAll):
-        buddy.set_allow_all(body.session_id, body.on)
-        return {"ok": True, "session_id": body.session_id, "on": body.on}
+        try:
+            buddy.set_allow_all(body.session_id, body.on)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        return {"ok": True, "session_id": body.session_id, "on": False}
 
     return buddy
