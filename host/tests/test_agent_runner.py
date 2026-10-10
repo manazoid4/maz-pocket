@@ -77,7 +77,7 @@ def test_project_scoped_agent_does_not_treat_cwd_as_sandbox(tmp_path, monkeypatc
             grant_token=approval["grant_token"],
         )
     with pytest.raises(AgentRunError, match="project_scope_requires_os_sandbox"):
-        runner.start_job(
+        runner.start(
             provider="claude", prompt="edit readme", project=str(project),
             grant_token=approval["grant_token"],
         )
