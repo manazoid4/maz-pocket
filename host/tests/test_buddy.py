@@ -69,6 +69,18 @@ def test_expired_requests_cannot_be_approved(monkeypatch):
     assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] == "cancel"
 
 
+def test_approved_request_cannot_be_consumed_after_deadline(monkeypatch):
+    c = api()
+    rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H)
+    import mazhost.buddy as bm
+    real = bm.time.monotonic
+    monkeypatch.setattr(bm.time, "monotonic", lambda: real() + bm.TIMEOUT_S + 10)
+    state = c.get(f"/buddy/state?id={rid}", headers=H).json()
+    assert state["decision"] == "cancel" and state["expired"] is True
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H).status_code == 409
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow_all"}, headers=H).status_code == 400
+
 def test_auth_required():
     assert api().get("/buddy/pending").status_code == 401
 
