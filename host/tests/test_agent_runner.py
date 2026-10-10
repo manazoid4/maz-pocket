@@ -34,13 +34,13 @@ def test_agent_run_needs_signed_project_grant(tmp_path, monkeypatch):
         )
 
 
-def test_claude_permission_bypass_only_added_when_cli_advertises_it(tmp_path, monkeypatch):
+def test_claude_never_bypasses_provider_permissions(tmp_path, monkeypatch):
     cfg, broker = make(tmp_path)
     runner = AgentRunner(cfg, broker)
     monkeypatch.setattr("mazhost.agent_runner.shutil.which", lambda name: "C:/bin/claude.exe" if name == "claude" else None)
     runner._help_cache["C:/bin/claude.exe"] = "--dangerously-skip-permissions --output-format --max-turns"
     argv = runner._argv("claude", "test")
-    assert "--dangerously-skip-permissions" in argv
+    assert "--dangerously-skip-permissions" not in argv
     assert argv[1:3] == ["-p", "test"]
 
 
@@ -61,3 +61,35 @@ def test_hermes_old_cli_fails_closed(tmp_path, monkeypatch):
     runner._help_cache["C:/bin/hermes.exe"] = "old help without query mode"
     with pytest.raises(AgentRunError, match="noninteractive"):
         runner._argv("hermes", "test")
+
+
+def test_project_scoped_agent_does_not_treat_cwd_as_sandbox(tmp_path, monkeypatch):
+    project = tmp_path / "repo"
+    project.mkdir()
+    cfg, broker = make(tmp_path)
+    runner = AgentRunner(cfg, broker)
+    approval = broker.approve(broker.request(
+        task="edit source", agent="claude", scope="project_full", project=str(project),
+    )["request_id"])
+    with pytest.raises(AgentRunError, match="project_scope_requires_os_sandbox"):
+        runner.run_sync(
+            provider="claude", prompt="edit readme", project=str(project),
+            grant_token=approval["grant_token"],
+        )
+    with pytest.raises(AgentRunError, match="project_scope_requires_os_sandbox"):
+        runner.start(
+            provider="claude", prompt="edit readme", project=str(project),
+            grant_token=approval["grant_token"],
+        )
+
+
+def test_explicit_pc_full_grant_still_validates_for_agent(tmp_path):
+    project = tmp_path / "repo"
+    project.mkdir()
+    cfg, broker = make(tmp_path)
+    runner = AgentRunner(cfg, broker)
+    approval = broker.approve(broker.request(
+        task="supervised system action", agent="claude", scope="pc_full",
+    )["request_id"])
+    grant = runner._verify(approval["grant_token"], project, "claude")
+    assert grant.scope == "pc_full"

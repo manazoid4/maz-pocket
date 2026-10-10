@@ -96,11 +96,10 @@ class AgentRunner:
         help_text = self._help(exe)
         if provider == "claude":
             argv = [exe, "-p", prompt, "--output-format", "json", "--max-turns", "20"]
-            # Claude's own interactive permission prompt would otherwise hang a
-            # non-interactive Crew. This flag is used only after the external
-            # MAZ phone broker has already granted PROJECT FULL or broader.
-            if "--dangerously-skip-permissions" in help_text:
-                argv.append("--dangerously-skip-permissions")
+            # Do not bypass the provider's permission boundary. A phone grant
+            # authorises launching work, not arbitrary unreviewed PC actions.
+            # If the CLI needs interactive approval, fail safely rather than
+            # escalating its permissions silently.
             return argv
         if provider == "codex":
             argv = [exe, "exec"]
@@ -125,6 +124,10 @@ class AgentRunner:
             approved = Path(grant.project).expanduser().resolve()
             if approved != project.resolve():
                 raise AgentRunError("wrong_approved_project")
+            # cwd only selects the starting directory; it is NOT a sandbox.
+            # Until an OS-isolated runner is available, never advertise or
+            # execute project-scoped full autonomy with host filesystem access.
+            raise AgentRunError("project_scope_requires_os_sandbox")
         return grant
 
     def run_sync(
