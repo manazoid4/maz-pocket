@@ -159,7 +159,7 @@ bool handleKey(const KeyEvent& e) {
     if (gPhase != Phase::Showing) return true;  // swallow while sending / confirming
     if (e.code == KEY_Y || e.code == KEY_ENTER) send("allow");
     else if (e.code == KEY_N || e.code == KEY_ESC) send("deny");
-    else if (e.code == KEY_A) send("allow_all");
+    // No session-wide approval shortcut: each action needs a deliberate decision.
     return true;
 }
 
@@ -221,7 +221,7 @@ void render(M5Canvas& g) {
     g.drawString(t, x + bw + 12, y + 70);
 
     g.setTextColor(gPhase == Phase::Sending ? WARN : ACCENT, PANEL);
-    g.drawString(gPhase == Phase::Sending ? "Sending..." : "Y/ENT allow  N/ESC deny  A always", x + 6, y + 85);
+    g.drawString(gPhase == Phase::Sending ? "Sending..." : "Y/ENT once  N/ESC deny", x + 6, y + 85);
 }
 
 }  // namespace approvals

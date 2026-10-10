@@ -35,13 +35,51 @@ def test_request_pending_decide():
     assert c.get("/buddy/pending", headers=H).json()["pending"] == []
 
 
-def test_allow_all_session():
+def test_allow_all_is_rejected_without_granting_other_requests():
     c = api()
     r1 = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["id"]
-    c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H)
-    assert c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["decision"] == "allow"
-    assert c.post("/buddy/request", json={"tool": "Bash", "session_id": "x"}, headers=H).json()["decision"] is None
+    r2 = c.post("/buddy/request", json={"tool": "Edit", "session_id": "s"}, headers=H).json()["id"]
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H).status_code == 400
+    assert c.get(f"/buddy/state?id={r1}", headers=H).json()["decision"] is None
+    assert c.get(f"/buddy/state?id={r2}", headers=H).json()["decision"] is None
+    assert c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H).status_code == 400
+    assert c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["decision"] is None
 
+
+def test_decisions_are_bound_to_one_request():
+    c = api()
+    r1 = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["id"]
+    r2 = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["id"]
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow"}, headers=H).json()["decision"] == "allow"
+    assert c.get(f"/buddy/state?id={r2}", headers=H).json()["decision"] is None
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "deny"}, headers=H).json()["decision"] == "allow"
+
+
+def test_expired_requests_cannot_be_approved(monkeypatch):
+    c = api()
+    rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    import mazhost.buddy as bm
+    real = bm.time.monotonic
+    monkeypatch.setattr(bm.time, "monotonic", lambda: real() + bm.TIMEOUT_S + 10)
+    assert c.get("/buddy/summary", headers=H).json()["count"] == 0
+    assert c.get("/buddy/pending", headers=H).json()["pending"] == []
+    response = c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "approval_expired"
+    assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] == "cancel"
+
+
+def test_approved_request_cannot_be_consumed_after_deadline(monkeypatch):
+    c = api()
+    rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H)
+    import mazhost.buddy as bm
+    real = bm.time.monotonic
+    monkeypatch.setattr(bm.time, "monotonic", lambda: real() + bm.TIMEOUT_S + 10)
+    state = c.get(f"/buddy/state?id={rid}", headers=H).json()
+    assert state["decision"] == "cancel" and state["expired"] is True
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H).status_code == 409
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow_all"}, headers=H).status_code == 400
 
 def test_auth_required():
     assert api().get("/buddy/pending").status_code == 401
@@ -121,12 +159,13 @@ def test_summary_requires_auth_and_hides_expired():
     assert c.get("/buddy/summary").status_code == 401
     rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
     import mazhost.buddy as bm
-    real = bm.time.time
-    bm.time.time = lambda: real() + 100
+    real = bm.time.monotonic
+    bm.time.monotonic = lambda: real() + 100
     try:
         assert c.get("/buddy/summary", headers=H).json()["count"] == 0
+        assert c.get("/buddy/pending", headers=H).json()["pending"] == []
     finally:
-        bm.time.time = real
+        bm.time.monotonic = real
     assert rid
 
 
