@@ -40,10 +40,10 @@ def test_allow_all_is_rejected_without_granting_other_requests():
     c = api()
     r1 = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["id"]
     r2 = c.post("/buddy/request", json={"tool": "Edit", "session_id": "s"}, headers=H).json()["id"]
-    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H).status_code == 400
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H).status_code == 422
     assert c.get(f"/buddy/state?id={r1}", headers=H).json()["decision"] is None
     assert c.get(f"/buddy/state?id={r2}", headers=H).json()["decision"] is None
-    assert c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H).status_code == 400
+    assert c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H).status_code in (404, 405)
     assert c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["decision"] is None
 
 
@@ -80,7 +80,7 @@ def test_approved_request_cannot_be_consumed_after_deadline(monkeypatch):
     state = c.get(f"/buddy/state?id={rid}", headers=H).json()
     assert state["decision"] == "cancel" and state["expired"] is True
     assert c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H).status_code == 409
-    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow_all"}, headers=H).status_code == 400
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow_all"}, headers=H).status_code == 422
 
 def test_auth_required():
     assert api().get("/buddy/pending").status_code == 401
@@ -358,7 +358,7 @@ def test_today_counts_and_permissions(monkeypatch):
     assert tuple(got[k] for k in ("done", "needs", "errors", "usage", "approved", "denied")) == (2, 1, 1, 1, 1, 1)
     assert got["agents"] == [{"source": "codex", "done": 2}]
     assert got["last"]["kind"] == "usage"
-    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H).status_code == 400
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H).status_code == 422
     assert c.get("/buddy/today", headers=H).json()["approved"] == 1
     day["value"] = "2026-10-12"
     fresh = c.get("/buddy/today", headers=H).json()
@@ -383,8 +383,8 @@ def test_halt_immediately_denies_and_never_auto_allows():
     blocked = c.post("/buddy/request", json={"tool": "Write"}, headers=H).json()
     assert blocked["decision"] == "deny" and "Halted" in blocked["reason"]
     assert c.post("/buddy/decide", json={"id": blocked["id"], "decision": "allow"}, headers=H).json()["decision"] == "deny"
-    assert c.post("/buddy/decide", json={"id": blocked["id"], "decision": "allow_all"}, headers=H).status_code == 400
-    assert c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H).status_code == 400
+    assert c.post("/buddy/decide", json={"id": blocked["id"], "decision": "allow_all"}, headers=H).status_code == 422
+    assert c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H).status_code in (404, 405)
     assert c.post("/buddy/halt", json={"on": False}, headers=H).json()["halted"] is False
     newer = c.post("/buddy/request", json={"tool": "Write"}, headers=H).json()
     assert newer["decision"] is None
@@ -395,3 +395,46 @@ def test_halt_requires_auth_and_bounded_duration():
     assert c.post("/buddy/halt", json={"on": True}).status_code == 401
     for minutes in (0, -1, 481):
         assert c.post("/buddy/halt", json={"on": True, "minutes": minutes}, headers=H).status_code == 422
+
+
+def test_request_token_cannot_decide_but_can_request_and_cancel():
+    c = TestClient(create_app(Settings(token=TOKEN, request_token="req-token-different", _env_file=None)))
+    R = {"Authorization": "Bearer req-token-different"}
+    rid = c.post("/buddy/request", json={"tool": "Bash", "summary": "ls"}, headers=R).json()["id"]
+    assert c.get(f"/buddy/state?id={rid}", headers=R).json()["decision"] is None
+    assert c.post("/buddy/event", json={"kind": "done", "text": "x"}, headers=R).status_code == 200
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=R).status_code == 403
+    assert c.get("/buddy/pending", headers=R).status_code == 403
+    assert c.get("/buddy/summary", headers=R).status_code == 403
+    assert c.get(f"/buddy/state?id={rid}", headers=R).json()["decision"] is None
+    assert c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H).status_code == 200
+    rid2 = c.post("/buddy/request", json={"tool": "Bash"}, headers=R).json()["id"]
+    assert c.post("/buddy/cancel", json={"id": rid2}, headers=R).status_code == 200
+    assert c.get(f"/buddy/state?id={rid2}", headers=R).json()["decision"] == "cancel"
+
+
+def test_single_token_still_works_and_warns(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        c = api()
+    assert "MAZ_REQUEST_TOKEN is not set" in caplog.text
+    assert TOKEN not in caplog.text
+    assert c.post("/buddy/request", json={"tool": "Bash"}, headers=H).status_code == 200
+    assert c.get("/buddy/summary", headers=H).status_code == 200
+
+
+def test_full_text_risk_and_hash():
+    c = api()
+    long = "echo " + "x" * 1100
+    rid = c.post("/buddy/request", json={"tool": "mcp__plugin_github_github__create_pull_request", "summary": long}, headers=H).json()
+    assert len(rid["summary"]) == len(long)
+    it = c.get("/buddy/summary", headers=H).json()["items"][0]
+    assert it["tool"] == "mcp__plugin_github_github__create_pull_request"
+    assert it["risk"] == "MCP" and len(it["hash"]) == 6 and it["hash"] == rid["hash"]
+    assert it["summary"] == long and it["truncated"] is False
+    other = c.post("/buddy/request", json={"tool": "mcp__plugin_github_github__create_pull_request", "summary": long + "!"}, headers=H).json()
+    assert other["hash"] != rid["hash"]
+    assert [buddy_mod.risk_word(t) for t in ("Read", "Edit", "Bash", "WebFetch", "Weird")] == ["READ", "WRITE", "RUN", "NET", "RUN"]
+    big = c.post("/buddy/request", json={"tool": "Bash", "summary": "y" * 2000}, headers=H)
+    assert big.status_code == 200
+    assert c.post("/buddy/request", json={"tool": "Bash", "summary": "y" * 2001}, headers=H).status_code == 422

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     )
 
     token: str = "change-me-before-first-run"
+    # Optional request-only token for agent hooks (MAZ_REQUEST_TOKEN): may create approval
+    # requests and post events, never decide them. Empty = hooks share `token` (legacy).
+    request_token: str = ""
     autoupdate: bool = True  # MAZ_AUTOUPDATE=0 disables the GitHub Releases self-update loop
     update_interval_s: int = 300
     repo_dir: str = ""  # git checkout Core updates; default: the checkout containing mazhost
@@ -173,6 +176,10 @@ class Settings(BaseSettings):
         ):
             raise ValueError("mazlatest_url must be a loopback HTTP URL without embedded credentials")
         return self
+
+    @property
+    def request_token_configured(self) -> bool:
+        return bool(self.request_token) and self.request_token != self.token
 
     @property
     def token_configured(self) -> bool:

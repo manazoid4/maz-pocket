@@ -1,6 +1,7 @@
 """Agent approval queue: Claude Code hook -> Core -> device (nod)."""
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 import uuid
@@ -20,6 +21,30 @@ HALT_DEFAULT_MIN = 30
 HALT_MAX_MIN = 480
 HALT_REASON = "Halted from nod (permission request denied; running processes unaffected)"
 MAX_AGENTS = 8
+MAX_SUMMARY = 2000   # full request text; the device pages it, nothing is cut silently
+DEVICE_SUMMARY = 1200  # what /buddy/summary sends to the device (flag `truncated` if longer)
+READ_TOOLS = {"read", "glob", "grep", "ls", "notebookread", "todowrite", "exitplanmode"}
+WRITE_TOOLS = {"edit", "write", "multiedit", "notebookedit"}
+NET_TOOLS = {"webfetch", "websearch"}
+
+
+def risk_word(tool: str) -> str:
+    """READ / WRITE / NET / MCP / RUN for the approval card. Unknown tools are RUN (worst case)."""
+    t = tool.strip().lower()
+    if t in READ_TOOLS:
+        return "READ"
+    if t in WRITE_TOOLS:
+        return "WRITE"
+    if t in NET_TOOLS:
+        return "NET"
+    if t.startswith("mcp__"):
+        return "MCP"
+    return "RUN"
+
+
+def short_hash(tool: str, summary: str) -> str:
+    """6 hex chars of sha256(tool NUL full text): the same value is shown at the terminal side."""
+    return hashlib.sha256(f"{tool}\x00{summary}".encode()).hexdigest()[:6]
 OTHER = "other"
 KIND_KEY = {"done": "done", "needs": "needs", "error": "errors", "usage": "usage"}
 
@@ -29,14 +54,14 @@ def _local_today() -> str:
 
 class BuddyRequest(BaseModel):
     tool: str = Field(min_length=1, max_length=120)
-    summary: str = Field(default="", max_length=200)
+    summary: str = Field(default="", max_length=MAX_SUMMARY)
     session_id: str = Field(default="", max_length=120)
     project: str = Field(default="", max_length=60)
 
 
 class BuddyDecision(BaseModel):
     id: str
-    decision: Literal["allow", "deny", "allow_all", "cancel"]
+    decision: Literal["allow", "deny", "cancel"]
 
 
 class BuddyEvent(BaseModel):
@@ -47,9 +72,8 @@ class BuddyEvent(BaseModel):
     source: str = Field(default="", max_length=40)
 
 
-class AllowAll(BaseModel):
-    session_id: str = Field(min_length=1, max_length=120)
-    on: bool = False
+class BuddyCancel(BaseModel):
+    id: str
 
 
 class HaltBody(BaseModel):
@@ -155,6 +179,7 @@ class Buddy:
             self._items[rid] = {"id": rid, "tool": tool, "summary": summary,
                                 "session_id": session_id, "project": project, "t": time.time(),
                                 "deadline": time.monotonic() + TIMEOUT_S,
+                                "risk": risk_word(tool), "hash": short_hash(tool, summary),
                                 "decision": auto}
             if auto:
                 self._items[rid]["reason"] = HALT_REASON
@@ -197,8 +222,10 @@ class Buddy:
             live = [i for i in self._items.values()
                     if not i["decision"] and monotonic_now < i["deadline"]]
             recent = any(now - i["t"] < WORKING_S for i in self._items.values())
-            items = [{"id": i["id"], "tool": i["tool"], "summary": i["summary"],
+            items = [{"id": i["id"], "tool": i["tool"], "summary": i["summary"][:DEVICE_SUMMARY],
                       "project": i.get("project", ""), "session_id": i["session_id"],
+                      "risk": i["risk"], "hash": i["hash"],
+                      "truncated": len(i["summary"]) > DEVICE_SUMMARY,
                       "left": max(0, int(i["deadline"] - monotonic_now))} for i in live[:limit]]
             return {"ok": True, "agent": "needs_you" if live else "working" if recent else "idle",
                     "count": len(live), "items": items}
@@ -208,8 +235,6 @@ class Buddy:
             item = self._items.get(rid)
             if item is None:
                 raise KeyError(rid)
-            if decision == "allow_all":
-                raise ValueError("session_wide_approval_disabled")
             if time.monotonic() >= item["deadline"]:
                 if not item["decision"]:
                     item["decision"] = "cancel"
@@ -228,11 +253,6 @@ class Buddy:
                 self._bump("approved" if decision == "allow" else "denied")
             self._cv.notify_all()
             return dict(item)
-
-    def set_allow_all(self, session_id: str, on: bool) -> None:
-        if on:
-            raise ValueError("session_wide_approval_disabled")
-        # Revocation stays backwards-compatible for old clients. Nothing to revoke.
 
 
 def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
@@ -265,13 +285,15 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
         except ValueError as error:
             raise HTTPException(400, str(error))
 
-    @api.post("/buddy/allow-all")
-    def buddy_allow_all(body: AllowAll):
+    @api.post("/buddy/cancel")
+    def buddy_cancel(body: BuddyCancel):
+        """Request-token-safe: the hook withdraws its own request on timeout."""
         try:
-            buddy.set_allow_all(body.session_id, body.on)
-        except ValueError as error:
-            raise HTTPException(400, str(error))
-        return {"ok": True, "session_id": body.session_id, "on": False}
+            return buddy.decide(body.id, "cancel")
+        except KeyError:
+            raise HTTPException(404, "request_not_found")
+        except TimeoutError:
+            raise HTTPException(409, "approval_expired")
 
     @api.post("/buddy/event")
     def buddy_event(body: BuddyEvent):
