@@ -5,7 +5,8 @@ import threading
 import time
 import uuid
 from collections import deque
-from typing import Literal
+from datetime import date
+from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -14,6 +15,12 @@ MAX_ITEMS = 50
 MAX_EVENTS = 20     # notify-only ring buffer polled by the device
 TIMEOUT_S = 60      # hook falls back to the terminal after this
 WORKING_S = 90      # agent counts as 'working' this long after the last request
+MAX_AGENTS = 8
+OTHER = "other"
+KIND_KEY = {"done": "done", "needs": "needs", "error": "errors", "usage": "usage"}
+
+def _local_today() -> str:
+    return date.today().isoformat()
 
 
 class BuddyRequest(BaseModel):
@@ -42,19 +49,50 @@ class AllowAll(BaseModel):
 
 
 class Buddy:
-    def __init__(self) -> None:
+    def __init__(self, today: Callable[[], str] | None = None) -> None:
+        self._today = today or _local_today
+        self._day = self._today()
+        self._counts: dict[str, int] = {}
+        self._agents: dict[str, int] = {}
+        self._last: dict | None = None
         self._cv = threading.Condition()
         self._items: dict[str, dict] = {}
         self._events: deque[dict] = deque(maxlen=MAX_EVENTS)  # separate from _items on purpose
         self._event_id = 0
         # No persistent session-wide grants: every sensitive action needs a fresh decision.
 
+    def _roll(self) -> None:
+        current = self._today()
+        if current != self._day:
+            self._day, self._counts, self._agents, self._last = current, {}, {}, None
+
+    def _bump(self, key: str) -> None:
+        self._counts[key] = self._counts.get(key, 0) + 1
+
+    def today(self) -> dict:
+        with self._cv:
+            self._roll()
+            agents = sorted(self._agents.items(), key=lambda kv: (kv[0] == OTHER, -kv[1], kv[0]))
+            return {"date": self._day, **{k: self._counts.get(k, 0)
+                    for k in ("done", "needs", "errors", "usage", "approved", "denied")},
+                    "agents": [{"source": src, "done": count} for src, count in agents],
+                    "last": dict(self._last) if self._last else None}
+
     def post_event(self, kind: str, text: str, source: str = "") -> dict:
         with self._cv:
+            self._roll()
+            self._bump(KIND_KEY[kind])
+            name = source.strip() or OTHER
+            if kind == "done":
+                named = sum(1 for a in self._agents if a != OTHER)
+                if name not in self._agents and name != OTHER and named >= MAX_AGENTS:
+                    name = OTHER
+                self._agents[name] = self._agents.get(name, 0) + 1
             self._event_id += 1
             ev = {"id": self._event_id, "kind": kind, "text": text[:160],
                   "source": source, "ts": time.time()}
             self._events.append(ev)
+            self._last = {key: ev[key] for key in ("kind", "text", "source", "ts")}
             return dict(ev)
 
     def events(self, since: int = 0) -> dict:
@@ -129,6 +167,9 @@ class Buddy:
             if decision not in ("allow", "deny", "cancel"):
                 raise ValueError("unsupported_decision")
             item["decision"] = decision
+            if decision != "cancel":
+                self._roll()
+                self._bump("approved" if decision == "allow" else "denied")
             self._cv.notify_all()
             return dict(item)
 
@@ -179,6 +220,10 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
     @api.post("/buddy/event")
     def buddy_event(body: BuddyEvent):
         return {"ok": True, **buddy.post_event(body.kind, body.text, body.source)}
+
+    @api.get("/buddy/today")
+    def buddy_today():
+        return {"ok": True, **buddy.today()}
 
     @api.get("/buddy/events")
     def buddy_events(since: int = 0):
