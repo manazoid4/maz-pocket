@@ -102,6 +102,7 @@ private:
 
 constexpr HubItem AGENT_ITEMS[] = {
     {"AGENT STATUS", "who is doing what", "nudge"},
+    {"TODAY", "what agents did", "today"},
     {"PLAN", "think before code", "plan"},
     {"CREW", "split agent work", "crew"},
     {"RETRO", "learn from work", "retro"},

@@ -270,6 +270,56 @@ SystemStatus systemStatus() {
     return out;
 }
 
+TodayStatus todayStatus() {
+    constexpr size_t MAX_TODAY_PAYLOAD_BYTES = 2048;
+    TodayStatus out;
+    for (const auto& base : fieldBases()) {
+        HTTPClient http;
+        if (!beginField(http, base.first, "/buddy/today", base.second)) continue;
+        http.setTimeout(4000);
+        const int status = http.GET();
+        String body;
+        const BodyReadResult read = status > 0
+                                        ? readBoundedBody(http, body, MAX_TODAY_PAYLOAD_BYTES)
+                                        : BodyReadResult::Incomplete;
+        http.end();
+        if (status <= 0) continue;
+        if (status == 404) { out.error = "update Core"; return out; }  // older Core
+        if (read != BodyReadResult::Ok) { out.error = "bad today response"; return out; }
+        JsonDocument doc;
+        if (deserializeJson(doc, body) || status < 200 || status >= 300 ||
+            !(doc["ok"] | false) || !doc["done"].is<int>()) {
+            out.error = "bad today response";
+            return out;
+        }
+        fieldOnline();
+        out.done = doc["done"] | 0;
+        out.needs = doc["needs"] | 0;
+        out.errors = doc["errors"] | 0;
+        out.usage = doc["usage"] | 0;
+        out.approved = doc["approved"] | 0;
+        out.denied = doc["denied"] | 0;
+        for (JsonObject a : doc["agents"].as<JsonArray>()) {
+            if (out.agentCount >= TODAY_MAX_AGENTS) break;
+            TodayAgent& t = out.agents[out.agentCount++];
+            t.source = a["source"] | "";
+            t.done = a["done"] | 0;
+        }
+        JsonObject last = doc["last"].as<JsonObject>();
+        if (!last.isNull()) {
+            out.hasLast = true;
+            out.lastKind = last["kind"] | "";
+            out.lastText = last["text"] | "";
+            out.lastSource = last["source"] | "";
+        }
+        out.ok = true;
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
+    return out;
+}
+
 WorkSummary workSummary() {
     constexpr size_t MAX_WORK_PAYLOAD_BYTES = 4096;
     WorkSummary out;

@@ -93,6 +93,19 @@ struct BeamMessage {
     std::string error;
 };
 
+// "What did my agents do today" counts from Core GET /buddy/today.
+constexpr int TODAY_MAX_AGENTS = 9;  // 8 named + "other"
+struct TodayAgent { std::string source; int done = 0; };
+struct TodayStatus {
+    bool ok = false;
+    int done = 0, needs = 0, errors = 0, usage = 0, approved = 0, denied = 0;
+    int agentCount = 0;
+    TodayAgent agents[TODAY_MAX_AGENTS];
+    bool hasLast = false;
+    std::string lastKind, lastText, lastSource;
+    std::string error;
+};
+
 struct SystemStatus {
     bool ok = false;
     int cpuPct = -1;
@@ -211,6 +224,7 @@ TeachStatus teachStatus(const std::string& sessionId);
 Reply beamSend(const std::string& text);
 BeamMessage beamPull();
 SystemStatus systemStatus();
+TodayStatus todayStatus();
 WorkSummary workSummary();
 Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 

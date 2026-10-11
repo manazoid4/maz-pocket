@@ -70,6 +70,7 @@ App* makePromptDeck();
 App* makeCrew();
 App* makeRetro();
 
+App* makeToday();
 App* makeLaptop();
 App* makeBeam();
 App* makeShift();

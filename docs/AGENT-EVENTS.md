@@ -34,6 +34,8 @@ Anything else is rejected (HTTP 422). A missing or wrong token is HTTP 401.
 | `needs` | Needs you | warning tone |
 | `error` | Agent error | error tone |
 
+What your agents did today, in numbers: [TODAY.md](TODAY.md).
+
 ## Limits
 
 - The hub keeps the last 20 events. The device checks every 15 s (45 s in field mode), so a ping can take that long to appear.
