@@ -59,7 +59,6 @@ const char* gErr      = "";
 // pointer, it does not copy), so a queued buffer is never overwritten.
 constexpr size_t  kPlayBlock  = 2048;  // samples per queued block
 constexpr uint8_t kPlayCh     = 0;     // dedicated channel: sfx tones use auto channels
-constexpr uint8_t kMinVolume  = 64;    // floor for a reply; tiny values are inaudible
 File     gPlayFile;
 bool     gPlaying = false;
 int16_t  gPlayBuf[2][kPlayBlock];
@@ -113,11 +112,9 @@ void prepareSpeaker() {
     M5.Mic.end();
     M5.Speaker.end();
     const bool ok = M5.Speaker.begin();
-    uint8_t vol = Cfg.volume;
-    if (vol < kMinVolume) {
-        Serial.printf("[voice] volume %u too low, raising to %u for playback\n", vol, kMinVolume);
-        vol = kMinVolume;
-    }
+    // Respect the user's actual volume, including mute and low headphone
+    // levels. Forcing a 64/255 floor made quiet settings unexpectedly loud.
+    const uint8_t vol = Cfg.volume;
     M5.Speaker.setVolume(vol);
     M5.Speaker.setChannelVolume(kPlayCh, 255);
     Serial.printf("[voice] speaker begin=%d enabled=%d vol=%u (cfg=%u)\n", ok,
