@@ -4,6 +4,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from collections import deque
 from datetime import date
 from typing import Callable, Literal
@@ -15,6 +16,9 @@ MAX_ITEMS = 50
 MAX_EVENTS = 20     # notify-only ring buffer polled by the device
 TIMEOUT_S = 60      # hook falls back to the terminal after this
 WORKING_S = 90      # agent counts as 'working' this long after the last request
+HALT_DEFAULT_MIN = 30
+HALT_MAX_MIN = 480
+HALT_REASON = "Halted from nod (permission request denied; running processes unaffected)"
 MAX_AGENTS = 8
 OTHER = "other"
 KIND_KEY = {"done": "done", "needs": "needs", "error": "errors", "usage": "usage"}
@@ -48,6 +52,11 @@ class AllowAll(BaseModel):
     on: bool = False
 
 
+class HaltBody(BaseModel):
+    on: bool
+    minutes: int | None = Field(default=None, ge=1, le=HALT_MAX_MIN)
+
+
 class Buddy:
     def __init__(self, today: Callable[[], str] | None = None) -> None:
         self._today = today or _local_today
@@ -59,7 +68,43 @@ class Buddy:
         self._items: dict[str, dict] = {}
         self._events: deque[dict] = deque(maxlen=MAX_EVENTS)  # separate from _items on purpose
         self._event_id = 0
+        self._halt_until_mono = 0.0
+        self._halt_until_wall = 0.0
         # No persistent session-wide grants: every sensitive action needs a fresh decision.
+
+    def _halted_locked(self) -> bool:
+        if self._halt_until_mono and time.monotonic() >= self._halt_until_mono:
+            self._halt_until_mono = self._halt_until_wall = 0.0
+        return self._halt_until_mono > 0
+
+    def halt_state(self) -> dict:
+        with self._cv:
+            return self._halt_state_locked()
+
+    def _halt_state_locked(self) -> dict:
+        halted = self._halted_locked()
+        return {"ok": True, "halted": halted, "until":
+                datetime.fromtimestamp(self._halt_until_wall, timezone.utc).isoformat()
+                if halted else None}
+
+    def set_halt(self, on: bool, minutes: int | None = None) -> dict:
+        """Pause future nod-mediated asks; NEVER promises to stop running tools."""
+        with self._cv:
+            self._halted_locked()
+            if on:
+                duration = HALT_DEFAULT_MIN if minutes is None else minutes
+                self._halt_until_mono = time.monotonic() + duration * 60
+                self._halt_until_wall = time.time() + duration * 60
+                self._roll()
+                for item in self._items.values():
+                    if item["decision"] in (None, "allow") and time.monotonic() < item["deadline"]:
+                        if item["decision"] is None:
+                            self._bump("denied")
+                        item["decision"], item["reason"] = "deny", HALT_REASON
+                self._cv.notify_all()
+            else:
+                self._halt_until_mono = self._halt_until_wall = 0.0
+            return self._halt_state_locked()
 
     def _roll(self) -> None:
         current = self._today()
@@ -103,11 +148,16 @@ class Buddy:
     def request(self, tool: str, summary: str, session_id: str = "", project: str = "") -> dict:
         with self._cv:
             rid = uuid.uuid4().hex[:8]
-            auto = None  # never inherit approval from another request
+            auto = "deny" if self._halted_locked() else None
+            if auto:
+                self._roll()
+                self._bump("denied")
             self._items[rid] = {"id": rid, "tool": tool, "summary": summary,
                                 "session_id": session_id, "project": project, "t": time.time(),
                                 "deadline": time.monotonic() + TIMEOUT_S,
                                 "decision": auto}
+            if auto:
+                self._items[rid]["reason"] = HALT_REASON
             while len(self._items) > MAX_ITEMS:
                 self._items.pop(next(iter(self._items)))  # dicts keep insertion order
             return dict(self._items[rid])
@@ -127,7 +177,10 @@ class Buddy:
                     # somebody approved it while the hook was temporarily offline.
                     return {"id": rid, "decision": "cancel", "known": True, "expired": True}
                 if item["decision"] or time.monotonic() >= end:
-                    return {"id": rid, "decision": item["decision"], "known": True}
+                    result = {"id": rid, "decision": item["decision"], "known": True}
+                    if item.get("reason"):
+                        result["reason"] = item["reason"]
+                    return result
                 self._cv.wait(end - time.monotonic())
 
     def pending(self) -> list[dict]:
@@ -166,6 +219,9 @@ class Buddy:
                 return dict(item)
             if decision not in ("allow", "deny", "cancel"):
                 raise ValueError("unsupported_decision")
+            if self._halted_locked() and decision == "allow":
+                decision = "deny"
+                item["reason"] = HALT_REASON
             item["decision"] = decision
             if decision != "cancel":
                 self._roll()
@@ -228,5 +284,13 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
     @api.get("/buddy/events")
     def buddy_events(since: int = 0):
         return buddy.events(since)
+
+    @api.get("/buddy/halt")
+    def buddy_halt_get():
+        return buddy.halt_state()
+
+    @api.post("/buddy/halt")
+    def buddy_halt(body: HaltBody):
+        return buddy.set_halt(body.on, body.minutes)
 
     return buddy

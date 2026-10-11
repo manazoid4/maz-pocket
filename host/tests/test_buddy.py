@@ -373,3 +373,25 @@ def test_today_agent_cap_and_no_automatic_decision(monkeypatch):
     assert len(rows) == 9 and rows[-1] == {"source": "other", "done": 2}
     rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
     assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] is None
+
+def test_halt_immediately_denies_and_never_auto_allows():
+    c = api()
+    a = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    res = c.post("/buddy/halt", json={"on": True, "minutes": 30}, headers=H)
+    assert res.status_code == 200 and res.json()["halted"] is True
+    assert c.get(f"/buddy/state?id={a}", headers=H).json()["decision"] == "deny"
+    blocked = c.post("/buddy/request", json={"tool": "Write"}, headers=H).json()
+    assert blocked["decision"] == "deny" and "Halted" in blocked["reason"]
+    assert c.post("/buddy/decide", json={"id": blocked["id"], "decision": "allow"}, headers=H).json()["decision"] == "deny"
+    assert c.post("/buddy/decide", json={"id": blocked["id"], "decision": "allow_all"}, headers=H).status_code == 400
+    assert c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H).status_code == 400
+    assert c.post("/buddy/halt", json={"on": False}, headers=H).json()["halted"] is False
+    newer = c.post("/buddy/request", json={"tool": "Write"}, headers=H).json()
+    assert newer["decision"] is None
+
+def test_halt_requires_auth_and_bounded_duration():
+    c = api()
+    assert c.get("/buddy/halt").status_code == 401
+    assert c.post("/buddy/halt", json={"on": True}).status_code == 401
+    for minutes in (0, -1, 481):
+        assert c.post("/buddy/halt", json={"on": True, "minutes": minutes}, headers=H).status_code == 422

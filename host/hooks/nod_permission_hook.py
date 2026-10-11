@@ -43,10 +43,10 @@ def summarize(tool_input: dict) -> str:
     return " ".join(str(text).split())[:200]
 
 
-def decide(event: dict) -> str | None:
-    """'allow' | 'deny' | None (None = ask in terminal)."""
+def decide(event: dict) -> tuple[str | None, str]:
+    """(verdict, reason); None means ask in terminal."""
     if not TOKEN:
-        return None
+        return None, ""
     try:
         req = call("POST", "/buddy/request", {
             "tool": event.get("tool_name", "?"),
@@ -57,7 +57,7 @@ def decide(event: dict) -> str | None:
         end = time.monotonic() + TIMEOUT
         while True:
             if req.get("decision") in ("allow", "deny"):
-                return req["decision"]
+                return req["decision"], str(req.get("reason") or "")
             left = end - time.monotonic()
             if left <= 0:
                 break
@@ -66,7 +66,7 @@ def decide(event: dict) -> str | None:
         call("POST", "/buddy/decide", {"id": req["id"], "decision": "cancel"})
     except (urllib.error.URLError, OSError, ValueError, KeyError):
         pass
-    return None
+    return None, ""
 
 
 def main() -> int:
@@ -74,13 +74,13 @@ def main() -> int:
         event = json.load(sys.stdin)
     except ValueError:
         event = {}
-    verdict = decide(event)
+    verdict, reason = decide(event)
     if not verdict:
         print("ask", file=sys.stderr)
         return 0
     decision = {"behavior": verdict}
     if verdict == "deny":
-        decision["message"] = "Denied from nod device"
+        decision["message"] = reason or "Denied from nod device"
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest",
                                              "decision": decision}}))
     return 0
