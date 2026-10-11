@@ -22,7 +22,6 @@ HALT_MAX_MIN = 480
 HALT_REASON = "Halted from nod (permission request denied; running processes unaffected)"
 MAX_AGENTS = 8
 MAX_SUMMARY = 2000   # full request text; the device pages it, nothing is cut silently
-DEVICE_SUMMARY = 1200  # what /buddy/summary sends to the device (flag `truncated` if longer)
 READ_TOOLS = {"read", "glob", "grep", "ls", "notebookread", "todowrite", "exitplanmode"}
 WRITE_TOOLS = {"edit", "write", "multiedit", "notebookedit"}
 NET_TOOLS = {"webfetch", "websearch"}
@@ -222,10 +221,9 @@ class Buddy:
             live = [i for i in self._items.values()
                     if not i["decision"] and monotonic_now < i["deadline"]]
             recent = any(now - i["t"] < WORKING_S for i in self._items.values())
-            items = [{"id": i["id"], "tool": i["tool"], "summary": i["summary"][:DEVICE_SUMMARY],
+            items = [{"id": i["id"], "tool": i["tool"], "summary": i["summary"],
                       "project": i.get("project", ""), "session_id": i["session_id"],
                       "risk": i["risk"], "hash": i["hash"],
-                      "truncated": len(i["summary"]) > DEVICE_SUMMARY,
                       "left": max(0, int(i["deadline"] - monotonic_now))} for i in live[:limit]]
             return {"ok": True, "agent": "needs_you" if live else "working" if recent else "idle",
                     "count": len(live), "items": items}

@@ -431,7 +431,7 @@ def test_full_text_risk_and_hash():
     it = c.get("/buddy/summary", headers=H).json()["items"][0]
     assert it["tool"] == "mcp__plugin_github_github__create_pull_request"
     assert it["risk"] == "MCP" and len(it["hash"]) == 6 and it["hash"] == rid["hash"]
-    assert it["summary"] == long and it["truncated"] is False
+    assert it["summary"] == long
     other = c.post("/buddy/request", json={"tool": "mcp__plugin_github_github__create_pull_request", "summary": long + "!"}, headers=H).json()
     assert other["hash"] != rid["hash"]
     assert [buddy_mod.risk_word(t) for t in ("Read", "Edit", "Bash", "WebFetch", "Weird")] == ["READ", "WRITE", "RUN", "NET", "RUN"]
