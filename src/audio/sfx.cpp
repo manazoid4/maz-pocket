@@ -2,6 +2,7 @@
 
 #include <M5Unified.h>
 
+#include "../core/quiet.h"
 #include "../core/settings.h"
 
 namespace maz {
@@ -11,6 +12,7 @@ namespace {
 // `force` exists so an alarm the user asked for (Focus complete) still fires
 // with UI sounds muted — muting chirps is not the same as muting alarms.
 void beep(float hz, uint32_t ms, bool force = false) {
+    if (quiet::level() == quiet::Level::Silent) return;  // Silent mutes everything, alarms too
     if (!Cfg.uiSounds && !force) return;
     M5.Speaker.tone(hz, ms);
 }
@@ -37,6 +39,7 @@ void error()     { pair(300.f, 200.f, 90); }
 // is skipped once so only the agent chirp plays.
 bool gSkipNextNote = false;
 void agentDone() { gSkipNextNote = true; pair(880.f, 1175.f, 50); }
+void skipNextNote() { gSkipNextNote = true; }  // Quiet mode: next toast posts without its beep
 
 void timerDone() {
     for (int i = 0; i < 3; ++i) {

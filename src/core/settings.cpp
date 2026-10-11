@@ -24,6 +24,8 @@ void Settings::load() {
     brightness       = prefs.getUChar("bright", brightness);
     volume           = prefs.getUChar("vol", volume);
     uiSounds         = prefs.getBool("snd", uiSounds);
+    quietLevel       = prefs.getUChar("qlvl", quietLevel);
+    quietDur         = prefs.getUChar("qdur", quietDur);
     screenTimeout    = prefs.getUShort("stimeout", screenTimeout);
     micGain          = prefs.getUChar("mgain", micGain);
     preferSd         = prefs.getBool("prefsd", preferSd);
@@ -60,6 +62,8 @@ void Settings::save() const {
     prefs.putUChar("bright", brightness);
     prefs.putUChar("vol", volume);
     prefs.putBool("snd", uiSounds);
+    prefs.putUChar("qlvl", quietLevel);
+    prefs.putUChar("qdur", quietDur);
     prefs.putUShort("stimeout", screenTimeout);
     prefs.putUChar("mgain", micGain);
     prefs.putBool("prefsd", preferSd);

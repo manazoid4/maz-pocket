@@ -34,6 +34,8 @@ Anything else is rejected (HTTP 422). A missing or wrong token is HTTP 401.
 | `error` | Agent error | error tone |
 
 What your agents did today, in numbers: [TODAY.md](TODAY.md).
+With quiet mode on (Fn+Q), `done` and `usage` show a silent toast and
+`needs` and `error` still sound. See [QUIET-MODE.md](QUIET-MODE.md).
 
 ## Limits
 

@@ -16,6 +16,7 @@
 #include "../ui/lvgl_ui.h"
 #include "field.h"
 #include "notify.h"
+#include "quiet.h"
 #include "settings.h"
 #include "launcher.h"
 #include "sys.h"
@@ -291,6 +292,10 @@ bool handleGlobalKey(const KeyEvent& e) {
         notify::post(Note::Info, "Context Ask", field::context().c_str());
         return true;
     }
+    if ((e.mods & MOD_FN) && e.code == KEY_Q) {
+        quiet::cycle();
+        return true;
+    }
     if ((e.mods & MOD_FN) && e.code == KEY_F) {
         field::toggleFieldMode();
         return true;
@@ -470,6 +475,7 @@ void loop() {
     net::update();
     field::update();
     notify::update();
+    quiet::update();
     apps::updateProductServices();
     lvui::tick();
     applyScreenTimeout();

@@ -46,6 +46,9 @@ struct Settings {
     uint8_t  brightness    = 110;
     uint8_t  volume        = 160;
     bool     uiSounds      = true;
+    // Quiet mode: last choice only. The device always boots Normal (see quiet.cpp).
+    uint8_t  quietLevel    = 0;
+    uint8_t  quietDur      = 1;
     uint16_t screenTimeout = 60;
     uint8_t  micGain       = 12;
     bool     preferSd      = true;
