@@ -3,6 +3,7 @@
 #include <time.h>
 
 #include "../core/settings.h"
+#include "../core/quiet.h"
 #include "../core/sys.h"
 #include "../net/mazhost.h"
 
@@ -85,6 +86,11 @@ void statusBar(M5Canvas& g) {
     } else if (Sys.focusRunning) {
         g.setTextColor(TEXT, PANEL);
         g.drawString(hhmmss(Sys.focusRemain).c_str(), x, 4);
+    }
+
+    if (const char* q = quiet::statusText()) {
+        g.setTextColor(quiet::level() == quiet::Level::Silent ? WARN : ACCENT2, PANEL);
+        g.drawString(q, 110, 4);
     }
 
     // Claude Code status light (hub /buddy): bright = waiting on you, grey = working.

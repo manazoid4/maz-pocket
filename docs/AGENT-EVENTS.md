@@ -36,6 +36,8 @@ Anything else is rejected (HTTP 422). A missing or wrong token is HTTP 401.
 
 What your agents did today, in numbers: [TODAY.md](TODAY.md).
 
+Quiet mode (Fn+Q) suppresses non-critical chirps. Approval cues always sound, even in Silent. See [QUIET-MODE.md](QUIET-MODE.md).
+
 ## Limits
 
 - The hub keeps the last 20 events. The device checks every 15 s (45 s in field mode), so a ping can take that long to appear.

@@ -17,6 +17,7 @@ void recStop();    // microphone released
 void lineOpen();   // remote PC session established
 void lineClose();  // remote PC session cleared
 void saved();      // written to storage
+void skipNextNote(); // next toast silent, approval remains forced
 void agentDone();  // agent turn finished (2-note rising chirp, replaces the toast beep)
 void timerDone();  // Focus complete — the one sound allowed to be insistent
 void error();
