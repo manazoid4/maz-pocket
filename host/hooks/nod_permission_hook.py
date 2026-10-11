@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Claude Code PermissionRequest hook -> nod Core approval.
 
-Env: MAZ_TOKEN (required), MAZ_CORE_URL (default http://127.0.0.1:8787),
-MAZ_BUDDY_TIMEOUT (seconds, default 60). stdlib only.
+Env: NOD_TOKEN (required), NOD_CORE_URL (default http://127.0.0.1:8787),
+NOD_BUDDY_TIMEOUT (seconds, default 60). Old MAZ_* names still work. stdlib only.
 
 Device allow/deny -> decision JSON on stdout.
 Timeout or any error -> no stdout, "ask" on stderr, exit 0: Claude Code then
@@ -17,9 +17,13 @@ import time
 import urllib.error
 import urllib.request
 
-BASE = os.environ.get("MAZ_CORE_URL", "http://127.0.0.1:8787").rstrip("/")
-TOKEN = os.environ.get("MAZ_TOKEN", "")
-TIMEOUT = float(os.environ.get("MAZ_BUDDY_TIMEOUT", "60"))
+def _env(name: str, default: str = "") -> str:  # NOD_* first, legacy MAZ_* fallback
+    return os.environ.get("NOD_" + name) or os.environ.get("MAZ_" + name) or default
+
+
+BASE = _env("CORE_URL", "http://127.0.0.1:8787").rstrip("/")
+TOKEN = _env("TOKEN")
+TIMEOUT = float(_env("BUDDY_TIMEOUT", "60"))
 
 
 def call(method: str, path: str, body: dict | None = None, timeout: float = 10):

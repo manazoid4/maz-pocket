@@ -7,6 +7,7 @@
 #include <ctime>
 
 #include "../apps/apps.h"
+#include "../audio/sfx.h"
 #include "../net/host_worker.h"
 #include "../net/mazhost.h"
 #include "../storage/store.h"
@@ -159,6 +160,20 @@ void finishOutboxBeam(const host_worker::OutboxBeamResult& result) {
 void finishBeamPull(const host::BeamMessage& msg) {
     const uint32_t cadence = Cfg.fieldMode ? 45000u : 15000u;
     gNextBeamPoll = millis() + cadence;
+    for (const auto& e : msg.events) {
+        std::string detail = e.source.empty() ? e.text : e.source + ": " + e.text;
+        if (detail.size() > 160) detail.resize(160);
+        if (e.kind == "done") {
+            sfx::agentDone();  // plays the chirp, mutes the generic toast beep
+            notify::post(Note::Success, "Agent done", detail);
+        } else if (e.kind == "usage") {
+            notify::post(Note::Warn, "Usage", detail);
+        } else if (e.kind == "needs") {
+            notify::post(Note::Warn, "Needs you", detail);
+        } else if (e.kind == "error") {
+            notify::post(Note::Error, "Agent error", detail);
+        }
+    }
     if (!msg.ok || !msg.hasMessage || msg.text.empty()) return;
 
     store::Record r;

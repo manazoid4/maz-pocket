@@ -93,6 +93,38 @@ BodyReadResult readBoundedBody(HTTPClient& http, String& body, size_t maxBytes) 
 
 void fieldOnline() { Sys.hostOnline = true; }
 
+// Agent alerts ride the existing Beam poll (same cadence, same worker job).
+// RAM only: -1 = not synced yet. The first poll just records `last`, so a
+// reboot never replays old pings. Worker-task only, no locking needed.
+int32_t gAgentSince = -1;
+
+void pullAgentEvents(const std::string& base, bool remote, BeamMessage& out) {
+    NodHttp http;
+    const std::string path = "/buddy/events?since=" +
+                             std::to_string(gAgentSince < 0 ? INT32_MAX : gAgentSince);
+    if (!beginField(http, base, path.c_str(), remote)) return;
+    http.setTimeout(4000);
+    const int status = http.GET();
+    String body;
+    const bool read = status == 200 && readBoundedBody(http, body, 6144) == BodyReadResult::Ok;
+    http.end();
+    if (!read) return;  // older Core without /buddy/events: silently skip
+    JsonDocument doc;
+    if (deserializeJson(doc, body) || !doc["last"].is<int>()) return;
+    const int32_t last = doc["last"].as<int32_t>();
+    const bool synced = gAgentSince >= 0 && last >= gAgentSince;  // last < since: Core restarted
+    if (synced) {
+        for (JsonObject e : doc["events"].as<JsonArray>()) {
+            AgentEvent ev;
+            ev.kind = e["kind"] | "";
+            ev.text = e["text"] | "";
+            ev.source = e["source"] | "";
+            out.events.push_back(std::move(ev));
+        }
+    }
+    gAgentSince = last;
+}
+
 }  // namespace
 
 Reply talkTextContext(const std::string& session, const std::string& text,
@@ -189,6 +221,7 @@ BeamMessage beamPull() {
             out.kind = msg["kind"] | "text";
             out.text = msg["text"] | "";
         }
+        pullAgentEvents(base.first, base.second, out);
         return out;
     }
     Sys.hostOnline = false;

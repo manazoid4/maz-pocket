@@ -17,6 +17,7 @@ void recStop();    // microphone released
 void lineOpen();   // remote PC session established
 void lineClose();  // remote PC session cleared
 void saved();      // written to storage
+void agentDone();  // agent turn finished (2-note rising chirp, replaces the toast beep)
 void timerDone();  // Focus complete — the one sound allowed to be insistent
 void error();
 void approval();   // Claude Code needs a decision: rising double chirp, plays even when UI sounds are muted
