@@ -2,6 +2,7 @@
 
 #include <time.h>
 
+#include "../core/quiet.h"
 #include "../core/settings.h"
 #include "../core/sys.h"
 
@@ -80,6 +81,14 @@ void statusBar(M5Canvas& g) {
     } else if (Sys.focusRunning) {
         g.setTextColor(ACCENT, PANEL);
         g.drawString(hhmmss(Sys.focusRemain).c_str(), x, 4);
+    }
+
+    // Quiet mode badge: persistent while sounds are muted (x=110 clears the
+    // recording/focus timer on the left and the WiFi/SD tags on the right).
+    if (const char* q = quiet::statusText()) {
+        const bool silent = quiet::level() == quiet::Level::Silent;
+        g.setTextColor(silent ? WARN : ACCENT2, PANEL);
+        g.drawString(q, 110, 4);
     }
 
     // Right side, laid out from the edge inwards.

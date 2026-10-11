@@ -33,6 +33,9 @@ Anything else is rejected (HTTP 422). A missing or wrong token is HTTP 401.
 | `needs` | Needs you | warning tone |
 | `error` | Agent error | error tone |
 
+With quiet mode on (Fn+Q), `done` and `usage` show a silent toast and
+`needs` and `error` still sound. See [QUIET-MODE.md](QUIET-MODE.md).
+
 ## Limits
 
 - The hub keeps the last 20 events. The device checks every 15 s (45 s in field mode), so a ping can take that long to appear.

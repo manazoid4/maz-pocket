@@ -13,6 +13,7 @@
 #include "../storage/store.h"
 #include "launcher.h"
 #include "notify.h"
+#include "quiet.h"
 #include "settings.h"
 #include "shell.h"
 #include "sys.h"
@@ -153,15 +154,21 @@ void finishBeamPull(const host::BeamMessage& msg) {
     for (const auto& e : msg.events) {
         std::string detail = e.source.empty() ? e.text : e.source + ": " + e.text;
         if (detail.size() > 160) detail.resize(160);
-        if (e.kind == "done") {
-            sfx::agentDone();  // plays the chirp, mutes the generic toast beep
+        // Quiet mode decides the sound only; the toast is always posted.
+        using quiet::Ev;
+        const Ev ev = e.kind == "done" ? Ev::Done : e.kind == "usage" ? Ev::Usage
+                    : e.kind == "needs" ? Ev::Needs : e.kind == "error" ? Ev::Error : Ev::None;
+        if (ev == Ev::None) continue;
+        const bool chirp = quiet::shouldChirp(quiet::level(), ev);
+        if (ev == Ev::Done) {
+            if (chirp) sfx::agentDone();  // plays the chirp, mutes the generic toast beep
+            else sfx::skipNextNote();
             notify::post(Note::Success, "Agent done", detail);
-        } else if (e.kind == "usage") {
-            notify::post(Note::Warn, "Usage", detail);
-        } else if (e.kind == "needs") {
-            notify::post(Note::Warn, "Needs you", detail);
-        } else if (e.kind == "error") {
-            notify::post(Note::Error, "Agent error", detail);
+        } else {
+            if (!chirp) sfx::skipNextNote();
+            if (ev == Ev::Usage) notify::post(Note::Warn, "Usage", detail);
+            else if (ev == Ev::Needs) notify::post(Note::Warn, "Needs you", detail);
+            else notify::post(Note::Error, "Agent error", detail);
         }
     }
     if (!msg.ok || !msg.hasMessage || msg.text.empty()) return;
