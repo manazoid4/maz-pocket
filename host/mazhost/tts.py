@@ -62,7 +62,7 @@ class SpeechOut:
         if norm not in COMMON_PHRASES and len(norm) > CACHE_MAX_CHARS:
             return None
         digest = hashlib.sha1(norm.encode("utf-8")).hexdigest()[:20]
-        return self.voices.dir / "tts_cache" / voice / self.settings.audio_output_profile / f"{digest}.wav"
+        return self.voices.dir / "tts_cache" / voice / self.voices.current_profile() / f"{digest}.wav"
 
     def _cache_store(self, src: Path, cached: Path) -> None:
         try:
@@ -118,8 +118,8 @@ class SpeechOut:
     def _prepare_audio(self, path: Path) -> None:
         """Convert provider WAV to device PCM16k mono and apply output profile."""
         self._device_wav(path)
-        applied = shape_speech_wav(path, self.settings.audio_output_profile)
-        log.info("tts_audio_profile=%s applied=%s", self.settings.audio_output_profile, applied)
+        applied = shape_speech_wav(path, self.voices.current_profile())
+        log.info("tts_audio_profile=%s applied=%s", self.voices.current_profile(), applied)
 
     def _kokoro(self, text: str, path: Path) -> None:
         """Optional Kokoro-ONNX, entirely on the Windows Core machine."""
