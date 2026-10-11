@@ -2,6 +2,7 @@
 
 #include <M5Unified.h>
 
+#include "../core/quiet.h"
 #include "../core/settings.h"
 #include "voice.h"
 
@@ -12,6 +13,7 @@ namespace {
 // `force` exists so an alarm the user asked for (Focus complete) still fires
 // with UI sounds muted — muting chirps is not the same as muting alarms.
 void beep(float hz, uint32_t ms, bool force = false) {
+    if (quiet::level() == quiet::Level::Silent && !force) return;  // never mutes forced sounds (approval chime, alarms)
     if (!Cfg.uiSounds && !force) return;
     // tone() auto-starts the speaker; while the mic owns the shared codec that
     // would fight the capture. Silence beats corrupting a recording.
@@ -44,6 +46,7 @@ void approval()  { pair(880.f, 1480.f, 90, /*force=*/true); }
 // is skipped once so only the agent chirp plays.
 bool gSkipNextNote = false;
 void agentDone() { gSkipNextNote = true; pair(880.f, 1175.f, 50); }
+void skipNextNote() { gSkipNextNote = true; }  // Quiet mode: next toast posts without its beep
 
 void timerDone() {
     for (int i = 0; i < 3; ++i) {

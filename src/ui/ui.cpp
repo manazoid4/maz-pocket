@@ -2,6 +2,7 @@
 
 #include <time.h>
 
+#include "../core/quiet.h"
 #include "../core/settings.h"
 #include "../core/sys.h"
 #include "../net/mazhost.h"
@@ -85,6 +86,12 @@ void statusBar(M5Canvas& g) {
     } else if (Sys.focusRunning) {
         g.setTextColor(TEXT, PANEL);
         g.drawString(hhmmss(Sys.focusRemain).c_str(), x, 4);
+    }
+
+    // Quiet badge: Q = quiet, S = silent (between the timer zone and the buddy light).
+    if (const char* q = quiet::statusText()) {
+        g.setTextColor(quiet::level() == quiet::Level::Silent ? WARN : ACCENT2, PANEL);
+        g.drawString(q[0] == 'S' ? "S" : "Q", SB_BUDDY_X - 10, 4);
     }
 
     // Claude Code status light (hub /buddy): bright = waiting on you, grey = working.
