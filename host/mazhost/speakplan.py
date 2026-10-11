@@ -1,4 +1,4 @@
-"""Faster spoken replies: first sentence first, rest in parallel, plus turn timings.
+"""Faster spoken replies: first sentence first, rest in sentence chunks in parallel, plus turn timings.
 
 The first sentence is synthesised alone (short text = fast Fish call) while the
 remainder is synthesised in parallel. The device downloads part 0, starts
@@ -38,20 +38,32 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
+MAX_PARTS = 4  # part 0 + up to 3 more (the device queues parts as they land)
+CHUNK_CHARS = 140  # later sentences are batched up to this size so tiny sentences are not one call each
+
+
 def plan_parts(text: str) -> list[str]:
-    """First sentence alone, everything else as one second part."""
+    """First sentence alone (fast first audio), the rest in sentence chunks, at most MAX_PARTS."""
     clean = " ".join(text.split())
     if len(clean) <= SHORT_REPLY_CHARS:
         return [clean] if clean else []
     sentences = split_sentences(clean)
     if len(sentences) <= 1:
         return [clean]
-    first, rest = sentences[0], " ".join(sentences[1:])
+    first, rest = sentences[0], sentences[1:]
     if len(first) > FIRST_PART_MAX:  # long opener: cut at a clause so part 0 renders fast
         cut = first.rfind(", ", 0, FIRST_PART_MAX)
         if cut >= 30:
-            first, rest = first[:cut + 1].rstrip(), (first[cut + 1:].strip() + " " + rest).strip()
-    return [first, rest]
+            first, rest = first[:cut + 1].rstrip(), [first[cut + 1:].strip()] + rest
+    chunks: list[str] = []
+    for sentence in rest:
+        if chunks and len(chunks) < MAX_PARTS - 1 and len(chunks[-1]) + 1 + len(sentence) <= CHUNK_CHARS:
+            chunks[-1] += " " + sentence
+        elif len(chunks) < MAX_PARTS - 1:
+            chunks.append(sentence)
+        else:  # out of part slots: fold the tail into the last part
+            chunks[-1] += " " + sentence
+    return [first] + chunks
 
 
 def _discard(future: Future) -> None:
@@ -79,7 +91,7 @@ class TimingLog:
 
     @staticmethod
     def line(row: dict[str, Any]) -> str:
-        keys = ("upload", "stt", "llm", "tts_first_byte", "tts_total", "first_audio", "parts", "cached")
+        keys = ("upload", "stt", "llm", "tts_first_byte", "tts_total", "first_audio", "tts_parts_ms", "parts", "cached")
         return "turn_timing " + " ".join(f"{k}={row.get(k)}" for k in keys if k in row)
 
 
@@ -107,6 +119,7 @@ class SpeakPlanner:
             finally:
                 done_ms = round((time.perf_counter() - began) * 1000)
                 with lock:
+                    row.setdefault("tts_parts_ms", [None] * len(parts))[index] = done_ms  # per sentence
                     if index == 0:
                         row["tts_first_byte"] = done_ms
                         if "stt" in row and "llm" in row:

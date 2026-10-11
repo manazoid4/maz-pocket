@@ -19,6 +19,7 @@ import pyttsx3
 from . import netpool
 
 from .config import Settings
+from .voiceaudio import KokoroEngine, normalize_wav
 from .voices import ADRIAN_ID, VoiceService
 
 
@@ -49,6 +50,10 @@ class SpeechOut:
         self.voices = voices or VoiceService(settings)
         self.voices._synth = self._fish_voice
         self.cache_hits = 0
+        self.kokoro = None
+        if settings.tts_provider == "kokoro":
+            self.kokoro = KokoroEngine(Path(settings.kokoro_dir).expanduser() if settings.kokoro_dir
+                                       else self.voices.dir / "kokoro", settings.kokoro_voice, settings.kokoro_speed)
 
     def _cache_file(self, text: str, voice: str) -> Path | None:
         norm = _norm(text)
@@ -106,6 +111,7 @@ class SpeechOut:
             data = (data[:4] + struct.pack("<I", len(data) - 8) + data[8:i + 4]
                     + struct.pack("<I", len(data) - i - 8) + data[i + 8:])
         path.write_bytes(data)
+        normalize_wav(path)  # device-native 16 kHz mono, even loudness (no-op if Fish sent something odd)
 
     def synthesize(self, text: str) -> Path:
         if not self.settings.tts_enabled:
@@ -114,6 +120,21 @@ class SpeechOut:
         if not clean:
             raise RuntimeError("empty_tts_text")
         clean = clean[:1400]
+
+        if self.kokoro is not None:
+            # Local engine chosen: no cloud, and no silent switch to another provider. Errors are explicit.
+            handle = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            handle.close()
+            path = Path(handle.name)
+            try:
+                self.kokoro.synth(clean, path)
+            except Exception:
+                path.unlink(missing_ok=True)
+                log.warning("kokoro tts failed", exc_info=True)
+                raise
+            self.last_provider = "kokoro"
+            log.info("tts_provider=kokoro voice=%s bytes=%d", self.kokoro.voice, path.stat().st_size)
+            return path
 
         voice = self.voices.current()
         cached = self._cache_file(clean, voice)

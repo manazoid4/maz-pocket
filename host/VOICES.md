@@ -40,3 +40,19 @@ An id Fish rejects (400/404/422) is logged once and the selection reverts to Adr
 single Fish call as previews with the configured free model (`MAZ_TTS_MODEL`), no
 fallback voice. Use it from the phone page (VOICE tab, SAY card) or on the device:
 Tools > Say, type, ENTER (downloads the WAV and plays it like a reply). Not cached.
+
+## Local Kokoro voice (optional, free, offline)
+
+Set `MAZ_TTS_PROVIDER=kokoro` (default stays `fish`; Core never switches provider on its own,
+a Kokoro problem is a clear 503, not a fallback). Setup:
+
+1. `pip install kokoro-onnx`
+2. Put `kokoro-v1.0.int8.onnx` (92 MB) and `voices-v1.0.bin` (28 MB) in `<data_dir>/kokoro/`
+   (or set `MAZ_KOKORO_DIR`). From github.com/thewh1teagle/kokoro-onnx releases, tag `model-files-v1.0`.
+3. Optional: `MAZ_KOKORO_VOICE` (default `bf_emma`; also `af_heart`, `bm_george`, `am_michael`), `MAZ_KOKORO_SPEED`.
+4. Restart Core.
+
+All replies (Fish or Kokoro) are written as the device plays them: 16 kHz mono 16-bit WAV,
+resampled once on the host and RMS-normalised to about -21 dBFS with a -1 dBFS peak limit.
+Replies are streamed as up to 4 parts (first sentence alone); `/core/timings` and the
+`turn_timing` log line carry `tts_parts_ms` (per part) beside `tts_first_byte`.

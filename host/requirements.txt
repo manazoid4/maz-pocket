@@ -20,3 +20,6 @@ esptool==4.8.1
 pyttsx3==2.98
 pyperclip>=1.8
 sounddevice>=0.4
+
+# Optional local natural voice (MAZ_TTS_PROVIDER=kokoro); also needs the model files, see VOICES.md.
+# kokoro-onnx>=0.6
