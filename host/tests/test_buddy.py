@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from mazhost import buddy as buddy_mod
 from mazhost.app import create_app
 from mazhost.config import Settings
 
@@ -32,15 +33,53 @@ def test_request_pending_decide():
     assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] is None
     c.post("/buddy/decide", json={"id": rid, "decision": "deny"}, headers=H)
     assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] == "deny"
+    late_allow = c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H)
+    assert late_allow.status_code == 200 and late_allow.json()["decision"] == "deny"
     assert c.get("/buddy/pending", headers=H).json()["pending"] == []
 
 
-def test_allow_all_session():
+def test_allow_all_is_rejected_without_changing_pending_requests():
     c = api()
     r1 = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["id"]
-    c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H)
-    assert c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()["decision"] == "allow"
-    assert c.post("/buddy/request", json={"tool": "Bash", "session_id": "x"}, headers=H).json()["decision"] is None
+    r2 = c.post("/buddy/request", json={"tool": "Write"}, headers=H).json()["id"]
+
+    for rid in (r1, r2):
+        response = c.post("/buddy/decide", json={"id": rid, "decision": "allow_all"}, headers=H)
+        assert response.status_code == 400
+        assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] is None
+
+    response = c.post("/buddy/allow-all", json={"session_id": "s", "on": True}, headers=H)
+    assert response.status_code == 400
+    assert {p["id"] for p in c.get("/buddy/pending", headers=H).json()["pending"]} == {r1, r2}
+    for session_id in ("s", ""):
+        later = c.post("/buddy/request", json={"tool": "Read", "session_id": session_id}, headers=H)
+        assert later.status_code == 200 and later.json()["decision"] is None
+
+
+def test_expired_request_cannot_be_allowed_or_grant_later_requests(monkeypatch):
+    now = {"value": 100.0}
+    monkeypatch.setattr(buddy_mod.time, "monotonic", lambda: now["value"])
+    c = api()
+    created = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s",
+                                                "ttl_seconds": 10}, headers=H)
+    assert created.status_code == 200
+    rid = created.json()["id"]
+
+    now["value"] = 110.0
+    response = c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H)
+    assert response.status_code == 409
+    assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] == "expired"
+    assert c.get("/buddy/pending", headers=H).json()["pending"] == []
+
+    later = c.post("/buddy/request", json={"tool": "Write", "session_id": "s"}, headers=H)
+    assert later.status_code == 200 and later.json()["decision"] is None
+
+
+def test_request_ttl_is_bounded():
+    c = api()
+    for ttl in (0, -1, 61, 600):
+        response = c.post("/buddy/request", json={"tool": "Bash", "ttl_seconds": ttl}, headers=H)
+        assert response.status_code == 422
 
 
 def test_auth_required():

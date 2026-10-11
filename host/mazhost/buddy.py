@@ -12,12 +12,14 @@ from pydantic import BaseModel, Field
 
 MAX_ITEMS = 50
 MAX_EVENTS = 20
+MAX_REQUEST_TTL_SECONDS = 60
 
 
 class BuddyRequest(BaseModel):
     tool: str = Field(min_length=1, max_length=120)
     summary: str = Field(default="", max_length=200)
     session_id: str = Field(default="", max_length=120)
+    ttl_seconds: int = Field(default=MAX_REQUEST_TTL_SECONDS, ge=1, le=MAX_REQUEST_TTL_SECONDS)
 
 
 class BuddyDecision(BaseModel):
@@ -41,9 +43,18 @@ class Buddy:
     def __init__(self) -> None:
         self._cv = threading.Condition()
         self._items: dict[str, dict] = {}
-        self._allow_all: set[str] = set()
         self._events: deque[dict] = deque(maxlen=MAX_EVENTS)
         self._event_id = 0
+
+    @staticmethod
+    def _public(item: dict) -> dict:
+        return {key: value for key, value in item.items() if not key.startswith("_")}
+
+    def _expire(self, item: dict, now: float | None = None) -> None:
+        current = time.monotonic() if now is None else now
+        if item["decision"] is None and current >= item["_expires_at"]:
+            item["decision"] = "expired"
+            self._cv.notify_all()
 
     def post_event(self, kind: str, text: str, source: str = "") -> dict:
         with self._cv:
@@ -58,15 +69,16 @@ class Buddy:
             return {"ok": True, "events": [dict(e) for e in self._events if e["id"] > since],
                     "last": self._event_id}
 
-    def request(self, tool: str, summary: str, session_id: str = "") -> dict:
+    def request(self, tool: str, summary: str, session_id: str = "",
+                ttl_seconds: int = MAX_REQUEST_TTL_SECONDS) -> dict:
         with self._cv:
             rid = uuid.uuid4().hex[:8]
-            auto = "allow" if session_id and session_id in self._allow_all else None
             self._items[rid] = {"id": rid, "tool": tool, "summary": summary,
-                                "session_id": session_id, "t": time.time(), "decision": auto}
+                                "session_id": session_id, "t": time.time(), "decision": None,
+                                "_expires_at": time.monotonic() + ttl_seconds}
             while len(self._items) > MAX_ITEMS:
                 self._items.pop(next(iter(self._items)))  # dicts keep insertion order
-            return dict(self._items[rid])
+            return self._public(self._items[rid])
 
     def state(self, rid: str, wait: float = 0) -> dict:
         end = time.monotonic() + wait
@@ -75,35 +87,33 @@ class Buddy:
                 item = self._items.get(rid)
                 if item is None:
                     return {"id": rid, "decision": None, "known": False}
-                if item["decision"] or time.monotonic() >= end:
+                now = time.monotonic()
+                self._expire(item, now)
+                if item["decision"] or now >= end:
                     return {"id": rid, "decision": item["decision"], "known": True}
-                self._cv.wait(end - time.monotonic())
+                self._cv.wait(max(0, min(end, item["_expires_at"]) - now))
 
     def pending(self) -> list[dict]:
         with self._cv:
-            return [dict(i) for i in self._items.values() if not i["decision"]]
+            items = list(self._items.values())
+            now = time.monotonic()
+            for item in items:
+                self._expire(item, now)
+            return [self._public(i) for i in items if not i["decision"]]
 
     def decide(self, rid: str, decision: str) -> dict:
+        if decision == "allow_all":
+            raise ValueError("automatic_approval_disabled")
         with self._cv:
             item = self._items.get(rid)
             if item is None:
                 raise KeyError(rid)
+            self._expire(item)
             if item["decision"]:
-                return dict(item)
-            if decision == "allow_all":
-                if item["session_id"]:
-                    self._allow_all.add(item["session_id"])
-                for other in self._items.values():
-                    if not other["decision"] and other["session_id"] == item["session_id"]:
-                        other["decision"] = "allow"
-            else:
-                item["decision"] = decision
+                return self._public(item)
+            item["decision"] = decision
             self._cv.notify_all()
-            return dict(item)
-
-    def set_allow_all(self, session_id: str, on: bool) -> None:
-        with self._cv:
-            (self._allow_all.add if on else self._allow_all.discard)(session_id)
+            return self._public(item)
 
 
 def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
@@ -111,7 +121,7 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
 
     @api.post("/buddy/request")
     def buddy_request(body: BuddyRequest):
-        return buddy.request(body.tool, body.summary, body.session_id)
+        return buddy.request(body.tool, body.summary, body.session_id, body.ttl_seconds)
 
     @api.get("/buddy/state")
     def buddy_state(id: str, wait: float = 0):
@@ -123,15 +133,21 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
 
     @api.post("/buddy/decide")
     def buddy_decide(body: BuddyDecision):
+        if body.decision == "allow_all":
+            raise HTTPException(400, "automatic_approval_disabled")
         try:
-            return buddy.decide(body.id, body.decision)
+            result = buddy.decide(body.id, body.decision)
         except KeyError:
             raise HTTPException(404, "request_not_found")
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        if result["decision"] == "expired":
+            raise HTTPException(409, "request_expired")
+        return result
 
     @api.post("/buddy/allow-all")
     def buddy_allow_all(body: AllowAll):
-        buddy.set_allow_all(body.session_id, body.on)
-        return {"ok": True, "session_id": body.session_id, "on": body.on}
+        raise HTTPException(400, "automatic_approval_disabled")
 
     @api.post("/buddy/event")
     def buddy_event(body: BuddyEvent):
