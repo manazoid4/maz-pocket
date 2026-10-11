@@ -567,9 +567,13 @@ def create_app(
         device = core_service.cardputer_status()
         staged = fw.manifest()
         running = str(device.get("fw_build") or "")
+        seen = core_service.device_seen_at
         return {
             "device": device,
             "online": "version" in device,
+            # Read-only truth for the UI: when Core last had proof the device was alive (None = not since Core started).
+            "last_seen_ago": None if seen is None else max(0, int(time.time() - seen)),
+            "device_ip": core_service.device_ip,
             "hub_fw": staged and {k: staged.get(k) for k in ("version", "sha", "size")},
             "update_available": bool(staged and running and staged.get("sha") and staged["sha"] != running),
             "hub_update": updates.brief(),

@@ -69,3 +69,31 @@ def test_action_whitelist():
     bad = ["launcher", "pc:lock", "key:4,97", "update;reboot", "open:../x", "key:4,97,0,1", "reconnect"]
     assert all(_DEVICE_ACTION.fullmatch(a) for a in ok)
     assert not any(_DEVICE_ACTION.fullmatch(a) for a in bad)
+
+
+def test_last_seen_is_unknown_until_the_device_proves_it_is_alive():
+    svc = _service(lambda request: httpx.Response(200, json={"version": "1.0.2"}))
+    assert svc.device_seen_at is None
+    svc.cardputer_status()
+    assert svc.device_seen_at is not None
+
+
+def test_offline_device_never_refreshes_last_seen():
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    svc = _service(handler)
+    assert svc.cardputer_status()["ok"] is False
+    assert svc.device_seen_at is None
+
+
+def test_core_device_endpoint_reports_offline_honestly(tmp_path):
+    from fastapi.testclient import TestClient
+    from mazhost.app import create_app
+
+    token = "test-token-that-is-not-default"
+    client = TestClient(create_app(Settings(token=token, cardputer_url="http://127.0.0.1:9", work_dir=str(tmp_path / "w"), _env_file=None)))
+    assert client.get("/core/device").status_code == 401
+    body = client.get("/core/device", headers={"Authorization": f"Bearer {token}"}).json()
+    assert body["online"] is False and body["last_seen_ago"] is None and body["device_ip"] is None
+    assert body["update_available"] is False  # offline device must never read as "up to date" or "outdated"

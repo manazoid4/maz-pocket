@@ -57,6 +57,7 @@ class MazCore:
         self.settings = settings
         self.client = client or httpx.Client(timeout=12)
         self.device_ip: str | None = None
+        self.device_seen_at: float | None = None  # wall time of the last proof the device was alive
         self._cache_lock = threading.Lock()
         self._summary_cache: list[dict[str, Any]] = []
         self._summary_cache_at = 0.0
@@ -439,6 +440,7 @@ class MazCore:
         works even where mazpocket.local (mDNS) does not resolve."""
         if ip and is_lan_ip(ip) and not ip.startswith("127."):
             self.device_ip = ip
+            self.device_seen_at = time.time()
 
     def _cardputer_bases(self) -> list[str]:
         bases = []
@@ -464,7 +466,10 @@ class MazCore:
         try:
             response = self._cardputer("GET", "/api/status", timeout=3)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            if isinstance(data, dict) and "version" in data:
+                self.device_seen_at = time.time()
+            return data
         except (CoreError, httpx.HTTPError, ValueError) as error:
             return {"ok": False, "error": f"cardputer_unreachable:{error}"}
 

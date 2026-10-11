@@ -32,3 +32,11 @@ def test_ui_public_exemption_is_exact(tmp_path):
     c = _client(tmp_path)
     for path in ["/ui/", "/ui/x", "/uix"]:
         assert c.get(path, headers=FUNNEL, follow_redirects=False).status_code in (401, 404, 307), path
+
+
+def test_ui_has_five_sections_and_never_embeds_a_token(tmp_path):
+    html = _client(tmp_path).get("/ui").text
+    for section in ("now", "approvals", "inbox", "device", "settings"):
+        assert f'id="v-{section}"' in html, section
+    assert TOKEN not in html and "Bearer test" not in html
+    assert 'href="/control/"' in html  # the phone surface is linked, not hidden

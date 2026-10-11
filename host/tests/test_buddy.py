@@ -180,3 +180,10 @@ def test_hook_sends_project(monkeypatch, capsys):
     hook.call = lambda m, p, body=None, timeout=10: (sent.append(body), orig(m, p, body, timeout))[1]
     hook.main()
     assert sent[0]["project"] == "maz-pocket"
+
+
+def test_pending_items_carry_seconds_left_for_the_countdown():
+    c = api()
+    c.post("/buddy/request", json={"tool": "Bash", "summary": "npm test", "project": "p"}, headers=H)
+    item = c.get("/buddy/pending", headers=H).json()["pending"][0]
+    assert 0 < item["left"] <= 60 and item["summary"] == "npm test" and item["project"] == "p"

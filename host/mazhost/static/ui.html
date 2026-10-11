@@ -3,212 +3,360 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<title>nod inbox</title>
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>nod Core</title>
+<link rel="icon" href="data:,">
 <style>
-/* One accent. Change --accent to re-theme. --ctl is the border for every interactive control (>=3:1 on --bg and --panel); --line is for faint dividers only. */
+/* One restrained palette. Orange is a fill for the main action only; text and focus use --accent-text / --focus
+   so every pair clears WCAG AA. --ctl is the border of every control (>= 3:1); --line is for quiet dividers only. */
 :root {
-  --bg: #0e0f11; --panel: #16181b; --line: #25282d; --ctl: #67717E; --text: #e8e6e1; --dim: #8a8e96;
-  --accent: #f2b45a; --accent-ink: #1a1203; --bad: #ff7b72; --ok: #8fd19e;
-  --gutter: 16px; --barh: 0px;
-  --mono: ui-monospace, "SF Mono", Consolas, monospace;
-  font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light dark;
+  --bg: #F6F6F3; --surface: #FFFFFF; --ink: #151615; --muted: #4B4E4A; --line: #C9CBC6; --ctl: #797C77;
+  --accent: #FF6B1A; --accent-ink: #151615; --accent-text: #A33A00; --focus: #151615;
+  --ok: #1B6B38; --bad: #B3261E; --warn: #7A5200; --on-bad: #FFFFFF;
+  --font: Aptos, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --mono: "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --gutter: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121311; --surface: #1A1B19; --ink: #EDEDE8; --muted: #A9ACA6; --line: #34362F; --ctl: #7E817B;
+    --accent-text: #FF9559; --focus: #FF9559;
+    --ok: #7FCF98; --bad: #FF8F86; --warn: #EBB84E; --on-bad: #151615;
+  }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--text); }
-body { min-height: 100vh; overflow-x: hidden; padding-bottom: var(--barh); }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 1rem/1.5 var(--font); overflow-x: hidden; }
 button, input, select, textarea { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--gutter); border-bottom: 1px solid var(--line); }
-h1 { margin: 0; font-size: 1.1rem; letter-spacing: .02em; white-space: nowrap; }
-h1 span { color: var(--accent); }
-#conn { color: var(--dim); font-size: .85rem; white-space: nowrap; }
-#app { display: grid; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; }
-section { padding: 20px var(--gutter); min-width: 0; }
-#detail { border-top: 1px solid var(--line); }
-.back { display: none; margin-bottom: 12px; }
-.detail-open #inbox { display: none; }
-body:not(.detail-open) #detail { display: none; }
-@media (min-width: 860px) {
-  #app { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: auto 1fr; grid-template-areas: "rec detail" "inbox detail"; }
-  #rec { grid-area: rec; } #inbox { grid-area: inbox; } #detail { grid-area: detail; border-top: 0; border-left: 1px solid var(--line); }
-  .detail-open #inbox { display: block; } body:not(.detail-open) #detail { display: block; }
-  body { padding-bottom: 0; }
-}
-@media (max-width: 859px) {
-  .back { display: inline-block; }
-  #rec { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--bg); border-top: 1px solid var(--ctl); padding: 10px var(--gutter) calc(10px + env(safe-area-inset-bottom)); }
-  #recbtn { min-height: 56px !important; border-radius: 28px !important; font-size: 1.2rem !important; }
-  #rec .hint { display: none; }
+a { color: var(--accent-text); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.skip { position: absolute; left: var(--gutter); top: -60px; background: var(--ink); color: var(--bg); padding: 8px 12px; z-index: 20; }
+.skip:focus { top: 8px; }
+[hidden] { display: none !important; }
+.wrap { max-width: 64rem; margin: 0 auto; padding: 0 var(--gutter); }
+
+/* header: wordmark, connection, phone link; then the five sections */
+header { border-bottom: 1px solid var(--line); background: var(--bg); }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 4px; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 1.25rem; letter-spacing: -.01em; margin: 0; }
+.brand span { color: var(--muted); font-weight: 400; }
+.bar-right { display: flex; align-items: center; gap: 16px; font-size: .875rem; flex-wrap: wrap; }
+nav { display: flex; gap: 0; margin: 0 calc(var(--gutter) * -1); padding: 0 calc(var(--gutter) - 8px); overflow-x: auto; }
+nav a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; font-size: .9375rem; }
+nav a:hover { color: var(--ink); }
+nav a[aria-current="page"] { color: var(--ink); font-weight: 650; border-bottom-color: var(--ink); }
+.count { font-variant-numeric: tabular-nums; background: var(--ink); color: var(--bg); min-width: 1.4em; padding: 0 5px; font-size: .75rem; font-weight: 650; text-align: center; line-height: 1.4; }
+@media (min-width: 640px) { nav { margin: 0; padding: 0; } nav a { padding: 0 14px 0 0; margin-right: 12px; } }
+
+/* status = shape + words, never colour alone */
+.st { display: inline-flex; align-items: center; gap: 8px; }
+.st i { display: inline-block; width: 10px; height: 10px; flex: none; }
+.st.ok i { background: var(--ok); border-radius: 50%; }
+.st.off i { border: 2px solid var(--muted); border-radius: 50%; }
+.st.warn i { background: var(--warn); clip-path: polygon(50% 0, 100% 100%, 0 100%); width: 12px; height: 11px; }
+.st.bad i { background: var(--bad); width: 10px; height: 10px; transform: rotate(45deg) scale(.85); }
+.st.unk i { border: 2px dotted var(--muted); border-radius: 50%; }
+.st.ok { color: var(--ok); } .st.warn { color: var(--warn); } .st.bad { color: var(--bad); }
+.st.off, .st.unk { color: var(--muted); }
+.st b { font-weight: 650; }
+
+main.wrap { padding-top: 32px; padding-bottom: 64px; min-height: 60vh; }
+h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -.015em; font-weight: 700; text-wrap: balance; }
+h1:focus { outline: none; }
+h2 { font-size: 1.125rem; line-height: 1.3; margin: 40px 0 12px; font-weight: 650; }
+h3 { font-size: 1rem; margin: 0; font-weight: 650; }
+.lede { color: var(--muted); max-width: 65ch; margin: 0 0 24px; text-wrap: pretty; }
+.hint, .meta { color: var(--muted); font-size: .875rem; }
+.mono { font-family: var(--mono); font-size: .9em; overflow-wrap: anywhere; }
+kbd { font: inherit; font-size: .8125rem; border: 1px solid var(--ctl); padding: 0 5px; }
+
+/* banner: offline Core / locked / errors, in plain words with one next step */
+.banner { border: 1px solid var(--ctl); background: var(--surface); padding: 16px; margin: 16px 0 0; }
+.banner.bad { border-color: var(--bad); }
+.banner p { margin: 0 0 12px; max-width: 65ch; }
+.banner p:last-child { margin-bottom: 0; }
+.banner strong { display: block; margin-bottom: 4px; }
+.banner form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.banner input { flex: 1 1 14rem; min-width: 0; }
+
+/* controls */
+.btn { background: var(--surface); border: 1px solid var(--ctl); padding: 8px 16px; min-height: 44px; cursor: pointer; font-weight: 500; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn:disabled { color: var(--muted); border-style: dashed; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--ink); color: var(--accent-ink); font-weight: 650; }
+.btn.primary:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 86%, white); border-color: var(--ink); }
+.btn.primary:disabled { background: var(--surface); color: var(--muted); border-color: var(--ctl); }
+.btn.deny { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 650; }
+.btn.deny:disabled { background: var(--surface); color: var(--muted); border-color: var(--ctl); }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--accent-text); padding-inline: 8px; }
+.btn.quiet:hover:not(:disabled) { border-color: var(--ctl); }
+input[type=text], input[type=password], input:not([type]), select, textarea { background: var(--surface); border: 1px solid var(--ctl); padding: 8px 12px; min-height: 44px; border-radius: 0; }
+textarea { width: 100%; min-height: 112px; resize: vertical; }
+label { font-size: .875rem; color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+
+/* facts: label above value on phones, two columns from 640px */
+.facts { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.facts > div { padding: 12px 0; border-top: 1px solid var(--line); min-width: 0; }
+.facts > div:last-child { border-bottom: 1px solid var(--line); }
+.facts dt { color: var(--muted); font-size: .875rem; }
+.facts dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.facts dd .meta { display: block; margin-top: 2px; }
+@media (min-width: 640px) {
+  .facts > div { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 16px; align-items: baseline; }
+  .facts dd { margin: 0; }
 }
 
-/* record */
-#rec { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px var(--gutter) 12px; }
-#recbtn { width: 100%; max-width: 420px; min-height: 84px; border-radius: 42px; border: 0; cursor: pointer; background: var(--accent); color: var(--accent-ink); font-size: 1.35rem; font-weight: 650; }
-#recbtn[data-s="recording"] { background: var(--bad); color: #200503; }
-#recbtn:disabled { opacity: .6; cursor: not-allowed; }
-#recbtn[data-s="transcribing"]:disabled { cursor: progress; }
-#recline { display: flex; gap: 10px; justify-content: center; color: var(--dim); }
-#recline.empty-line { display: none; }
-#recstate { overflow-wrap: anywhere; text-align: center; }
-#recstate[data-s="saved"] { color: var(--ok); }
-#recstate[data-s="recording"] { color: var(--text); }
+/* lists: needs, approvals, notes */
+.items { list-style: none; margin: 0; padding: 0; }
+.items > li { border-top: 1px solid var(--line); padding: 16px 0; }
+.items > li:last-child { border-bottom: 1px solid var(--line); }
+.item-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; }
+.item-body { margin: 6px 0 0; overflow-wrap: anywhere; }
+.empty { border: 1px dashed var(--ctl); padding: 24px 16px; color: var(--muted); max-width: 65ch; }
+.empty p { margin: 0; }
+.empty p + p { margin-top: 8px; }
+.empty strong { color: var(--ink); }
+
+/* approvals */
+.req { background: var(--surface); border: 1px solid var(--ctl); padding: 16px; margin: 0 0 16px; }
+.req .cmd { font-family: var(--mono); font-size: .9375rem; background: var(--bg); border: 1px solid var(--line); padding: 12px; margin: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14rem; overflow: auto; }
+.req .row { margin-top: 12px; }
+.req .facts > div { padding: 8px 0; }
+@media (min-width: 640px) { .req .facts > div { grid-template-columns: 8rem minmax(0, 1fr); gap: 12px; } }
+.req .row .btn { flex: 1 1 10rem; }
+.req.gone { opacity: .7; }
+.left { font-variant-numeric: tabular-nums; font-weight: 650; }
+.reqs { list-style: none; margin: 0; padding: 0; }
+
+/* inbox */
+.capture { margin-bottom: 24px; }
+#recbtn { width: 100%; max-width: 28rem; min-height: 56px; border: 1px solid var(--ink); cursor: pointer; background: var(--accent); color: var(--accent-ink); font-size: 1.125rem; font-weight: 650; }
+#recbtn[data-s="recording"] { background: var(--bad); color: var(--on-bad); }
+#recbtn:disabled { background: var(--surface); color: var(--muted); border-color: var(--ctl); border-style: dashed; cursor: not-allowed; }
+#recline { display: flex; gap: 12px; margin-top: 8px; color: var(--muted); min-height: 1.5em; }
+#recstate[data-s="saved"] { color: var(--ok); font-weight: 650; }
+#recstate[data-s="error"] { color: var(--bad); font-weight: 650; }
 #timer { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-#level { display: none; width: 100%; max-width: 420px; height: 8px; border-radius: 4px; border: 1px solid var(--ctl); overflow: hidden; }
+#level { display: none; width: 100%; max-width: 28rem; height: 8px; border: 1px solid var(--ctl); margin-top: 8px; overflow: hidden; }
 #level.on { display: block; }
 #level i { display: block; height: 100%; width: 100%; background: var(--ok); transform-origin: left; transform: scaleX(0); }
 @media (prefers-reduced-motion: reduce) { #level { display: none !important; } }
-#sendfail { display: none; width: 100%; max-width: 420px; padding: 10px 12px; border: 1px solid var(--bad); border-radius: 8px; }
+#sendfail { display: none; margin-top: 12px; padding: 12px; border: 1px solid var(--bad); max-width: 28rem; }
 #sendfail.show { display: block; }
-#sendfail p { margin: 0 0 8px; color: var(--bad); font-weight: 600; }
-#sendfail .row { margin-top: 0; }
-.hint { color: var(--dim); font-size: .8rem; }
-kbd { border: 1px solid var(--ctl); border-radius: 4px; padding: 0 5px; font: inherit; font-size: .8rem; }
-@media (prefers-reduced-motion: no-preference) {
-  #recbtn[data-s="recording"] { animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(255,123,114,.18); } }
-}
+#sendfail p { margin: 0; color: var(--bad); font-weight: 650; }
+details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--accent-text); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.chip { border: 1px solid var(--ctl); background: transparent; padding: 4px 14px; min-height: 44px; cursor: pointer; color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 650; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+@media (min-width: 880px) { .split { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 40px; } }
+@media (max-width: 879px) { .detail-open #inbox-left { display: none; } body:not(.detail-open) #detail { display: none; } .back { display: inline-block; } }
+.back { display: none; margin-bottom: 12px; }
+#list { list-style: none; margin: 0; padding: 0; }
+#list li button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px 8px; cursor: pointer; min-height: 44px; }
+#list li:last-child button { border-bottom: 1px solid var(--line); }
+#list li button:hover { background: var(--surface); }
+#list li button[aria-current="true"] { background: var(--surface); outline: 1px solid var(--ink); outline-offset: -1px; }
+.sum { display: block; overflow-wrap: anywhere; }
+.st-done .sum { color: var(--muted); text-decoration: line-through; }
+.tag { font-weight: 650; color: var(--ink); }
+#detail h2 { margin: 0 0 4px; font-size: 1.375rem; overflow-wrap: anywhere; }
+#detail h3 { margin: 24px 0 6px; color: var(--muted); font-weight: 600; font-size: .875rem; }
+#detail ul { margin: 0; padding-left: 20px; }
+#transcript { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line); padding: 12px; font-size: .9375rem; }
+#proj { max-width: 100%; }
 
-/* type */
-details { margin-bottom: 18px; }
-summary { cursor: pointer; color: var(--dim); display: block; min-height: 44px; padding: 10px 0; }
-#txt { width: 100%; min-height: 96px; margin-top: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; resize: vertical; }
-
-/* buttons + chips */
-.btn { background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px 14px; min-height: 44px; cursor: pointer; }
-.btn:hover { border-color: var(--text); }
-.btn:disabled { opacity: .6; cursor: not-allowed; }
-body.view-needs #app, body.view-device #app { display: none; }
-#device { max-width: 760px; margin: 0 auto; }
-#device[hidden] { display: none; }
-#devline { margin: 0 0 4px; overflow-wrap: anywhere; }
-#devline b { font-family: var(--mono); font-weight: 600; }
-#screen { display: block; width: 100%; max-width: 720px; aspect-ratio: 240 / 135; margin-top: 16px; image-rendering: pixelated; background: #000; border: 2px solid var(--ctl); border-radius: 8px; cursor: text; }
-#screen:focus-visible, #screen:focus { outline: none; border-color: var(--accent); }
+/* device screen */
+#screen { display: block; width: 100%; max-width: 720px; aspect-ratio: 240 / 135; margin-top: 12px; image-rendering: pixelated; background: #000; border: 1px solid var(--ctl); cursor: text; }
+#screen:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 #screen.off { opacity: .35; }
 #devkeys .btn { min-width: 56px; font-family: var(--mono); }
-@media (max-width: 520px) { #conn { display: none; } #tabs .chip { padding: 4px 12px; white-space: nowrap; } header { gap: 8px; } }
-#needs { max-width: 1100px; margin: 0 auto; }
-#needs[hidden] { display: none; }
-#needhead { margin: 0 0 8px; font-size: 2rem; }
-#needhead.zero { color: var(--ok); }
-#needlist { list-style: none; margin: 0; padding: 0; }
-#needlist li button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px; cursor: pointer; }
-#needlist li button:hover, #needlist li button[aria-current="true"] { background: var(--panel); }
-#needlist li button[aria-current="true"] { box-shadow: inset 3px 0 var(--accent); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.chip { border: 1px solid var(--ctl); background: transparent; border-radius: 999px; padding: 4px 16px; min-height: 44px; cursor: pointer; color: var(--dim); }
-.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 
-/* list */
-#list { list-style: none; margin: 0; padding: 0; }
-#list li button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px; cursor: pointer; }
-#list li button:hover { background: var(--panel); }
-#list li button[aria-current="true"] { background: var(--panel); box-shadow: inset 3px 0 var(--accent); }
-.sum { display: block; overflow-wrap: anywhere; }
-.meta { display: block; color: var(--dim); font-size: .82rem; }
-.tag { font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--text); }
-.st-done .sum { color: var(--dim); text-decoration: line-through; }
-.empty { color: var(--dim); padding: 20px 0; }
-#listerr { display: none; padding: 14px; margin-bottom: 12px; border: 1px solid var(--bad); border-radius: 8px; color: var(--bad); font-size: 1rem; }
-#listerr.show { display: block; }
-
-/* detail */
-#detail h2 { margin: 0 0 4px; font-size: 1.35rem; line-height: 1.3; overflow-wrap: anywhere; }
-#detail h3 { margin: 22px 0 6px; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
-#detail ul { margin: 0; padding-left: 20px; }
-#detail li { overflow-wrap: anywhere; }
-#transcript { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); border-radius: 8px; padding: 12px; font-size: .95rem; }
-.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 18px; }
-#proj { background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px; min-height: 44px; max-width: 100%; }
-
-/* token */
-#tok { display: none; margin: 16px var(--gutter) 0; padding: 14px; border: 1px solid var(--accent); border-radius: 8px; max-width: 1068px; }
-#tok.show { display: block; }
-#tok input { width: 100%; margin: 8px 0; padding: 8px; min-height: 44px; background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; }
-@media (min-width: 1132px) { #tok { margin-left: auto; margin-right: auto; } }
-#toast { position: fixed; bottom: calc(16px + var(--barh)); left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--ctl); border-radius: 8px; padding: 8px 14px; display: none; z-index: 9; }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; display: none; z-index: 9; max-width: calc(100vw - 32px); }
 #toast.show { display: block; }
+@media (prefers-reduced-motion: no-preference) { .btn, nav a { transition: background-color .15s ease-out, border-color .15s ease-out, color .15s ease-out; } }
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <header>
-  <h1><span>nod</span> inbox</h1>
-  <nav class="chips" id="tabs" role="group" aria-label="View" style="margin:0">
-    <button class="chip" type="button" id="tab-inbox" aria-pressed="true">Inbox</button>
-    <button class="chip" type="button" id="tab-needs" aria-pressed="false">Needs you <span id="needn"></span></button>
-    <button class="chip" type="button" id="tab-device" aria-pressed="false">Device</button>
-  </nav>
-  <span id="conn"></span>
+  <div class="wrap">
+    <div class="bar">
+      <p class="brand">nod <span>Core</span></p>
+      <div class="bar-right">
+        <span class="st unk" id="conn" role="status"><i aria-hidden="true"></i><span>Checking Core</span></span>
+        <a href="/control/">Phone control</a>
+      </div>
+    </div>
+    <nav aria-label="Sections" id="nav">
+      <a href="#now" data-v="now">Now</a>
+      <a href="#approvals" data-v="approvals">Approvals <span class="count" id="navn" hidden></span></a>
+      <a href="#inbox" data-v="inbox">Inbox</a>
+      <a href="#device" data-v="device">Device</a>
+      <a href="#settings" data-v="settings">Settings</a>
+    </nav>
+  </div>
 </header>
 
-<form id="tok" aria-live="polite">
-  <label for="tokin">Hub locked. Paste your hub token. It stays in this browser only.</label>
-  <input id="tokin" type="password" autocomplete="off" spellcheck="false">
-  <button class="btn primary" type="submit">Use token</button>
-</form>
+<div class="wrap" id="bannerbox">
+  <div class="banner bad" id="b-offline" role="alert" hidden>
+    <strong>Can't reach Core.</strong>
+    <p id="b-offline-text">Check that Core is running on the PC. This page tries again every few seconds.</p>
+    <button class="btn" type="button" id="b-retry">Try now</button>
+  </div>
+  <form class="banner" id="b-lock" aria-live="polite" hidden>
+    <strong>Core needs your token.</strong>
+    <p id="b-lock-text">This browser isn't signed in, or the token changed. Paste the Core token (MAZ_TOKEN in host/.env on the PC). It stays in this browser only.</p>
+    <label for="tokin">Core token</label>
+    <div class="row" style="margin-top:4px"><input id="tokin" type="password" autocomplete="off" spellcheck="false"><button class="btn primary" type="submit">Use token</button></div>
+  </form>
+</div>
 
-<section id="needs" aria-label="Needs you" hidden>
-  <h2 id="needhead"></h2>
+<main id="main" class="wrap">
+<noscript><p class="empty">This page needs JavaScript. Turn it on for this site, then reload.</p></noscript>
+
+<!-- ============ NOW ============ -->
+<section id="v-now" aria-labelledby="h-now" hidden>
+  <h1 id="h-now" tabindex="-1">Checking Core...</h1>
+  <p class="lede" id="nowsub">Asking Core what is going on.</p>
+  <dl class="facts" id="nowfacts">
+    <div><dt>Core</dt><dd id="nf-core">Checking...</dd></div>
+    <div><dt>Device</dt><dd id="nf-dev">Checking...</dd></div>
+    <div><dt>Agent</dt><dd id="nf-agent">Checking...</dd></div>
+  </dl>
+  <h2>Needs you</h2>
   <div id="needwarn" class="hint" role="status"></div>
-  <ul id="needlist"></ul>
-  <p class="hint"><kbd>J</kbd>/<kbd>K</kbd> move, <kbd>E</kbd> done, <kbd>H</kbd> snooze 24 h. Approvals are decided on the device.</p>
+  <ul class="items" id="needlist"></ul>
+  <div class="empty" id="needempty" hidden><p><strong>Nothing is waiting on you.</strong></p><p>Agent approvals, unproven pull requests and action lines from handoff notes appear here.</p></div>
 </section>
 
-<section id="device" aria-label="Device" hidden>
-  <p id="devline" role="status">Looking for nod...</p>
-  <div id="devsub" class="hint"></div>
-  <div class="row"><button id="devupd" class="btn primary" type="button" disabled>Update device</button><button id="devcheck" class="btn" type="button">Check for a new build</button></div>
-  <canvas id="screen" width="240" height="135" tabindex="0" aria-label="Live nod screen. Focus it and type to press keys on nod."></canvas>
-  <div class="row" id="devkeys">
-    <button class="btn" type="button" data-k="41">Esc</button><button class="btn" type="button" data-k="80">&larr;</button><button class="btn" type="button" data-k="82">&uarr;</button><button class="btn" type="button" data-k="81">&darr;</button><button class="btn" type="button" data-k="79">&rarr;</button><button class="btn" type="button" data-k="40">Enter</button>
-  </div>
-  <p class="hint">Click the screen, then type: your keys go to nod. Agent approvals still need a press on nod itself.</p>
+<!-- ============ APPROVALS ============ -->
+<section id="v-approvals" aria-labelledby="h-approvals" hidden>
+  <h1 id="h-approvals" tabindex="-1">Approvals</h1>
+  <p class="lede">An agent stops here before it runs something sensitive. Allow once covers that one request only. There is no always-allow. If nobody answers in 60 seconds the agent falls back to its own terminal prompt.</p>
+  <ul class="reqs" id="apprlist"></ul>
+  <div class="empty" id="apprempty" hidden><p><strong>No approvals waiting.</strong></p><p>When an agent asks to run a command, it shows here and on nod at the same time. Either one can answer.</p></div>
+  <h2>Phone grants</h2>
+  <p class="hint" id="grants" style="max-width:65ch">Checking...</p>
 </section>
 
-<main id="app">
-  <div id="rec">
-    <button id="recbtn" type="button" data-s="idle">Record</button>
-    <div id="level" aria-hidden="true"><i></i></div>
-    <div id="recline" class="empty-line"><span id="recstate" role="status" data-s="idle"></span><span id="timer" aria-hidden="true"></span></div>
-    <div id="sendfail" role="alert">
-      <p>Not sent.</p>
-      <div class="row"><button id="retry" class="btn primary" type="button">Retry</button><button id="dl" class="btn" type="button">Download .wav</button><button id="discard" class="btn" type="button">Discard</button></div>
+<!-- ============ INBOX ============ -->
+<section id="v-inbox" aria-labelledby="h-inbox" hidden>
+  <h1 id="h-inbox" tabindex="-1">Inbox</h1>
+  <p class="lede">Voice and typed brain dumps. Each one is sorted into a project with its actions, ideas and questions.</p>
+  <div class="split">
+    <div id="inbox-left">
+      <div class="capture" id="rec">
+        <button id="recbtn" type="button" data-s="idle">Record</button>
+        <div id="level" aria-hidden="true"><i></i></div>
+        <div id="recline"><span id="recstate" role="status" data-s="idle"></span><span id="timer" aria-hidden="true"></span></div>
+        <div id="sendfail" role="alert">
+          <p>Not sent.</p>
+          <div class="row" style="margin-top:8px"><button id="retry" class="btn primary" type="button">Retry</button><button id="dl" class="btn" type="button">Download .wav</button><button id="discard" class="btn" type="button">Discard</button></div>
+        </div>
+        <p class="hint" style="margin:8px 0 0">Hold <kbd>Space</kbd> to talk, or press Record to start and stop.</p>
+        <details style="margin-top:8px">
+          <summary>Type instead</summary>
+          <textarea id="txt" aria-label="Brain dump text" placeholder="Dump it here. Ctrl+Enter saves."></textarea>
+          <div class="row" style="margin-top:8px"><button id="save" class="btn primary" type="button">Save note</button></div>
+        </details>
+      </div>
+      <div class="chips" id="stchips" role="group" aria-label="Filter by status"></div>
+      <div class="chips" id="pjchips" role="group" aria-label="Filter by project"></div>
+      <div class="banner bad" id="listerr" role="alert" hidden></div>
+      <ul id="list"></ul>
     </div>
-    <div class="hint">Hold <kbd>Space</kbd> to talk, or click to start and stop.</div>
+    <div id="detail" aria-label="Note detail"></div>
   </div>
+</section>
 
-  <section id="inbox" aria-label="Inbox">
-    <details>
-      <summary>Type instead</summary>
-      <textarea id="txt" aria-label="Brain dump text" placeholder="Dump it here. Ctrl+Enter saves."></textarea>
-      <div class="row"><button id="save" class="btn primary" type="button">Save</button></div>
-    </details>
+<!-- ============ DEVICE ============ -->
+<section id="v-device" aria-labelledby="h-device" hidden>
+  <h1 id="h-device" tabindex="-1">Device</h1>
+  <p class="lede" id="devlede">Checking nod...</p>
+  <dl class="facts">
+    <div><dt>Core on the PC</dt><dd id="df-core">Checking...</dd></div>
+    <div><dt>Device</dt><dd id="df-state">Checking...</dd></div>
+    <div><dt>Last seen</dt><dd id="df-seen">Checking...</dd></div>
+    <div><dt>Firmware on the device</dt><dd id="df-fw">Checking...</dd></div>
+    <div><dt>Firmware staged on the PC</dt><dd id="df-staged">Checking...</dd></div>
+    <div><dt>Comparison</dt><dd id="df-cmp">Checking...</dd></div>
+    <div><dt>Battery and screen</dt><dd id="df-bat">Checking...</dd></div>
+    <div id="df-reportrow" hidden><dt>Last update attempt</dt><dd id="df-report"></dd></div>
+  </dl>
+  <div class="row">
+    <button id="devupd" class="btn primary" type="button" disabled>Update device</button>
+    <button id="devcheck" class="btn" type="button">Check for a new build</button>
+  </div>
+  <p class="hint" id="devupdwhy" style="margin:8px 0 0"></p>
+  <h2>Live screen</h2>
+  <details id="livebox">
+    <summary>Show nod's screen and keys</summary>
+    <canvas id="screen" width="240" height="135" tabindex="0" aria-label="Live nod screen. Focus it and type to press keys on nod."></canvas>
+    <p class="hint" id="screenwhy" role="status" style="margin:8px 0 0"></p>
+    <div class="row" id="devkeys">
+      <button class="btn" type="button" data-k="41" aria-label="Escape">Esc</button><button class="btn" type="button" data-k="80" aria-label="Left">&larr;</button><button class="btn" type="button" data-k="82" aria-label="Up">&uarr;</button><button class="btn" type="button" data-k="81" aria-label="Down">&darr;</button><button class="btn" type="button" data-k="79" aria-label="Right">&rarr;</button><button class="btn" type="button" data-k="40" aria-label="Enter">Enter</button>
+    </div>
+    <p class="hint">Click the screen, then type: your keys go to nod. Agent approvals are answered on the Approvals page or on nod itself.</p>
+  </details>
+</section>
 
-    <div class="chips" id="stchips" role="group" aria-label="Status filter"></div>
-    <div class="chips" id="pjchips" role="group" aria-label="Project filter"></div>
-    <div id="listerr" role="alert"></div>
-    <ul id="list"></ul>
-  </section>
-
-  <section id="detail" aria-label="Note detail"></section>
+<!-- ============ SETTINGS ============ -->
+<section id="v-settings" aria-labelledby="h-settings" hidden>
+  <h1 id="h-settings" tabindex="-1">Settings and health</h1>
+  <p class="lede">What Core is using, where to reach it, and a diagnostics file for when something looks wrong. Nothing here shows secrets.</p>
+  <h2>Model route</h2>
+  <dl class="facts">
+    <div><dt>Preferred route</dt><dd id="sf-pref">Checking...</dd></div>
+    <div><dt>Used last</dt><dd id="sf-active">Checking...</dd></div>
+    <div><dt>Health</dt><dd id="sf-health">Checking...</dd></div>
+    <div><dt>Fallback</dt><dd id="sf-fallback">Checking...</dd></div>
+  </dl>
+  <h2>Services</h2>
+  <dl class="facts">
+    <div><dt>Speech to text</dt><dd id="sf-stt">Checking...</dd></div>
+    <div><dt>Speech out</dt><dd id="sf-tts">Checking...</dd></div>
+    <div><dt>PC control</dt><dd id="sf-pc">Checking...</dd></div>
+  </dl>
+  <h2>Network</h2>
+  <dl class="facts">
+    <div><dt>This page</dt><dd id="sf-here"></dd></div>
+    <div><dt>Remote address</dt><dd id="sf-remote">Checking...</dd></div>
+    <div><dt>Tailnet IP</dt><dd id="sf-tail">Checking...</dd></div>
+    <div><dt>Device IP</dt><dd id="sf-devip">Checking...</dd></div>
+  </dl>
+  <h2>Updates</h2>
+  <dl class="facts">
+    <div><dt>Core version</dt><dd id="sf-ver">Checking...</dd></div>
+    <div><dt>Latest release</dt><dd id="sf-latest">Checking...</dd></div>
+  </dl>
+  <h2>Diagnostics</h2>
+  <p class="hint" style="max-width:65ch;margin:0">Saves one JSON file with versions, model route and update state. It has no tokens or keys, so it is safe to attach to a bug report.</p>
+  <div class="row">
+    <button class="btn" type="button" id="diag">Download diagnostics</button>
+    <button class="btn" type="button" id="sref">Refresh this page</button>
+    <button class="btn quiet" type="button" id="signout">Forget token in this browser</button>
+  </div>
+</section>
 </main>
 <div id="toast" role="status"></div>
 
 <script>
 "use strict";
-/* ---- all server contact lives here; adjust paths/fields in this one object ---- */
+/* ---- all server contact lives here ---- */
 const API = {
   token: "",
-  async call(method, path, { json, body, type, headers } = {}) {
-    const h = Object.assign({}, headers || {});
+  async call(method, path, { json, body, type } = {}) {
+    const h = {};
     if (this.token) h.Authorization = "Bearer " + this.token;
     if (json !== undefined) { h["Content-Type"] = "application/json"; body = JSON.stringify(json); }
     if (type) h["Content-Type"] = type;
     let r;
-    try { r = await fetch(path, { method, headers: h, body }); }
-    catch (e) { throw new ApiError(0, "Cannot reach Core: " + e.message); }
+    try { r = await fetch(path, { method, headers: h, body, cache: "no-store" }); }
+    catch (e) { throw new ApiError(0, "Cannot reach Core"); }
     let data = null;
     const raw = await r.text();
     try { data = raw ? JSON.parse(raw) : null; } catch (e) { data = { detail: raw.slice(0, 200) }; }
@@ -218,6 +366,12 @@ const API = {
     }
     return data || {};
   },
+  health: () => API.call("GET", "/health"),
+  summary: () => API.call("GET", "/buddy/summary"),
+  pending: () => API.call("GET", "/buddy/pending"),
+  decide: (id, decision) => API.call("POST", "/buddy/decide", { json: { id, decision } }),
+  diagnostics: () => API.call("GET", "/diagnostics"),
+  coreUpdate: () => API.call("GET", "/core/update"),
   list(status, project) {
     const q = new URLSearchParams();
     if (status) q.set("status", status);
@@ -225,9 +379,12 @@ const API = {
     return this.call("GET", "/dumps" + (q.toString() ? "?" + q : ""));
   },
   get: (id) => API.call("GET", "/dumps/" + encodeURIComponent(id)),
-  saveText: (text) => API.call("POST", "/dumps", { json: { text, source: "web" } }), // -> {dump_id, project}
+  saveText: (text) => API.call("POST", "/dumps", { json: { text, source: "web" } }),
   done: (id) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/done", { json: { agent: "web", note: "" } }),
+  assign: (id, project) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/assign", { json: { project } }),
   needs: () => API.call("GET", "/needs"),
+  needDone: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/done"),
+  needSnooze: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/snooze?hours=24"),
   device: () => API.call("GET", "/core/device"),
   devAction: (action) => API.call("POST", "/core/cardputer/action", { json: { action } }),
   hubCheck: () => API.call("POST", "/core/update/check"),
@@ -236,64 +393,255 @@ const API = {
     if (!r.ok) throw new ApiError(r.status, "HTTP " + r.status);
     return new Uint8Array(await r.arrayBuffer());
   },
-  needDone: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/done"),
-  needSnooze: (id) => API.call("POST", "/needs/" + encodeURIComponent(id) + "/snooze?hours=24"),
-  assign: (id, project) => API.call("POST", "/dumps/" + encodeURIComponent(id) + "/assign", { json: { project } }),
-  // Core's brain dump endpoint: body = audio bytes (WAV mono 16-bit), optional X-MAZ-Highlights header.
   audio: (blob) => API.call("POST", "/braindump/raw", { body: blob, type: blob.type || "audio/wav" }),
 };
 class ApiError extends Error { constructor(status, msg, detail) { super(msg); this.status = status; this.detail = detail; } }
 
-/* ---- tiny helpers ---- */
+/* ---- helpers (all server text goes in through textContent, never innerHTML) ---- */
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
 const arr = (v) => Array.isArray(v) ? v : [];
 const str = (v) => v == null ? "" : typeof v === "string" ? v : (v.text || v.title || v.summary || JSON.stringify(v));
-const narrow = () => matchMedia("(max-width: 859px)").matches;
-function age(iso) {
-  const t = Date.parse(iso); if (!t) return "";
-  const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return "just now";
+const short = (v) => (v || "").slice(0, 7);
+const narrow = () => matchMedia("(max-width: 879px)").matches;
+function agoS(s) {
+  if (s == null) return "";
+  if (s < 5) return "just now";
+  if (s < 60) return Math.floor(s) + " s ago";
   if (s < 3600) return Math.floor(s / 60) + " min ago";
   if (s < 86400) return Math.floor(s / 3600) + " h ago";
   return Math.floor(s / 86400) + " d ago";
 }
+function age(iso) { const t = Date.parse(iso); return t ? agoS(Math.max(0, (Date.now() - t) / 1000)) : ""; }
+const clock = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+// status with a shape and words: kind = ok | off | warn | bad | unk
+function st(kind, label, extra) {
+  const s = el("span", null, "st " + kind); s.append(el("i")); s.lastChild.setAttribute("aria-hidden", "true");
+  s.append(el("b", label));
+  if (extra) { const wrap = document.createDocumentFragment(); wrap.append(s, el("span", extra, "meta")); return wrap; }
+  return s;
+}
+function put(id, ...nodes) { const n = $(id); n.replaceChildren(...nodes); }
 let toastTimer;
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); }
-// Re-render without losing keyboard focus or scroll: elements carry data-key, focus goes back to the same key.
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3200); }
 function keepFocus(fn) {
   const a = document.activeElement, key = a && a.dataset && a.dataset.key, y = window.scrollY;
   fn();
   if (key) { const n = document.querySelector('[data-key="' + CSS.escape(key) + '"]'); if (n && n !== document.activeElement) n.focus({ preventScroll: true }); }
   window.scrollTo(0, y);
 }
-// "NEW" / "CLAIMED agent" / "DONE" then the rest of the meta line. All text via textContent.
+const safeUrl = (u) => { try { const x = new URL(u); return x.protocol === "https:" ? x.href : ""; } catch (e) { return ""; } };
+
+/* ---- auth: ?token= once -> localStorage -> stripped from the URL; token box on 401 ---- */
+const store = { get() { try { return localStorage.getItem("nod_token") || ""; } catch (e) { return ""; } }, set(v) { try { if (v) localStorage.setItem("nod_token", v); else localStorage.removeItem("nod_token"); } catch (e) {} } };
+(function initToken() {
+  const u = new URL(location.href), t = u.searchParams.get("token");
+  if (t) { store.set(t); u.searchParams.delete("token"); history.replaceState(null, "", u.pathname + u.search + u.hash); }
+  API.token = store.get();
+})();
+
+/* ---- connection state: one place decides what the header and banners say ---- */
+const C = { state: "unknown", detail: "", loaded: { health: false, device: false, summary: false, needs: false } };
+function setConn(state, detail) {
+  if (C.state === state && C.detail === (detail || "")) return;
+  C.state = state; C.detail = detail || "";
+  renderChrome(); renderAll();
+}
+function note(e) { // classify any failed call; only network failure and auth change the global state
+  if (e.status === 0) setConn("offline");
+  else if (e.status === 401) setConn("locked");
+  else if (e.status === 429) setConn("locked", "limited");
+  return e;
+}
+function good() { if (C.state !== "ok") setConn("ok"); }
+function renderChrome() {
+  const c = $("conn"), s = C.state;
+  c.className = "st " + (s === "ok" ? "ok" : s === "offline" ? "bad" : s === "locked" ? "warn" : "unk");
+  c.lastChild.textContent = s === "ok" ? "Core reachable" : s === "offline" ? "Core not reachable" : s === "locked" ? "Core locked" : "Checking Core";
+  $("b-offline").hidden = s !== "offline";
+  $("b-lock").hidden = s !== "locked";
+  $("b-offline-text").textContent = "Nothing at " + location.host + " answered. Check that Core is running on the PC (and that the PC is awake). This page tries again every few seconds.";
+  $("b-lock-text").textContent = C.detail === "limited"
+    ? "Too many wrong tokens from this device. Wait a minute, then paste the token again."
+    : "This browser isn't signed in, or the token changed. Paste the Core token (MAZ_TOKEN in host/.env on the PC). It stays in this browser only.";
+}
+$("b-lock").addEventListener("submit", (e) => {
+  e.preventDefault(); const v = $("tokin").value.trim(); if (!v) return;
+  API.token = v; store.set(v); $("tokin").value = ""; setConn("unknown"); poll(true);
+});
+$("b-retry").onclick = () => { poll(true); };
+$("signout").onclick = () => { store.set(""); API.token = ""; setConn("locked"); toast("Token forgotten. Paste it again to continue."); };
+
+/* ---- data (latest copy of each thing) ---- */
+const D = { health: null, device: null, summary: null, needs: null, pending: [], pendingAt: 0, diag: null, upd: null, settingsAt: 0 };
+const inflight = {};
+async function load(key, fn, apply) {
+  if (inflight[key]) return; inflight[key] = true;
+  try { const r = await fn(); good(); apply(r); C.loaded[key] = true; }
+  catch (e) { note(e); return e; }
+  finally { inflight[key] = false; }
+}
+const loadHealth = () => load("health", API.health, (r) => { D.health = r; renderAll(); });
+const loadSummary = () => load("summary", API.summary, (r) => { D.summary = r; renderAll(); });
+const loadNeeds = () => load("needs", API.needs, (r) => { D.needs = r; renderAll(); });
+const loadDevice = () => load("device", API.device, (r) => { D.device = r; renderAll(); });
+const loadPending = () => load("pending", API.pending, (r) => { D.pending = arr(r.pending); D.pendingAt = performance.now(); renderApprovals(); renderNav(); });
+
+/* ---- routing: five sections, hash-based so Back works and each can be bookmarked ---- */
+const VIEWS = { now: "Now", approvals: "Approvals", inbox: "Inbox", device: "Device", settings: "Settings" };
+let view = "now";
+function route(focusHead) {
+  const h = location.hash.slice(1);
+  view = VIEWS[h] ? h : "now";
+  for (const v of Object.keys(VIEWS)) $("v-" + v).hidden = v !== view;
+  for (const a of document.querySelectorAll("#nav a")) { if (a.dataset.v === view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); }
+  document.title = VIEWS[view] + " · nod Core";
+  if (focusHead) { const hd = $("h-" + view); hd.focus({ preventScroll: true }); window.scrollTo(0, 0); }
+  liveSync(); renderAll(); poll(true);
+}
+window.addEventListener("hashchange", () => route(true));
+
+/* ---- polling: cheap, only what the open section shows ---- */
+async function poll(force) {
+  if (document.hidden && !force) return;
+  const jobs = [loadSummary()];
+  if (view === "now") jobs.push(loadHealth(), loadDevice(), loadNeeds());
+  if (view === "approvals") jobs.push(loadPending(), loadHealth());
+  if (view === "inbox") jobs.push(refreshInbox());
+  if (view === "device") jobs.push(loadHealth(), loadDevice());
+  if (view === "settings" && (force || performance.now() - D.settingsAt > 60000)) { D.settingsAt = performance.now(); jobs.push(loadHealth(), loadDevice(), loadSettings()); }
+  await Promise.all(jobs);
+}
+setInterval(() => poll(false), 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
+
+/* ---- render: chrome + nav badge ---- */
+function renderNav() {
+  const n = D.summary ? D.summary.count : (D.pending.length || 0);
+  const b = $("navn"); b.hidden = !n; b.textContent = n || "";
+  b.setAttribute("aria-label", n + " waiting");
+}
+function renderAll() { renderNav(); if (view === "now") renderNow(); if (view === "device") renderDevice(); if (view === "settings") renderSettings(); if (view === "approvals") { renderApprovals(); renderGrants(); } }
+
+/* ---- NOW ---- */
+const TIER = { approvals: "Approval", prs: "Pull request, unproven", actions: "Your action" };
+function dur(s) { return s < 90 ? "just now" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h" : Math.floor(s / 86400) + " d"; }
+function deviceStatus(d) {
+  if (!d) return C.state === "locked" ? st("unk", "Unknown") : st("unk", "Checking...");
+  if (d.online) return st("ok", "Online");
+  return st("off", "Offline");
+}
+function renderNow() {
+  const items = D.needs ? arr(D.needs.items) : null, n = items ? items.length : 0;
+  const h = $("h-now"), sub = $("nowsub");
+  if (C.state === "offline") { h.textContent = "Core isn't answering"; sub.textContent = "Everything below is out of date until Core is back."; }
+  else if (C.state === "locked") { h.textContent = "Core is locked"; sub.textContent = "Paste the token above to see what is going on."; }
+  else if (!items) { h.textContent = "Checking Core..."; sub.textContent = "Asking Core what is going on."; }
+  else if (!n) { h.textContent = "Nothing needs you."; sub.textContent = D.device && !D.device.online ? "Nod is offline, so nothing can ask you for an approval on it right now." : "Agents and nod are quiet."; }
+  else { h.textContent = n === 1 ? "1 thing needs you." : n + " things need you."; sub.textContent = "Oldest first."; }
+
+  const hl = D.health;
+  put("nf-core", hl ? st("ok", "Running", "v" + hl.version + (hl.git_sha ? " (" + short(hl.git_sha) + ")" : "")) : C.state === "offline" ? st("bad", "Not reachable") : st("unk", C.state === "locked" ? "Unknown" : "Checking..."));
+  const dv = D.device;
+  if (dv && dv.online) put("nf-dev", deviceStatus(dv), el("span", " " + (dv.device.battery >= 0 ? "Battery " + dv.device.battery + "%. " : "") + "Firmware v" + dv.device.version, "meta"));
+  else if (dv) put("nf-dev", deviceStatus(dv), el("span", dv.last_seen_ago == null ? "Not seen since Core started." : "Last seen " + agoS(dv.last_seen_ago) + ".", "meta"));
+  else put("nf-dev", deviceStatus(null));
+  const sm = D.summary;
+  if (!sm) put("nf-agent", st("unk", C.state === "locked" ? "Unknown" : "Checking..."));
+  else if (sm.agent === "needs_you") put("nf-agent", st("warn", "Waiting on you"), el("span", sm.count + (sm.count === 1 ? " request" : " requests") + " to answer.", "meta"));
+  else if (sm.agent === "working") put("nf-agent", st("ok", "Active"), el("span", "Asked for an approval in the last 90 seconds.", "meta"));
+  else put("nf-agent", st("off", "Idle"), el("span", "No agent requests lately.", "meta"));
+
+  $("needwarn").textContent = D.needs ? arr(D.needs.warnings).join(" | ") : "";
+  $("needempty").hidden = !(items && !n);
+  keepFocus(() => {
+    const ul = $("needlist"); ul.replaceChildren();
+    for (const i of items || []) {
+      const li = el("li"), head = el("div", null, "item-head");
+      head.append(el("h3", i.title), el("span", [TIER[i.tier] || i.tier, i.project, dur(i.age)].filter(Boolean).join(" · "), "meta"));
+      li.append(head);
+      const url = i.tier === "prs" ? safeUrl(i.detail) : "";
+      if (i.detail) li.append(el("p", url ? "" : i.detail, "item-body" + (i.tier === "approvals" ? " mono" : "")));
+      if (url) { const a = el("a", url); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; li.lastChild.append(a); }
+      const row = el("div", null, "row");
+      if (i.tier === "approvals") { const a = el("a", "Review and answer", "btn primary"); a.href = "#approvals"; a.style.cssText = "display:inline-flex;align-items:center;text-decoration:none"; row.append(a); }
+      else {
+        const done = el("button", "Done", "btn"); done.type = "button"; done.dataset.key = "d:" + i.id;
+        done.onclick = async () => { try { await API.needDone(i.id); toast("Marked done"); loadNeeds(); } catch (e) { toast(note(e).message); } };
+        const snooze = el("button", "Snooze 24 h", "btn"); snooze.type = "button"; snooze.dataset.key = "z:" + i.id;
+        snooze.onclick = async () => { try { await API.needSnooze(i.id); toast("Snoozed for 24 hours"); loadNeeds(); } catch (e) { toast(note(e).message); } };
+        row.append(done, snooze);
+      }
+      li.append(row); ul.append(li);
+    }
+  });
+}
+
+/* ---- APPROVALS ---- */
+function renderApprovals() {
+  const list = arr(D.pending), ul = $("apprlist");
+  $("apprempty").hidden = !(C.loaded.pending && !list.length) || C.state === "offline" || C.state === "locked";
+  const sig = JSON.stringify(list.map((p) => p.id));
+  if (ul.dataset.sig === sig && !ul.dataset.dirty) return; ul.dataset.sig = sig; delete ul.dataset.dirty;
+  keepFocus(() => {
+    ul.replaceChildren();
+    for (const p of list) {
+      const li = el("li", null, "req"); li.dataset.id = p.id; li.dataset.left = String(p.left); li.dataset.at = String(D.pendingAt);
+      const head = el("div", null, "item-head");
+      head.append(el("h3", p.tool), el("span", (p.project || "no project") + " · asked " + agoS(Math.max(0, 60 - p.left)), "meta"));
+      li.append(head);
+      li.append(el("div", p.summary || "No command text came with this request.", "cmd"));
+      const facts = el("dl", null, "facts");
+      const f = (k, ...v) => { const d = el("div"); d.append(el("dt", k)); const dd = el("dd"); dd.append(...v); d.append(dd); facts.append(d); };
+      f("Agent session", el("span", p.session_id ? short(p.session_id) + (p.session_id.length > 7 ? "..." : "") : "not reported", "mono"));
+      f("Expires in", el("span", clock(p.left), "left"), " ", el("span", "then the agent asks in its terminal instead", "meta"));
+      li.append(facts);
+      const row = el("div", null, "row");
+      const deny = el("button", "Deny", "btn deny"); deny.type = "button"; deny.dataset.key = "deny:" + p.id;
+      const allow = el("button", "Allow once", "btn"); allow.type = "button"; allow.dataset.key = "allow:" + p.id;
+      deny.onclick = () => decide(p, "deny", li); allow.onclick = () => decide(p, "allow", li);
+      row.append(deny, allow); li.append(row); ul.append(li);
+    }
+  });
+}
+async function decide(p, decision, li) {
+  for (const b of li.querySelectorAll("button")) b.disabled = true;
+  try {
+    await API.decide(p.id, decision);
+    toast(decision === "deny" ? "Denied. The agent was told no." : "Allowed once.");
+    D.pending = D.pending.filter((x) => x.id !== p.id); renderApprovals(); loadSummary();
+  } catch (e) {
+    note(e);
+    if (e.status === 409) { toast("That request had already expired. The agent moved on to its terminal prompt."); loadPending(); }
+    else if (e.status === 404) { toast("Core no longer knows that request."); loadPending(); }
+    else { toast("Not sent: " + e.message + ". Try again."); for (const b of li.querySelectorAll("button")) b.disabled = false; }
+  }
+}
+// countdown: text only, once a second, no re-render (keeps focus and screen readers calm)
+setInterval(() => {
+  if (view !== "approvals") return;
+  for (const li of document.querySelectorAll("#apprlist .req")) {
+    const left = Math.max(0, Number(li.dataset.left) - (performance.now() - Number(li.dataset.at)) / 1000);
+    const n = li.querySelector(".left"); if (n) n.textContent = left > 0 ? clock(left) : "expired";
+    if (left <= 0 && !li.classList.contains("gone")) { li.classList.add("gone"); for (const b of li.querySelectorAll("button")) b.disabled = true; loadPending(); }
+  }
+}, 1000);
+function renderGrants() {
+  const a = D.health && D.health.authority, g = $("grants");
+  if (!a) { g.textContent = C.state === "ok" ? "Not available." : "Needs Core to answer."; return; }
+  if (!a.enabled) { g.textContent = "Phone control is switched off on this Core."; return; }
+  g.replaceChildren(a.pending + (a.pending === 1 ? " request is" : " requests are") + " waiting and " + a.active_grants + (a.active_grants === 1 ? " grant is" : " grants are") + " active. Time-limited power grants are approved on the phone, with its own sign-in. ");
+  const l = el("a", "Open phone control"); l.href = "/control/"; g.append(l, ".");
+}
+
+/* ---- INBOX (list, detail, recorder) ---- */
+const S = { status: "", project: "", dumps: [], selected: "", projects: new Set(), sig: null, chipSig: "", err: "" };
 function metaLine(d, parts) {
   const m = el("span", null, "meta");
   m.append(el("span", (String(d.status || "new").toUpperCase() + (d.claimed_by ? " " + d.claimed_by : "")).trim(), "tag"));
   const rest = parts.filter(Boolean).join(" · "); if (rest) m.append(" · " + rest);
   return m;
 }
-
-/* ---- auth: ?token= once -> localStorage -> stripped from URL; paste box on 401 ---- */
-const store = { get() { try { return localStorage.getItem("nod_token") || ""; } catch (e) { return ""; } }, set(v) { try { localStorage.setItem("nod_token", v); } catch (e) {} } };
-(function initToken() {
-  const u = new URL(location.href), t = u.searchParams.get("token");
-  if (t) { store.set(t); u.searchParams.delete("token"); history.replaceState(null, "", u.pathname + u.search + u.hash); }
-  API.token = store.get();
-})();
-let locked = false;
-function needToken(show) { locked = show; $("tok").classList.toggle("show", show); $("save").disabled = show; syncRec(); if (show) $("tokin").focus(); }
-$("tok").addEventListener("submit", (e) => { e.preventDefault(); const v = $("tokin").value.trim(); if (!v) return; API.token = v; store.set(v); $("tokin").value = ""; needToken(false); refresh(); });
-function fail(e) {
-  if (e.status === 401) { needToken(true); return "Hub locked."; }
-  return e.message || String(e);
-}
-
-/* ---- state ---- */
-const S = { status: "", project: "", dumps: [], selected: "", projects: new Set(), sig: null, chipSig: "", err: "" };
-
-/* ---- list ---- */
 function chip(group, label, pressed, on) { const b = el("button", label, "chip"); b.type = "button"; b.dataset.key = "c:" + group + ":" + label; b.setAttribute("aria-pressed", String(pressed)); b.onclick = on; return b; }
 function renderChips() {
   const ps = [...S.projects].sort();
@@ -302,63 +650,57 @@ function renderChips() {
   if (sig === S.chipSig) return; S.chipSig = sig;
   keepFocus(() => {
     const sc = $("stchips"); sc.replaceChildren();
-    for (const [v, l] of [["", "all"], ["new", "new"], ["claimed", "claimed"], ["done", "done"]])
-      sc.append(chip("s", l, S.status === v, () => { S.status = v; renderChips(); refresh(); }));
+    for (const [v, l] of [["", "All"], ["new", "New"], ["claimed", "Claimed"], ["done", "Done"]])
+      sc.append(chip("s", l, S.status === v, () => { S.status = v; renderChips(); refreshInbox(); }));
     const pc = $("pjchips"); pc.replaceChildren();
-    if (ps.length) pc.append(chip("p", "any project", !S.project, () => { S.project = ""; renderChips(); refresh(); }));
-    for (const p of ps) pc.append(chip("p", p, S.project === p, () => { S.project = p; renderChips(); refresh(); }));
+    if (ps.length) pc.append(chip("p", "Any project", !S.project, () => { S.project = ""; renderChips(); refreshInbox(); }));
+    for (const p of ps) pc.append(chip("p", p, S.project === p, () => { S.project = p; renderChips(); refreshInbox(); }));
   });
 }
 function renderList() {
   keepFocus(() => {
     const ul = $("list"); ul.replaceChildren();
-    if (!S.dumps.length) { if (!S.err) ul.append(el("li", "No notes yet. Hold Space and talk.", "empty")); return; }
+    if (!S.dumps.length) {
+      if (!S.err) { const li = el("li", null, "empty"); li.append(el("p", S.status || S.project ? "No notes match this filter." : "No notes yet."), el("p", S.status || S.project ? "Choose All and Any project to see everything." : "Press Record above, or hold Space and talk. Notes land here sorted by project.")); ul.append(li); }
+      return;
+    }
     for (const d of S.dumps) {
       const li = el("li"), b = el("button"); b.type = "button"; b.dataset.id = d.id; b.dataset.key = "r:" + d.id;
       if (d.id === S.selected) b.setAttribute("aria-current", "true");
       if (d.status === "done") li.className = "st-done";
-      b.append(el("span", str(d.summary) || "(no summary)", "sum"),
-        metaLine(d, [d.project || "no project", age(d.created), d.source]));
+      b.append(el("span", str(d.summary) || "(no summary)", "sum"), metaLine(d, [d.project || "no project", age(d.created), d.source]));
       b.onclick = () => select(d.id);
       li.append(b); ul.append(li);
     }
   });
 }
 function setCurrent(id) { for (const b of $("list").querySelectorAll("button[data-id]")) { if (b.dataset.id === id) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current"); } }
-function showErr(msg) { const n = $("listerr"); n.textContent = msg; n.classList.toggle("show", !!msg); }
+function showErr(msg) { const n = $("listerr"); n.textContent = msg; n.hidden = !msg; }
 let loading = false;
-async function refresh() {
+async function refreshInbox() {
   if (loading) return; loading = true;
   try {
     const r = await API.list(S.status, S.project);
     const dumps = arr(r.dumps);
     for (const d of dumps) if (d.project) S.projects.add(d.project);
-    S.err = ""; showErr("");
-    $("conn").textContent = "updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    needToken(false);
+    S.err = ""; showErr(""); good();
     const sig = JSON.stringify(dumps);
     if (sig !== S.sig) { S.sig = sig; S.dumps = dumps; renderList(); }
   } catch (e) {
-    fail(e);
-    if (e.status === 401) { S.err = ""; showErr(""); $("conn").textContent = "locked"; }
-    else if (e.status === 0) { S.err = "net"; showErr("Hub not answering. Retrying."); $("conn").textContent = "offline"; }
-    else { S.err = "srv"; showErr("The hub hit a problem. Retrying."); $("conn").textContent = "error"; }
+    note(e);
+    if (e.status === 0 || e.status === 401 || e.status === 429) { S.err = "x"; showErr(""); }
+    else { S.err = "srv"; showErr("Core answered but could not read the inbox (" + e.message + "). It tries again shortly."); }
     S.sig = null; if (!S.dumps.length) renderList();
-  }
-  finally { loading = false; }
+  } finally { loading = false; }
   renderChips();
 }
-setInterval(() => { if (!document.hidden) refresh(); }, 10000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
-
-/* ---- detail ---- */
 function section(title, items) {
   const f = document.createDocumentFragment(); const xs = arr(items).map(str).filter(Boolean);
   if (!xs.length) return f;
   f.append(el("h3", title)); const ul = el("ul"); for (const x of xs) ul.append(el("li", x)); f.append(ul); return f;
 }
 let listY = 0;
-function backBtn() { const b = el("button", "Back", "btn back"); b.type = "button"; b.dataset.key = "back"; b.onclick = closeDetail; return b; }
+function backBtn() { const b = el("button", "Back to list", "btn back"); b.type = "button"; b.dataset.key = "back"; b.onclick = closeDetail; return b; }
 function closeDetail() {
   if (!document.body.classList.contains("detail-open")) return false;
   document.body.classList.remove("detail-open");
@@ -374,100 +716,49 @@ async function select(id) {
   try {
     const d = await API.get(id); if (S.selected !== id) return;
     renderDetail(d); if (narrow()) box.querySelector(".back").focus({ preventScroll: true });
-  } catch (e) { if (S.selected === id) box.replaceChildren(backBtn(), el("p", fail(e), "empty")); }
+  } catch (e) { if (S.selected === id) box.replaceChildren(backBtn(), el("p", note(e).status === 404 ? "That note is gone." : "Could not open it: " + e.message + ".", "hint")); }
 }
 function renderDetail(d) {
   const box = $("detail"); box.replaceChildren(backBtn());
   box.append(el("h2", str(d.summary) || "(no summary)"), metaLine(d, [d.project || "no project", age(d.created), d.source]));
   box.append(section("Actions", d.actions), section("Ideas", d.ideas), section("Questions", d.questions));
   if (d.transcript) { box.append(el("h3", "Transcript")); const t = el("div", d.transcript); t.id = "transcript"; box.append(t); }
-
   const row = el("div", null, "row");
   const copy = el("button", "Copy transcript", "btn"); copy.type = "button";
-  copy.onclick = async () => { try { await navigator.clipboard.writeText(d.transcript || ""); toast("Copied"); } catch (e) { toast("Copy blocked by browser"); } };
+  copy.onclick = async () => { try { await navigator.clipboard.writeText(d.transcript || ""); toast("Copied"); } catch (e) { toast("Your browser blocked copying"); } };
   const done = el("button", d.status === "done" ? "Done" : "Mark done", "btn primary"); done.type = "button"; done.disabled = d.status === "done";
-  done.onclick = async () => { try { renderDetail(Object.assign({}, d, await API.done(d.id))); refresh(); } catch (e) { toast(fail(e)); } };
+  done.onclick = async () => { try { renderDetail(Object.assign({}, d, await API.done(d.id))); refreshInbox(); } catch (e) { toast(note(e).message); } };
   row.append(copy, done); box.append(row);
-
-  const pr = el("div", null, "row"); const lab = el("label", "Project", "hint"); lab.htmlFor = "proj";
+  const pr = el("div", null, "row"); const lab = el("label", "Project"); lab.htmlFor = "proj";
   const inp = el("input"); inp.id = "proj"; inp.setAttribute("list", "projlist"); inp.value = d.project || ""; inp.placeholder = "project name";
   const dl = el("datalist"); dl.id = "projlist"; for (const p of [...S.projects].sort()) { const o = el("option"); o.value = p; dl.append(o); }
-  const go = el("button", "Reassign", "btn"); go.type = "button";
-  go.onclick = async () => { const p = inp.value.trim(); if (!p) return; try { renderDetail(Object.assign({}, d, await API.assign(d.id, p))); refresh(); toast("Moved to " + p); } catch (e) { toast(fail(e)); } };
+  const go = el("button", "Move", "btn"); go.type = "button";
+  go.onclick = async () => { const p = inp.value.trim(); if (!p) return; try { renderDetail(Object.assign({}, d, await API.assign(d.id, p))); refreshInbox(); toast("Moved to " + p); } catch (e) { toast(note(e).message); } };
   pr.append(lab, inp, dl, go); box.append(pr);
 }
-$("detail").append(el("p", "Select a note. J and K move.", "empty"));
+$("detail").append(el("p", "Choose a note to read it here.", "hint"));
 
-/* ---- needs you ---- */
-const N = { items: [], sel: "", on: false };
-const TIER = { approvals: "APPROVE", prs: "PR", actions: "YOU" };
-function dur(s) { return s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h" : Math.floor(s / 86400) + " d"; }
-function renderNeeds(r) {
-  N.items = arr(r.items); $("needn").textContent = N.items.length ? "(" + N.items.length + ")" : "";
-  const h = $("needhead"); h.textContent = N.items.length ? N.items.length + " waiting" : "0 waiting"; h.classList.toggle("zero", !N.items.length);
-  $("needwarn").textContent = arr(r.warnings).join(" | ");
-  if (!N.items.some((i) => i.id === N.sel)) N.sel = N.items.length ? N.items[0].id : "";
-  keepFocus(() => {
-    const ul = $("needlist"); ul.replaceChildren();
-    for (const i of N.items) {
-      const li = el("li"), b = el("button"); b.type = "button"; b.dataset.key = "n:" + i.id;
-      if (i.id === N.sel) b.setAttribute("aria-current", "true");
-      const m = el("span", null, "meta"); m.append(el("span", TIER[i.tier] || i.tier, "tag"));
-      m.append(" · " + [i.project, dur(i.age), i.detail].filter(Boolean).join(" · "));
-      b.append(el("span", i.title, "sum"), m);
-      b.onclick = () => { N.sel = i.id; renderNeeds(r); };
-      li.append(b); ul.append(li);
-    }
-  });
-}
-async function refreshNeeds() {
-  try { renderNeeds(await API.needs()); needToken(false); } catch (e) { toast(fail(e)); }
-}
-function showView(v) {
-  const needs = v === "needs", dev = v === "device";
-  N.on = needs; D.on = dev;
-  document.body.classList.toggle("view-needs", needs); document.body.classList.toggle("view-device", dev);
-  $("needs").hidden = !needs; $("device").hidden = !dev;
-  for (const t of ["inbox", "needs", "device"]) $("tab-" + t).setAttribute("aria-pressed", String(t === v));
-  $("rec").style.display = v === "inbox" ? "" : "none"; document.body.style.setProperty("--barh", "0px");
-  if (needs) refreshNeeds();
-  if (dev) { refreshDevice(); liveLoop(); }
-}
-$("tab-inbox").onclick = () => showView("inbox");
-$("tab-needs").onclick = () => showView("needs");
-$("tab-device").onclick = () => showView("device");
-async function needAct(fn, msg) {
-  const i = N.items.find((x) => x.id === N.sel); if (!i) return;
-  if (i.tier === "approvals") { toast("Decide approvals on the device"); return; }
-  try { await fn(i.id); toast(msg); refreshNeeds(); } catch (e) { toast(fail(e)); }
-}
-setInterval(() => { if (!document.hidden && N.on) refreshNeeds(); }, 10000);
-(async () => { try { const r = await API.needs(); $("needn").textContent = arr(r.items).length ? "(" + arr(r.items).length + ")" : ""; } catch (e) {} })();
-
-/* ---- type instead ---- */
 async function saveText() {
-  if (locked) return;
+  if (C.state === "locked") return;
   const text = $("txt").value.trim(); if (!text) return;
-  try { const d = await API.saveText(text); $("txt").value = ""; toast("Saved"); await refresh(); if (d && d.dump_id) select(d.dump_id); }
-  catch (e) { toast(fail(e)); }
+  try { const d = await API.saveText(text); $("txt").value = ""; toast("Saved"); await refreshInbox(); if (d && d.dump_id) select(d.dump_id); }
+  catch (e) { toast(note(e).status === 0 ? "Not saved: Core isn't answering. Your text is still in the box." : "Not saved: " + e.message); }
 }
 $("save").onclick = saveText;
 $("txt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveText(); } });
 
-/* ---- recorder ---- */
+/* recorder: unchanged behaviour. Browser records webm, Core wants WAV, so it is re-wrapped here. */
 const R = { rec: null, stream: null, chunks: [], t0: 0, timer: 0, busy: false, pending: null, cancel: false, actx: null, raf: 0, starting: false };
 let recS = "idle";
-// Live region (#recstate) only changes on state change; the ticking timer is a separate, non-live element.
 function recState(s, msg) {
-  recS = s; const st = $("recstate"), b = $("recbtn");
-  b.dataset.s = s; st.dataset.s = s;
-  if (st.textContent !== (msg || "")) st.textContent = msg || "";
-  $("recline").classList.toggle("empty-line", !msg && s !== "recording");
+  recS = s; const stt = $("recstate"), b = $("recbtn");
+  b.dataset.s = s; stt.dataset.s = s;
+  if (stt.textContent !== (msg || "")) stt.textContent = msg || "";
   if (s !== "recording") $("timer").textContent = "";
   b.textContent = s === "recording" ? "Stop" : s === "transcribing" ? "Working..." : "Record";
   syncRec();
 }
-function syncRec() { $("recbtn").disabled = locked || recS === "transcribing"; }
+function syncRec() { $("recbtn").disabled = C.state === "locked" || recS === "transcribing"; }
 function showFail(on) { $("sendfail").classList.toggle("show", on); }
 function meter(on) {
   const lv = $("level"); lv.classList.toggle("on", on);
@@ -480,22 +771,21 @@ function meter(on) {
 }
 async function startRec() {
   const hold = R.holdStart; R.holdStart = false;
-  if (R.rec || R.busy || R.starting || locked) return;
+  if (R.rec || R.busy || R.starting || C.state === "locked") return;
   if (R.pending) { toast("Retry or discard the unsent recording first."); return; }
-  if (!navigator.mediaDevices || !window.MediaRecorder) { recState("error", "This browser cannot record (needs HTTPS or localhost, and MediaRecorder)."); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { recState("error", "This browser can't record here. Recording needs HTTPS or localhost. You can type the note instead."); return; }
   R.starting = true;
   try { R.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (e) { R.starting = false; recState("error", "Microphone blocked: " + e.message); return; }
+  catch (e) { R.starting = false; recState("error", "Microphone blocked. Allow it for this site in the browser, or type the note instead."); return; }
   R.starting = false;
-  if (hold && !spaceHeld) { R.stream.getTracks().forEach((t) => t.stop()); return; } // Space released before the mic opened
-  R.cancel = false;
-  R.chunks = []; R.rec = new MediaRecorder(R.stream);
+  if (hold && !spaceHeld) { R.stream.getTracks().forEach((t) => t.stop()); return; }
+  R.cancel = false; R.chunks = []; R.rec = new MediaRecorder(R.stream);
   R.rec.ondataavailable = (e) => e.data.size && R.chunks.push(e.data);
   R.rec.onstop = onStopped;
   R.rec.start(); R.t0 = Date.now();
   try { R.actx = new (window.AudioContext || window.webkitAudioContext)(); meter(true); } catch (e) { R.actx = null; }
   recState("recording", "Recording");
-  const tick = () => { const s = Math.floor((Date.now() - R.t0) / 1000); $("timer").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+  const tick = () => { const s = Math.floor((Date.now() - R.t0) / 1000); $("timer").textContent = clock(s); };
   tick(); R.timer = setInterval(tick, 500);
 }
 function stopRec() { if (R.rec && R.rec.state !== "inactive") R.rec.stop(); }
@@ -507,7 +797,7 @@ async function onStopped() {
   if (R.cancel) { R.cancel = false; recState("idle", "Cancelled."); return; }
   if (Date.now() - R.t0 < 400 || !blob.size) { recState("idle", "Too short, nothing saved."); return; }
   R.busy = true; recState("transcribing", "Sending");
-  R.pending = await toWav(blob); // kept in memory until a send succeeds or the user discards
+  R.pending = await toWav(blob);
   await send();
 }
 async function send() {
@@ -517,8 +807,8 @@ async function send() {
     const out = await API.audio(R.pending);
     R.pending = null;
     recState("saved", "Saved" + (out.project ? " to " + out.project : ""));
-    await refresh(); if (out.dump_id) select(out.dump_id);
-  } catch (e) { fail(e); recState("error", "Not sent"); showFail(true); if (!locked) $("retry").focus({ preventScroll: true }); }
+    await refreshInbox(); if (out.dump_id) select(out.dump_id);
+  } catch (e) { note(e); recState("error", e.status === 0 ? "Not sent. Core isn't answering." : "Not sent."); showFail(true); if (C.state !== "locked") $("retry").focus({ preventScroll: true }); }
   finally { R.busy = false; }
 }
 function discardPending() { R.pending = null; showFail(false); recState("idle", ""); }
@@ -530,8 +820,6 @@ $("dl").onclick = () => {
   a.href = u; a.download = "nod-" + new Date().toISOString().replace(/[:.]/g, "-") + (R.pending.type.includes("wav") ? ".wav" : ".webm");
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
 };
-// Core's STT upload only accepts WAV (mono, 16-bit), but browsers record webm/opus. Decode and re-wrap as WAV
-// right here (no dependency). If decoding fails, send the original so the server's error is shown.
 async function toWav(blob) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -547,41 +835,72 @@ async function toWav(blob) {
 }
 $("recbtn").onclick = () => (R.rec ? stopRec() : startRec());
 
-/* ---- device: live screen, remote keys, one-click update ---- */
-const D = { on: false, looping: false, info: null, keys: Promise.resolve() };
-const short = (v) => (v || "").slice(0, 7);
-async function refreshDevice() {
-  let r; try { r = await API.device(); needToken(false); } catch (e) { $("devline").textContent = fail(e); return; }
-  D.info = r; const d = r.device || {}, hub = r.hub_fw;
-  const line = $("devline"); line.replaceChildren();
-  if (r.online) line.append("nod ", el("b", "v" + d.version + " (" + short(d.fw_build) + ")"), " · battery " + (d.battery < 0 ? "?" : d.battery + "%") + " · " + (d.app || ""));
-  else line.append("nod is not answering. Is it on and on home Wi-Fi?");
-  const sub = [];
-  if (hub) sub.push("Hub has " + hub.version + " (" + short(hub.sha) + ")" + (r.update_available ? ": newer than nod." : ": nod is up to date."));
-  else sub.push("Hub has no firmware staged yet.");
-  const hu = r.hub_update || {}; if (hu.latest_tag) sub.push("Latest release " + hu.latest_tag + (hu.last_check ? ", checked " + age(hu.last_check) : "") + ".");
-  const rep = r.last_report; if (rep && rep.stage && rep.stage !== "ok" && rep.error) sub.push("Last device update stopped at " + rep.stage + ": " + rep.error + ".");
-  $("devsub").textContent = sub.join(" ");
-  $("devupd").disabled = !(r.online && r.update_available);
+/* ---- DEVICE ---- */
+function fwLabel(version, build) { return "v" + version + " (" + (short(build) || "build id not reported") + ")"; }
+function renderDevice() {
+  const dv = D.device, hl = D.health;
+  put("df-core", hl ? st("ok", "Running", "v" + hl.version + (hl.git_sha ? " (" + short(hl.git_sha) + ")" : "")) : C.state === "offline" ? st("bad", "Not reachable") : st("unk", C.state === "locked" ? "Unknown" : "Checking..."));
+  const btn = $("devupd"), why = $("devupdwhy");
+  if (!dv) {
+    const msg = C.state === "offline" ? "Core isn't answering, so nothing is known about the device." : C.state === "locked" ? "Unlock Core to see the device." : "Checking nod...";
+    $("devlede").textContent = msg;
+    for (const id of ["df-state", "df-seen", "df-fw", "df-staged", "df-cmp", "df-bat"]) put(id, st("unk", C.state === "ok" || C.state === "unknown" ? "Checking..." : "Unknown"));
+    btn.disabled = true; why.textContent = ""; $("df-reportrow").hidden = true; return;
+  }
+  const d = dv.device || {}, hub = dv.hub_fw, on = dv.online;
+  $("devlede").textContent = on ? "nod is answering on the network." : "nod is not answering. Core cannot tell you what it is running.";
+  put("df-state", on ? st("ok", "Online") : st("off", "Offline"), el("span", on ? (d.app ? "Open app: " + d.app : ""): "Is it on, charged, and on home Wi-Fi?", "meta"));
+  put("df-seen", el("span", on ? "Right now" : dv.last_seen_ago == null ? "Not since Core started" : agoS(dv.last_seen_ago)));
+  put("df-fw", on ? el("span", fwLabel(d.version, d.fw_build), "mono") : el("span", "Unknown while the device is offline"));
+  put("df-staged", hub ? el("span", fwLabel(hub.version, hub.sha), "mono") : el("span", "None staged on this PC"));
+  let cmp, ok = false;
+  if (!on) cmp = st("unk", "Can't compare", "The device has to be online to report what it runs.");
+  else if (!hub) cmp = st("unk", "Nothing to compare", "No firmware is staged on this PC.");
+  else if (!d.fw_build) cmp = st("unk", "Can't compare", "The device did not report its build id.");
+  else if (dv.update_available) { cmp = st("warn", "Builds differ", "The device runs a different build than the one staged here."); ok = true; }
+  else cmp = st("ok", "Same build", "The device reports the staged build.");
+  put("df-cmp", cmp);
+  put("df-bat", el("span", on ? (d.battery < 0 ? "Battery not reported" : "Battery " + d.battery + "%") : "Unknown while offline"));
+  const rep = dv.last_report, row = $("df-reportrow");
+  if (rep && rep.stage) { row.hidden = false; put("df-report", el("span", rep.stage === "ok" ? "Finished OK" + (rep.at ? " " + age(rep.at) : "") : "Stopped at " + rep.stage + (rep.error ? ": " + rep.error : "") + (rep.at ? " (" + age(rep.at) + ")" : ""))); }
+  else row.hidden = true;
+  btn.disabled = !(on && ok);
+  why.textContent = !on ? "Update is off while the device is offline." : !hub ? "Update is off: nothing is staged." : !ok ? "Update is off: the device already reports the staged build." : "";
+  liveSync();
 }
+$("devupd").onclick = async () => {
+  const dv = D.device, hub = dv && dv.hub_fw;
+  if (!hub || !confirm("Install " + hub.version + " (" + short(hub.sha) + ") on nod? It restarts when done. Keep it on Wi-Fi, above 30% battery or charging.")) return;
+  $("devupd").disabled = true;
+  try { const r = await API.devAction("update"); toast(r.text || "Update started"); } catch (e) { toast(note(e).message); }
+  setTimeout(loadDevice, 4000);
+};
+$("devcheck").onclick = async () => {
+  $("devcheck").disabled = true; toast("Checking GitHub for a new build...");
+  try { const r = await API.hubCheck(); toast(r.last_error ? "Check failed: " + r.last_error : "Core says: " + (r.last_result || "checked")); } catch (e) { toast(note(e).message); }
+  $("devcheck").disabled = false; loadDevice();
+};
+
+// live screen: runs only while the Device page is open, the panel is expanded and the device is online
+const L = { looping: false, keys: Promise.resolve() };
+const liveOn = () => view === "device" && $("livebox").open && D.device && D.device.online && !document.hidden;
+function liveSync() { if (liveOn()) liveLoop(); else if (view === "device" && $("livebox").open) $("screenwhy").textContent = D.device && !D.device.online ? "No picture: the device is offline." : ""; }
+$("livebox").addEventListener("toggle", liveSync);
 function drawFrame(b) {
   const c = $("screen").getContext("2d"), im = c.createImageData(240, 135);
   for (let p = 0, i = 0; p < 32400; p++, i += 2) { const v = b[i] | (b[i + 1] << 8), o = p * 4; im.data[o] = ((v >> 11) & 31) * 255 / 31; im.data[o + 1] = ((v >> 5) & 63) * 255 / 63; im.data[o + 2] = (v & 31) * 255 / 31; im.data[o + 3] = 255; }
   c.putImageData(im, 0, 0);
 }
 async function liveLoop() {
-  if (D.looping) return; D.looping = true;
-  while (D.on) {
+  if (L.looping) return; L.looping = true;
+  while (liveOn()) {
     let wait = 250;
-    if (!document.hidden) {
-      try { const b = await API.screen(); if (b.length === 64800) { drawFrame(b); $("screen").classList.remove("off"); } }
-      catch (e) { $("screen").classList.add("off"); wait = 2000; }
-    } else wait = 1000;
+    try { const b = await API.screen(); if (b.length === 64800) { drawFrame(b); $("screen").classList.remove("off"); $("screenwhy").textContent = ""; } }
+    catch (e) { $("screen").classList.add("off"); $("screenwhy").textContent = "No picture right now. Retrying."; wait = 2000; }
     await new Promise((res) => setTimeout(res, wait));
   }
-  D.looping = false;
+  L.looping = false;
 }
-setInterval(() => { if (!document.hidden && D.on) refreshDevice(); }, 5000);
 const HID = { Enter: 0x28, Escape: 0x29, Backspace: 0x2a, Tab: 0x2b, Space: 0x2c, Minus: 0x2d, Equal: 0x2e, BracketLeft: 0x2f, BracketRight: 0x30, Backslash: 0x31,
   Semicolon: 0x33, Quote: 0x34, Backquote: 0x35, Comma: 0x36, Period: 0x37, Slash: 0x38, Delete: 0x4c, ArrowRight: 0x4f, ArrowLeft: 0x50, ArrowDown: 0x51, ArrowUp: 0x52, Digit0: 0x27 };
 function hidOf(code) {
@@ -589,9 +908,7 @@ function hidOf(code) {
   if (/^Digit[1-9]$/.test(code)) return 0x1e + code.charCodeAt(5) - 49;
   return HID[code] || 0;
 }
-function sendKey(code, ch, mods) {
-  D.keys = D.keys.then(() => API.devAction("key:" + code + "," + ch + "," + mods)).catch((e) => toast(fail(e)));
-}
+function sendKey(code, ch, mods) { L.keys = L.keys.then(() => API.devAction("key:" + code + "," + ch + "," + mods)).catch((e) => toast(note(e).message)); }
 $("screen").addEventListener("keydown", (e) => {
   if (e.metaKey) return;
   const code = hidOf(e.code); if (!code) return;
@@ -602,52 +919,76 @@ $("screen").addEventListener("keydown", (e) => {
 $("screen").addEventListener("keyup", (e) => e.stopPropagation());
 $("screen").addEventListener("click", () => $("screen").focus());
 for (const b of document.querySelectorAll("#devkeys [data-k]")) b.onclick = () => { sendKey(+b.dataset.k, 0, 0); $("screen").focus(); };
-$("devupd").onclick = async () => {
-  const hub = D.info && D.info.hub_fw;
-  if (!confirm("Install " + (hub ? hub.version + " (" + short(hub.sha) + ")" : "the new build") + " on nod? It restarts when done. Keep it on Wi-Fi, 30%+ battery or charging.")) return;
-  $("devupd").disabled = true;
-  try { const r = await API.devAction("update"); toast(r.text || "Update started"); } catch (e) { toast(fail(e)); }
-  setTimeout(refreshDevice, 4000);
-};
-$("devcheck").onclick = async () => {
-  $("devcheck").disabled = true; toast("Checking GitHub for a new build...");
-  try { const r = await API.hubCheck(); toast(r.last_error ? "Check failed: " + r.last_error : "Hub: " + (r.last_result || "checked")); } catch (e) { toast(fail(e)); }
-  $("devcheck").disabled = false; refreshDevice();
+
+/* ---- SETTINGS ---- */
+async function loadSettings() {
+  const e1 = await load("diag", API.diagnostics, (r) => { D.diag = r; });
+  const e2 = await load("upd", API.coreUpdate, (r) => { D.upd = r; });
+  renderSettings();
+}
+function yn(ok, yes, no) { return ok ? st("ok", yes) : st("off", no); }
+function renderSettings() {
+  $("sf-here").textContent = location.host;
+  const h = D.health, g = D.diag, u = D.upd, dv = D.device;
+  const na = (id, why) => put(id, st("unk", why || (C.state === "offline" ? "Core not reachable" : C.state === "locked" ? "Locked" : "Checking...")));
+  if (g) {
+    const sm = g.summary || {};
+    put("sf-pref", el("span", String(g.preferred_route || "not set")));
+    put("sf-active", el("span", g.active_route ? String(g.active_route) : "Nothing yet since Core started"));
+    put("sf-health", sm.status === "Healthy" ? st("ok", "Healthy") : sm.status === "Degraded" ? st("warn", "Degraded", sm.reason ? "Reason: " + sm.reason : "") : st("bad", sm.status || "Unavailable"));
+    put("sf-fallback", sm.fallback === "Ready" ? st("ok", "Ready") : st("warn", sm.fallback || "Not configured"), el("span", "Local model: " + (sm.local || "unknown"), "meta"));
+  } else for (const id of ["sf-pref", "sf-active", "sf-health", "sf-fallback"]) na(id);
+  if (h) {
+    put("sf-stt", yn(h.stt, "Available", "Not available"));
+    put("sf-tts", yn(h.tts, "On", "Off"));
+    put("sf-pc", yn(h.pc_control, "On", "Off"));
+    put("sf-remote", h.remote_url ? el("span", h.remote_url, "mono") : el("span", "Not set up (only reachable on your own network)"));
+    put("sf-tail", h.tailnet_ip ? el("span", h.tailnet_ip, "mono") : el("span", "Not found"));
+    put("sf-ver", el("span", "v" + h.version + (h.git_sha ? " (" + short(h.git_sha) + ")" : ""), "mono"));
+  } else for (const id of ["sf-stt", "sf-tts", "sf-pc", "sf-remote", "sf-tail", "sf-ver"]) na(id);
+  if (dv) put("sf-devip", dv.device_ip ? el("span", dv.device_ip, "mono") : el("span", "Not known yet. Core learns it when the device next calls in. Use this if the device's .local name does not resolve."), dv.device_ip ? el("span", "Open http://" + dv.device_ip + " if the .local name does not work.", "meta") : "");
+  else na("sf-devip");
+  if (u) {
+    const lt = u.latest_release_tag;
+    put("sf-latest", u.last_error ? st("warn", "Last check failed", u.last_error) : lt ? el("span", lt + (u.last_check ? ", checked " + age(u.last_check) : "")) : el("span", u.enabled === false ? "Automatic checks are off" : "Not checked yet"));
+  } else na("sf-latest");
+}
+$("sref").onclick = () => { D.settingsAt = 0; poll(true); toast("Refreshing"); };
+$("diag").onclick = async () => {
+  try {
+    const [health, diagnostics, update, device] = await Promise.all([API.health(), API.diagnostics(), API.coreUpdate(), API.device()]);
+    const out = { saved_at: new Date().toISOString(), page: location.host, health, diagnostics, update, device };
+    const a = document.createElement("a"), u = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
+    a.href = u; a.download = "nod-diagnostics-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); toast("Diagnostics saved");
+  } catch (e) { toast(note(e).status === 0 ? "Core isn't answering, so there is nothing to save yet." : "Could not build diagnostics: " + e.message); }
 };
 
-/* ---- keyboard: hold Space to talk; j/k move; Esc cancels recording / closes detail ---- */
-// Only real text entry blocks shortcuts; a focused button/summary must not (clicking a chip would otherwise kill them).
+/* ---- keyboard: hold Space to talk (Inbox only); j/k move through notes; Esc cancels recording / closes detail ---- */
 const typing = () => { const a = document.activeElement; return !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable); };
 let spaceHeld = false;
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "Escape") { if (cancelRec() || (!typing() && closeDetail())) e.preventDefault(); return; }
-  if (D.on) return; // Device tab: keys only go to nod when the screen is focused (handled above)
-  if (e.code === "Space" && !typing() && !N.on) {
-    e.preventDefault(); // also stops a focused button from scrolling/clicking on keydown
+  if (view !== "inbox") return;
+  if (e.code === "Space" && !typing()) {
+    e.preventDefault();
     if (!e.repeat) { spaceHeld = true; R.holdStart = true; startRec(); }
     return;
   }
   if (typing()) return;
-  if (N.on) {
-    if (e.key === "e") needAct(API.needDone, "Done");
-    else if (e.key === "h") needAct(API.needSnooze, "Snoozed 24 h");
-    else if (e.key === "j" || e.key === "k") {
-      const i = N.items.findIndex((x) => x.id === N.sel), n = N.items[e.key === "j" ? i + 1 : i - 1];
-      if (n) { N.sel = n.id; renderNeeds({ items: N.items, warnings: [] }); const b = document.querySelector('[data-key="n:' + CSS.escape(n.id) + '"]'); if (b) b.focus({ preventScroll: true }); }
-    }
-    return;
-  }
   if (e.key === "j" || e.key === "k") {
     const i = S.dumps.findIndex((d) => d.id === S.selected), n = e.key === "j" ? i + 1 : i - 1;
     if (S.dumps[n]) { select(S.dumps[n].id); const b = $("list").querySelector('[data-id="' + CSS.escape(S.dumps[n].id) + '"]'); if (b) { b.scrollIntoView({ block: "nearest" }); if (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.key) b.focus({ preventScroll: true }); } }
   }
 });
 document.addEventListener("keyup", (e) => {
-  if (e.code === "Space" && spaceHeld) { e.preventDefault(); spaceHeld = false; stopRec(); } // preventDefault on keyup blocks the button click
+  if (e.code === "Space" && spaceHeld) { e.preventDefault(); spaceHeld = false; stopRec(); }
 });
 
-renderChips(); renderList(); refresh();
+/* ---- start ---- */
+renderChrome(); renderChips(); renderList();
+route(false);
 </script>
 </body>
 </html>

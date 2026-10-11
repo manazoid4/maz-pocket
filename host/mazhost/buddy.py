@@ -70,7 +70,7 @@ class Buddy:
     def pending(self) -> list[dict]:
         with self._cv:
             now = time.monotonic()
-            return [dict(i) for i in self._items.values()
+            return [{**i, "left": max(0, int(i["deadline"] - now))} for i in self._items.values()
                     if not i["decision"] and now < i["deadline"]]
 
     def summary(self, limit: int = 3) -> dict:
