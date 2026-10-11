@@ -46,6 +46,13 @@ if (-not $Image) {
         }
         if (-not (Test-Path $Boot0)) { Fail "boot_app0.bin missing at $Boot0." }
         $Image = Join-Path $Root "dist\nod-factory-8MB.bin"
+        if ($DryRun) {
+            Write-Host "DRY RUN (nothing is written)"
+            Write-Host "Would merge bootloader.bin, partitions.bin, boot_app0.bin and firmware.bin into $Image."
+            Write-Host "Would validate the factory layout before any flash. No image was generated or device contacted."
+            Write-Host "Then: esptool.py --chip esp32s3 write_flash --erase-all 0x0 $Image"
+            exit 0
+        }
         New-Item -ItemType Directory -Force (Split-Path $Image) | Out-Null
         # Header flags stay as PlatformIO built them (DIO header, 80 MHz, 8 MB); the bootloader switches to QIO itself.
         & $Python $Esptool --chip esp32s3 merge_bin -o $Image --flash_mode keep --flash_freq keep --flash_size keep `
@@ -57,7 +64,20 @@ if (-not $Image) {
 if (-not (Test-Path $Image)) { Fail "Image not found: $Image" }
 $Image = (Resolve-Path $Image).Path
 $Bytes = [System.IO.File]::ReadAllBytes($Image)
-if ($Bytes.Length -lt 0x20000 -or $Bytes[0] -ne 0xE9) { Fail "$Image does not look like an ESP32 factory image (must start with 0xE9)." }
+if ($Bytes.Length -lt 0x20000 -or $Bytes.Length -gt 0x800000 -or
+    $Bytes[0] -ne 0xE9 -or $Bytes[12] -ne 9 -or $Bytes[13] -ne 0 -or
+    $Bytes[0x8000] -ne 0xAA -or $Bytes[0x8001] -ne 0x50 -or
+    $Bytes[0x10000] -ne 0xE9 -or $Bytes[0x1000C] -ne 9 -or $Bytes[0x1000D] -ne 0) {
+    Fail "$Image is not a Cardputer ESP32-S3 factory image: requires bootloader at 0x0, partition table at 0x8000 and app at 0x10000. App-only firmware.bin must go through M5 Launcher, never at 0x0."
+}
+$HasAppPartition = $false
+for ($Offset = 0x8000; $Offset -lt 0x8C00; $Offset += 32) {
+    if ($Bytes[$Offset] -ne 0xAA -or $Bytes[$Offset + 1] -ne 0x50) { break }
+    if ($Bytes[$Offset + 2] -eq 0 -and [BitConverter]::ToUInt32($Bytes, $Offset + 4) -eq 0x10000) {
+        $HasAppPartition = $true
+    }
+}
+if (-not $HasAppPartition) { Fail "Factory partition table has no app at 0x10000. Nothing was flashed." }
 
 # --- find the port: ESP32-S3 native USB is VID 303A ---
 function Find-Port {
@@ -97,7 +117,7 @@ if (-not $Port) {
     }
 }
 if ($Port) { Write-Host "Using port $Port" }
-else       { Write-Host "Windows shows no ESP32 port; letting esptool try every port." }
+else       { Fail "No ESP32 port identified. Connect the Cardputer using G0 recovery mode, or specify its verified -Port. Nothing was flashed." }
 
 $PortArgs = @(); if ($Port) { $PortArgs = @("--port", $Port) }
 $ErrorActionPreference = "Continue"   # esptool prints progress on stderr; do not treat it as an error

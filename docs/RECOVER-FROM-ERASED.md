@@ -20,7 +20,7 @@ Use this when the device holds nothing useful, or Launcher is gone too.
 2. Plug the Cardputer in with a data cable.
 3. `powershell -ExecutionPolicy Bypass -File scripts/flash-usb.ps1`
 
-The script builds `dist/nod-factory-8MB.bin` (bootloader 0x0, partition table 0x8000, boot_app0 0xE000, app 0x10000), finds the port (native USB, VID 303A), erases the chip, writes the image and checks its MD5. It ends with `PASS` or `FAIL`. `-DryRun` shows what it would do and writes nothing. `-Image <file>` flashes a ready-made image.
+The script builds `dist/nod-factory-8MB.bin` (bootloader 0x0, partition table 0x8000, boot_app0 0xE000, app 0x10000), finds the port (native USB, VID 303A), erases the chip, writes the image and checks its MD5. It ends with `PASS` or `FAIL`. `-DryRun` shows what it would do without generating an image or writing to the device. `-Image <file>` accepts a factory image only: ESP32-S3 bootloader and app headers, a partition table at 0x8000 and an app partition at 0x10000 are checked first. App-only `firmware.bin` is rejected. If no ESP32 port is detected, the script stops; it never tries unrelated serial ports.
 
 If no port appears: unplug, hold **G0**, plug in while holding it, let go, run it again.
 
