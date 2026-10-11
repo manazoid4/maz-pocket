@@ -25,3 +25,27 @@ Install: add to `~/.claude/settings.json` (merge into existing `hooks`):
 
 Device endpoints: `GET /buddy/pending`, `POST /buddy/decide {id, decision: allow|deny|allow_all}`,
 `POST /buddy/allow-all {session_id, on}`. `allow_all` auto-allows later requests of that Claude session.
+
+## nod stop hook (done ping)
+
+`nod_stop_hook.py` is a Claude Code `Stop` hook. It POSTs `kind=done` (text = first line of the
+last assistant message, else "Claude finished") to Core `/buddy/event`; the device chirps and
+shows a toast. 3 s timeout, always exits 0, silent on failure. Same env as above. Notify only:
+it never approves anything.
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python C:/Users/manaz/maz-pocket/host/hooks/nod_stop_hook.py", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Other pings (usage limit, needs you, error): `POST /buddy/event {"kind": "done|usage|needs|error", "text": "...", "source": "..."}`;
+device polls `GET /buddy/events?since=<id>` (ring buffer of last 20).

@@ -98,3 +98,57 @@ def test_core_down_asks():
     out = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(EVENT), text=True,
                          capture_output=True, env=env, timeout=30)
     assert out.returncode == 0 and out.stdout == "" and out.stderr.strip() == "ask"
+
+
+# ---- agent alerts (/buddy/event) ----
+STOP_HOOK = Path(__file__).parents[1] / "hooks" / "nod_stop_hook.py"
+
+
+def test_event_post_poll_since():
+    c = api()
+    assert c.get("/buddy/events", headers=H).json() == {"ok": True, "events": [], "last": 0}
+    a = c.post("/buddy/event", json={"kind": "done", "text": "hi", "source": "t"}, headers=H).json()
+    b = c.post("/buddy/event", json={"kind": "usage", "text": "90%"}, headers=H).json()
+    assert (a["id"], b["id"]) == (1, 2)
+    got = c.get("/buddy/events?since=1", headers=H).json()
+    assert got["last"] == 2 and [e["id"] for e in got["events"]] == [2]
+    assert set(got["events"][0]) == {"id", "kind", "text", "source", "ts"}
+
+
+def test_event_ring_cap_bad_kind_truncate_auth():
+    c = api()
+    for i in range(25):
+        c.post("/buddy/event", json={"kind": "needs", "text": str(i)}, headers=H)
+    ev = c.get("/buddy/events", headers=H).json()
+    assert len(ev["events"]) == 20 and ev["events"][0]["id"] == 6 and ev["last"] == 25
+    assert c.post("/buddy/event", json={"kind": "nope", "text": "x"}, headers=H).status_code == 422
+    long = c.post("/buddy/event", json={"kind": "error", "text": "x" * 500}, headers=H).json()
+    assert len(long["text"]) == 160
+    assert c.post("/buddy/event", json={"kind": "done"}).status_code == 401
+    assert c.get("/buddy/events").status_code == 401
+
+
+def test_stop_hook_posts_and_exits_zero(monkeypatch, capsys):
+    import io
+    c = api()
+    monkeypatch.setenv("MAZ_TOKEN", TOKEN)
+    spec = importlib.util.spec_from_file_location("stop_hook", STOP_HOOK)
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    hook.call = lambda m, p, body, timeout=3: c.request(m, p, json=body, headers=H).json()
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(
+        {"hook_event_name": "Stop", "last_assistant_message": "\nAll done here\nmore"})))
+    assert hook.main() == 0
+    assert capsys.readouterr().out == ""
+    e = c.get("/buddy/events", headers=H).json()["events"][0]
+    assert (e["kind"], e["text"], e["source"]) == ("done", "All done here", "claude-code")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    hook.main()
+    assert c.get("/buddy/events", headers=H).json()["events"][1]["text"] == "Claude finished"
+
+
+def test_stop_hook_dead_hub_silent_exit_zero():
+    env = {**os.environ, "MAZ_TOKEN": TOKEN, "MAZ_CORE_URL": "http://127.0.0.1:1"}
+    out = subprocess.run([sys.executable, str(STOP_HOOK)], input="{}", text=True,
+                         capture_output=True, env=env, timeout=30)
+    assert out.returncode == 0 and out.stdout == "" and out.stderr == ""

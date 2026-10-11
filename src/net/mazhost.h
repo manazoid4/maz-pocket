@@ -73,7 +73,14 @@ struct CoreJob {
     std::string error;
 };
 
+// Notify-only agent ping from Core /buddy/events (kind: done|usage|needs|error).
+struct AgentEvent {
+    std::string kind;
+    std::string text;
+};
+
 struct BeamMessage {
+    std::vector<AgentEvent> events;  // new /buddy/events since the last poll
     bool ok = false;
     bool hasMessage = false;
     std::string id;

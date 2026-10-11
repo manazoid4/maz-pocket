@@ -33,6 +33,11 @@ void lineClose() { pair(660.f, 330.f, 55); }
 void saved()     { beep(1760.f, 45); }
 void error()     { pair(300.f, 200.f, 90); }
 
+// Called right before notify::post(Success): the toast's generic "saved" beep
+// is skipped once so only the agent chirp plays.
+bool gSkipNextNote = false;
+void agentDone() { gSkipNextNote = true; pair(880.f, 1175.f, 50); }
+
 void timerDone() {
     for (int i = 0; i < 3; ++i) {
         beep(1200.f, 120, /*force=*/true);
@@ -41,6 +46,7 @@ void timerDone() {
 }
 
 void forNote(Note kind) {
+    if (gSkipNextNote) { gSkipNextNote = false; return; }
     switch (kind) {
         case Note::Success: saved(); break;
         case Note::Warn:    beep(700.f, 60); break;

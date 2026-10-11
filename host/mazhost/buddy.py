@@ -4,12 +4,14 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections import deque
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 MAX_ITEMS = 50
+MAX_EVENTS = 20
 
 
 class BuddyRequest(BaseModel):
@@ -23,6 +25,13 @@ class BuddyDecision(BaseModel):
     decision: Literal["allow", "deny", "allow_all", "cancel"]
 
 
+class BuddyEvent(BaseModel):
+    """Notify-only ping (done / usage / needs / error). Never approves anything."""
+    kind: Literal["done", "usage", "needs", "error"]
+    text: str = ""
+    source: str = Field(default="", max_length=60)
+
+
 class AllowAll(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     on: bool = False
@@ -33,6 +42,21 @@ class Buddy:
         self._cv = threading.Condition()
         self._items: dict[str, dict] = {}
         self._allow_all: set[str] = set()
+        self._events: deque[dict] = deque(maxlen=MAX_EVENTS)
+        self._event_id = 0
+
+    def post_event(self, kind: str, text: str, source: str = "") -> dict:
+        with self._cv:
+            self._event_id += 1
+            ev = {"id": self._event_id, "kind": kind, "text": text[:160],
+                  "source": source, "ts": time.time()}
+            self._events.append(ev)
+            return dict(ev)
+
+    def events(self, since: int = 0) -> dict:
+        with self._cv:
+            return {"ok": True, "events": [dict(e) for e in self._events if e["id"] > since],
+                    "last": self._event_id}
 
     def request(self, tool: str, summary: str, session_id: str = "") -> dict:
         with self._cv:
@@ -108,5 +132,13 @@ def install_buddy_routes(api: FastAPI, buddy: Buddy | None = None) -> Buddy:
     def buddy_allow_all(body: AllowAll):
         buddy.set_allow_all(body.session_id, body.on)
         return {"ok": True, "session_id": body.session_id, "on": body.on}
+
+    @api.post("/buddy/event")
+    def buddy_event(body: BuddyEvent):
+        return {"ok": True, **buddy.post_event(body.kind, body.text, body.source)}
+
+    @api.get("/buddy/events")
+    def buddy_events(since: int = 0):
+        return buddy.events(since)
 
     return buddy
