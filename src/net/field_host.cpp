@@ -151,6 +151,7 @@ void pullAgentEvents(const std::string& base, bool remote, BeamMessage& out) {
             AgentEvent ev;
             ev.kind = e["kind"] | "";
             ev.text = e["text"] | "";
+            ev.source = e["source"] | "";
             out.events.push_back(std::move(ev));
         }
     }

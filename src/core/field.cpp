@@ -151,15 +151,17 @@ void finishBeamPull(const host::BeamMessage& msg) {
     const uint32_t cadence = Cfg.fieldMode ? 45000u : 15000u;
     gNextBeamPoll = millis() + cadence;
     for (const auto& e : msg.events) {
+        std::string detail = e.source.empty() ? e.text : e.source + ": " + e.text;
+        if (detail.size() > 160) detail.resize(160);
         if (e.kind == "done") {
             sfx::agentDone();  // plays the chirp, mutes the generic toast beep
-            notify::post(Note::Success, "Agent done", e.text);
+            notify::post(Note::Success, "Agent done", detail);
         } else if (e.kind == "usage") {
-            notify::post(Note::Warn, "Usage", e.text);
+            notify::post(Note::Warn, "Usage", detail);
         } else if (e.kind == "needs") {
-            notify::post(Note::Warn, "Needs you", e.text);
+            notify::post(Note::Warn, "Needs you", detail);
         } else if (e.kind == "error") {
-            notify::post(Note::Error, "Agent error", e.text);
+            notify::post(Note::Error, "Agent error", detail);
         }
     }
     if (!msg.ok || !msg.hasMessage || msg.text.empty()) return;

@@ -77,6 +77,7 @@ struct CoreJob {
 struct AgentEvent {
     std::string kind;
     std::string text;
+    std::string source;  // free-text agent name, may be empty
 };
 
 struct BeamMessage {

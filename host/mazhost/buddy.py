@@ -29,7 +29,7 @@ class BuddyEvent(BaseModel):
     """Notify-only ping (done / usage / needs / error). Never approves anything."""
     kind: Literal["done", "usage", "needs", "error"]
     text: str = ""
-    source: str = Field(default="", max_length=60)
+    source: str = Field(default="", max_length=40)
 
 
 class AllowAll(BaseModel):
