@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     tts_model: str = "s2.1-pro-free"
     # Host-only opt-in; firmware never receives model paths or keys.
     tts_provider: Literal["fish", "kokoro", "windows"] = "fish"
+    # Apply speaker-safe tuning before delivery. Flat is a real A/B bypass;
+    # Kickstarter prototypes choose their profile per actual speaker/enclosure.
+    audio_output_profile: Literal["flat", "cardputer_adv", "prototype_small", "prototype_large", "headphones"] = "cardputer_adv"
     kokoro_model_path: str = ""
     kokoro_voices_path: str = ""
     kokoro_voice: str = Field(default="am_michael", min_length=3, max_length=32)
