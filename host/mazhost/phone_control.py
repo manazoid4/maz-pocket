@@ -67,6 +67,10 @@ PAGE = r"""<!doctype html>
 
 <div class="pane" id="pane-voice">
 <div class="hero"><h1>Reply voice</h1><p id="voiceNow" class="muted">Loading...</p></div>
+<div class="sec"><h2>YOUR TWO VOICES</h2><div id="voiceFavorites"></div>
+<div class="card"><p class="muted">Paste a Fish Audio voice link or 32-character model ID. Your saved choice stays here when you switch back to Sarah.</p>
+<div class="row"><input id="fishVoiceLink" data-testid="voice-link" placeholder="fish.audio/m/... or model ID" onkeydown="if(event.key==='Enter')addFishVoice()"><button class="yes" onclick="addFishVoice()">SAVE &amp; USE</button></div>
+</div></div>
 <div class="sec"><h2>SEARCH FISH LIBRARY</h2><div class="card"><div class="row"><input id="voiceQ" data-testid="voice-search" placeholder="Search voices (needs Fish key)" onkeydown="if(event.key==='Enter')searchVoices()"><button onclick="searchVoices()">SEARCH</button></div><div id="voiceSearchRes"></div></div></div>
 <div class="sec"><h2>SAY</h2><div class="card"><div class="row"><input id="sayText" data-testid="say-text" maxlength="300" placeholder="Type something for nod to say" onkeydown="if(event.key==='Enter')sayIt()"><button class="yes" data-testid="say-btn" onclick="sayIt()">SAY</button></div><div id="sayStatus" class="muted"></div></div></div>
 <div class="sec"><h2>VOICES</h2><div id="voiceList"></div><div id="voiceStatus" class="muted"></div></div>
@@ -113,7 +117,16 @@ async function logout(){await api('api/logout',{method:'POST'});location.href='.
 // ------------------------------------------------------------------ VOICE
 let voiceAudio=null;
 function voiceRow(v,cur){return `<div class="card voice" data-voice-id="${esc(v.reference_id)}"><div class="row"><b>${esc(v.name)}</b>${v.reference_id===cur?' <span class="good">IN USE</span>':''}</div><p class="muted">${esc(v.description||'')}</p><div class="row"><button data-act="preview" data-id="${esc(v.reference_id)}" onclick="previewVoice(this.dataset.id)">PLAY</button><button class="yes" data-act="use" data-id="${esc(v.reference_id)}" data-name="${esc(v.name)}" onclick="useVoice(this.dataset.id,this.dataset.name)">USE</button></div></div>`}
-async function loadVoices(){try{let d=await api('api/voices');$('voiceNow').textContent='Now speaking: '+(d.current_name||d.current);$('voiceList').innerHTML=d.voices.map(v=>voiceRow(v,d.current)).join('');window.voiceCur=d.current}catch(e){$('voiceStatus').textContent=e.message}}
+async function loadVoices(){try{let d=await api('api/voices');$('voiceNow').textContent='Now speaking: '+(d.current_name||d.current);$('voiceList').innerHTML=d.voices.map(v=>voiceRow(v,d.current)).join('');$('voiceFavorites').innerHTML=(d.favourites||[]).map(v=>voiceRow(v,d.current)).join('');window.voiceCur=d.current}catch(e){$('voiceStatus').textContent=e.message}}
+function fishVoiceId(raw){
+  let val=raw.trim();if(/^[0-9a-f]{32}$/i.test(val))return val.toLowerCase();
+  let url;try{url=new URL(val)}catch(e){throw new Error('Paste a Fish Audio model link or 32-character ID')}
+  if(url.protocol!=='https:'||!['fish.audio','www.fish.audio','s.fish.audio'].includes(url.hostname))throw new Error('Use an HTTPS fish.audio voice link');
+  let m=url.pathname.match(/(?:^|\/)([0-9a-f]{32})(?:\/|$)/i);
+  if(!m)throw new Error('That link has no Fish Audio model ID');
+  return m[1].toLowerCase();
+}
+async function addFishVoice(){try{let id=fishVoiceId($('fishVoiceLink').value);await useVoice(id,'My Fish voice')}catch(e){$('voiceStatus').textContent=e.message}}
 async function previewVoice(id){$('voiceStatus').textContent='Loading preview...';try{let r=await fetch('api/voices/preview',{method:'POST',headers:H,body:JSON.stringify({reference_id:id})});if(!r.ok){let d=await r.json().catch(()=>({}));throw new Error(d.detail||'preview failed')}let b=await r.blob();if(voiceAudio)voiceAudio.pause();voiceAudio=new Audio(URL.createObjectURL(b));await voiceAudio.play();$('voiceStatus').textContent=''}catch(e){$('voiceStatus').textContent='Preview: '+e.message}}
 async function sayIt(){let t=$('sayText').value.trim();if(!t){$('sayStatus').textContent='Type some text first.';return}$('sayStatus').textContent='Speaking...';try{let r=await fetch('api/say',{method:'POST',headers:H,body:JSON.stringify({text:t,voice:window.voiceCur||null})});if(!r.ok){let d=await r.json().catch(()=>({}));throw new Error(d.detail||'say failed')}let b=await r.blob();if(voiceAudio)voiceAudio.pause();voiceAudio=new Audio(URL.createObjectURL(b));await voiceAudio.play();$('sayStatus').textContent='Played.'}catch(e){$('sayStatus').textContent=e.message}}
 async function useVoice(id,name){try{await api('api/voices/select',{method:'POST',body:JSON.stringify({reference_id:id,name:name||''})});$('voiceStatus').textContent='Voice saved.';loadVoices()}catch(e){$('voiceStatus').textContent=e.message}}
