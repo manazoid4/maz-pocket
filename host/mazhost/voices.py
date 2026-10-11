@@ -162,7 +162,8 @@ class VoiceService:
         ref = reference_id.strip().lower()
         if not ID_RE.match(ref):
             raise ValueError("invalid_reference_id")
-        path = self.dir / "voice-previews" / f"{ref}.wav"
+        # Preview the same output profile as real speech, not an old un-EQed wav.
+        path = self.dir / "voice-previews" / self.settings.audio_output_profile / f"{ref}.wav"
         if path.exists() and path.stat().st_size > 44:
             return path
         if self._synth is None:
