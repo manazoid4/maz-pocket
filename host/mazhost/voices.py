@@ -153,6 +153,8 @@ class VoiceService:
                               "description": "Picked from search", "current": True})
         return {"ok": True, "current": cur, "current_name": self.name_of(cur),
                 "voices": voices, "audio_profile": self.current_profile(),
+                "tts_provider_configured": self.settings.tts_provider,
+                "fish_key_configured": bool(self.settings.fish_api_key),
                 "audio_profiles": [{"id": k, "name": PROFILE_NAMES[k]}
                                    for k in PROFILES]}
 
