@@ -90,6 +90,33 @@ def test_list_default_and_select_persists(tmp_path, calls):
     assert c.post("/voices/select", json={"reference_id": "../x"}, headers=AUTH).status_code == 400
 
 
+def test_audio_profile_is_authenticated_persistent_and_in_listing(tmp_path):
+    c, s = mk(tmp_path)
+    d = c.get("/voices", headers=AUTH).json()
+    assert d["audio_profile"] == "cardputer_adv"
+    assert {p["id"] for p in d["audio_profiles"]} >= {
+        "flat", "cardputer_adv", "headphones", "prototype_small", "prototype_large"}
+    assert c.post("/voices/profile", json={"profile": "flat"}).status_code == 401
+    assert c.post("/voices/profile", json={"profile": "unknown"}, headers=AUTH).status_code == 400
+    assert c.post("/voices/profile", json={"profile": "headphones"}, headers=AUTH).json()["audio_profile"] == "headphones"
+    c.post("/voices/select", json={"reference_id": OTHER, "name": "Sarah"}, headers=AUTH)
+    assert c.get("/voices", headers=AUTH).json()["audio_profile"] == "headphones"
+    fresh = TestClient(create_app(s))
+    assert fresh.get("/voices", headers=AUTH).json()["audio_profile"] == "headphones"
+
+
+def test_audio_profile_accessible_via_logged_in_phone(tmp_path):
+    s = _settings(tmp_path, fish_api_key="k", tts_enabled=True)
+    root = FastAPI()
+    root.mount("/control", build_phone_app(s, AuthorityBroker(s), voices=SpeechOut(s).voices))
+    c = TestClient(root, base_url="http://testserver/control/", headers={"user-agent": "ph"})
+    assert c.post("api/voices/profile", json={"profile": "flat"}).status_code == 401
+    c.post("session/login", data={"token": TOKEN})
+    c.headers.update({"X-MAZ-Control": "1"})
+    assert c.post("api/voices/profile", json={"profile": "flat"}).json()["audio_profile"] == "flat"
+    assert "outputProfileControls" in c.get("").text
+
+
 def test_search_proxy_filters_and_caches(tmp_path, calls):
     c, _ = mk(tmp_path)
     r = c.get("/voices/search?q=Sarah", headers=AUTH).json()
@@ -109,7 +136,7 @@ def test_preview_cached_on_disk(tmp_path, calls):
     assert r.status_code == 200 and r.headers["content-type"] == "audio/wav" and r.content[:4] == b"RIFF"
     c.post("/voices/preview", json={"reference_id": OTHER}, headers=AUTH)
     assert calls["post"] == [OTHER]  # second one served from disk
-    assert (tmp_path / "data" / "voice-previews" / f"{OTHER}.wav").exists()
+    assert (tmp_path / "data" / "voice-previews" / "cardputer_adv" / f"{OTHER}.wav").exists()
     assert c.post("/voices/preview", json={"reference_id": "zz"}, headers=AUTH).status_code == 400
 
 

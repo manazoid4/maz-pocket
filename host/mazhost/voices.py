@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .config import Settings
+from .audio_profiles import PROFILES
 
 log = logging.getLogger("uvicorn.error")
 
@@ -29,6 +30,13 @@ ADRIAN_ID = "bf322df2096a46f18c579d0baa36f41d"
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 PREVIEW_TEXT = "Hi, I'm nod."
 SEARCH_TTL_S = 600
+PROFILE_NAMES = {
+    "cardputer_adv": "Cardputer ADV",
+    "flat": "Flat (original)",
+    "headphones": "Headphones",
+    "prototype_small": "Prototype: small speaker",
+    "prototype_large": "Prototype: larger speaker",
+}
 
 # Verified against GET https://api.fish.audio/model (public, type=tts, en) on 2026-10-07.
 CURATED: list[dict[str, str]] = [
@@ -87,6 +95,24 @@ class VoiceService:
             return ADRIAN_ID
         return value
 
+    def current_profile(self) -> str:
+        value = self._read().get("audio_output_profile")
+        if isinstance(value, str) and value in PROFILES:
+            return value
+        return self.settings.audio_output_profile
+
+    def select_profile(self, profile: str) -> str:
+        if profile not in PROFILES:
+            raise ValueError("unsupported_audio_profile")
+        with self._lock:
+            data = self._read()
+            data["audio_output_profile"] = profile
+            self.dir.mkdir(parents=True, exist_ok=True)
+            tmp = self._file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp.replace(self._file)
+        return profile
+
     def select(self, reference_id: str, name: str = "") -> str:
         ref = reference_id.strip().lower()
         if not ID_RE.match(ref):
@@ -125,7 +151,12 @@ class VoiceService:
         if not any(v["current"] for v in voices):
             voices.insert(0, {"name": self.name_of(cur) or "Custom voice", "reference_id": cur,
                               "description": "Picked from search", "current": True})
-        return {"ok": True, "current": cur, "current_name": self.name_of(cur), "voices": voices}
+        return {"ok": True, "current": cur, "current_name": self.name_of(cur),
+                "voices": voices, "audio_profile": self.current_profile(),
+                "tts_provider_configured": self.settings.tts_provider,
+                "fish_key_configured": bool(self.settings.fish_api_key),
+                "audio_profiles": [{"id": k, "name": PROFILE_NAMES[k]}
+                                   for k in PROFILES]}
 
     def search(self, q: str) -> list[dict[str, Any]]:
         key = self.settings.fish_api_key
@@ -162,7 +193,8 @@ class VoiceService:
         ref = reference_id.strip().lower()
         if not ID_RE.match(ref):
             raise ValueError("invalid_reference_id")
-        path = self.dir / "voice-previews" / f"{ref}.wav"
+        # Preview the same output profile as real speech, not an old un-EQed wav.
+        path = self.dir / "voice-previews" / self.current_profile() / f"{ref}.wav"
         if path.exists() and path.stat().st_size > 44:
             return path
         if self._synth is None:
@@ -190,6 +222,10 @@ class SelectBody(BaseModel):
     name: str = ""
 
 
+class ProfileBody(BaseModel):
+    profile: str
+
+
 def install_voice_routes(app: FastAPI, svc: VoiceService, *, prefix: str = "", dependencies: list | None = None) -> None:
     router = APIRouter(prefix=prefix, dependencies=dependencies or [])
 
@@ -201,6 +237,14 @@ def install_voice_routes(app: FastAPI, svc: VoiceService, *, prefix: str = "", d
     def voices_select(body: SelectBody):
         try:
             svc.select(body.reference_id, body.name)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        return svc.listing()
+
+    @router.post("/voices/profile")
+    def voices_profile(body: ProfileBody):
+        try:
+            svc.select_profile(body.profile)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
         return svc.listing()

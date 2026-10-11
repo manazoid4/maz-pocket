@@ -23,6 +23,7 @@ import pyttsx3
 from . import netpool
 
 from .config import Settings
+from .audio_profiles import shape_speech_wav
 from .voices import ADRIAN_ID, VoiceService
 
 
@@ -61,7 +62,7 @@ class SpeechOut:
         if norm not in COMMON_PHRASES and len(norm) > CACHE_MAX_CHARS:
             return None
         digest = hashlib.sha1(norm.encode("utf-8")).hexdigest()[:20]
-        return self.voices.dir / "tts_cache" / voice / f"{digest}.wav"
+        return self.voices.dir / "tts_cache" / voice / self.voices.current_profile() / f"{digest}.wav"
 
     def _cache_store(self, src: Path, cached: Path) -> None:
         try:
@@ -81,6 +82,7 @@ class SpeechOut:
     def _fish_voice(self, text: str, path: Path, voice: str) -> None:
         """Single Fish call for an explicit voice (used by cached previews); no fallback."""
         self._fish(text, path, voice, fallback=False)
+        self._prepare_audio(path)
 
     def _fish(self, text: str, path: Path, voice: str | None = None, fallback: bool = True) -> None:
         key = self.settings.fish_api_key
@@ -112,6 +114,12 @@ class SpeechOut:
             data = (data[:4] + struct.pack("<I", len(data) - 8) + data[8:i + 4]
                     + struct.pack("<I", len(data) - i - 8) + data[i + 8:])
         path.write_bytes(data)
+
+    def _prepare_audio(self, path: Path) -> None:
+        """Convert provider WAV to device PCM16k mono and apply output profile."""
+        self._device_wav(path)
+        applied = shape_speech_wav(path, self.voices.current_profile())
+        log.info("tts_audio_profile=%s applied=%s", self.voices.current_profile(), applied)
 
     def _kokoro(self, text: str, path: Path) -> None:
         """Optional Kokoro-ONNX, entirely on the Windows Core machine."""
@@ -211,7 +219,7 @@ class SpeechOut:
         if provider == "kokoro":
             try:
                 self._kokoro(clean, path)
-                self._device_wav(path)
+                self._prepare_audio(path)
                 self.last_provider = "kokoro"
                 if cached is not None:
                     self._cache_store(path, cached)
@@ -222,7 +230,7 @@ class SpeechOut:
             for _ in range(2):  # Fish first, retried once
                 try:
                     self._fish(clean, path)
-                    self._device_wav(path)
+                    self._prepare_audio(path)
                     self.last_provider = "fish"
                     if cached is not None:
                         self._cache_store(path, cached)
@@ -235,7 +243,7 @@ class SpeechOut:
             if self.settings.kokoro_model_path and self.settings.kokoro_voices_path:
                 try:
                     self._kokoro(clean, path)
-                    self._device_wav(path)
+                    self._prepare_audio(path)
                     self.last_provider = "kokoro"
                     return path
                 except Exception as error:
@@ -250,7 +258,7 @@ class SpeechOut:
             engine.stop()
             if not path.exists() or path.stat().st_size <= 44:
                 raise RuntimeError("tts_no_audio")
-            self._device_wav(path)
+            self._prepare_audio(path)
             log.info("tts_provider=windows")
             return path
         except Exception:
