@@ -18,6 +18,7 @@ void lineOpen();   // remote PC session established
 void lineClose();  // remote PC session cleared
 void saved();      // written to storage
 void agentDone();  // Claude Code turn finished (2-note rising chirp)
+void halt();       // nod Halt is on (2-note falling low tone, replaces the toast beep)
 void timerDone();  // Focus complete — the one sound allowed to be insistent
 void error();
 

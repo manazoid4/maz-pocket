@@ -38,6 +38,8 @@ void error()     { pair(300.f, 200.f, 90); }
 bool gSkipNextNote = false;
 void agentDone() { gSkipNextNote = true; pair(880.f, 1175.f, 50); }
 
+void halt() { gSkipNextNote = true; pair(520.f, 330.f, 90); }
+
 void timerDone() {
     for (int i = 0; i < 3; ++i) {
         beep(1200.f, 120, /*force=*/true);

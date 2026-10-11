@@ -113,6 +113,7 @@ GLOBAL
 ------
 Fn + Space = ask about current Pocket screen/context.
 Fn + F     = FIELD mode on/off.
+Fn + H     = HALT: stop every agent approval request (press again to resume). See docs/HALT.md.
 Ctrl + K   = command palette.
 Ctrl + L   = return to M5Launcher without invalidating MAZ Pocket.
 Fn + M on Home = harmless retro Easter egg.

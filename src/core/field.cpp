@@ -37,6 +37,7 @@ uint32_t gLastCountsAt = 0;
 uint32_t gNextOutboxTry = 0;
 uint32_t gOutboxBackoffMs = 15000;
 uint32_t gNextBeamPoll = 0;
+int8_t gHaltToggleWant = -1;
 bool gSystemRequested = false;
 bool gWorkRequested = false;
 bool gReminderDue = false;
@@ -153,7 +154,12 @@ void finishBeamPull(const host::BeamMessage& msg) {
     for (const auto& e : msg.events) {
         std::string detail = e.source.empty() ? e.text : e.source + ": " + e.text;
         if (detail.size() > 160) detail.resize(160);
-        if (e.kind == "done") {
+        const bool isHalt = e.source == "halt";  // Core's "Halt on/off" chirp
+        if (isHalt) {
+            const bool on = e.text == "Halt on";
+            if (on) sfx::halt();
+            notify::post(on ? Note::Warn : Note::Success, "nod Halt", e.text);
+        } else if (e.kind == "done") {
             sfx::agentDone();  // plays the chirp, mutes the generic toast beep
             notify::post(Note::Success, "Agent done", detail);
         } else if (e.kind == "usage") {
@@ -163,6 +169,18 @@ void finishBeamPull(const host::BeamMessage& msg) {
         } else if (e.kind == "error") {
             notify::post(Note::Error, "Agent error", detail);
         }
+    }
+    if (msg.haltSendFailed) notify::post(Note::Error, "Halt not sent", "Core unreachable");
+    if (msg.haltCheckFailed && Sys.haltKnown) {
+        Sys.haltKnown = false;
+        shell::invalidate();
+    }
+    if (msg.halted >= 0) {
+        const bool halted = msg.halted == 1;
+        if (!Sys.haltKnown || halted != Sys.halted) shell::invalidate();
+        Sys.halted = halted;
+        Sys.haltKnown = true;
+        if (gHaltToggleWant == msg.halted) gHaltToggleWant = -1;
     }
     if (!msg.ok || !msg.hasMessage || msg.text.empty()) return;
 
@@ -446,6 +464,21 @@ void toggleShift() {
     store::addRecord(r);
     notify::post(Note::Success, "Shift saved", elapsed(Sys.shiftSeconds).c_str());
     shell::invalidate();
+}
+
+void toggleHalt() {
+    if (!host::configured()) {
+        notify::post(Note::Warn, "Halt needs Core", "pair with your PC first");
+        return;
+    }
+    // If Core state is unknown, only request the safe direction. Once a prior
+    // toggle is queued, another key press reverses that queued intent.
+    const int8_t target = !Sys.haltKnown ? 1 : gHaltToggleWant >= 0
+        ? 1 - gHaltToggleWant : !Sys.halted;
+    gHaltToggleWant = target;
+    host::haltWant(target == 1);
+    gNextBeamPoll = millis();  // send on the next free Beam pull job, not in 15 s
+    notify::post(Note::Warn, target ? "Halting..." : "Resuming...", "waiting for Core");
 }
 
 std::string shiftElapsedText() { return elapsed(Sys.shiftSeconds); }

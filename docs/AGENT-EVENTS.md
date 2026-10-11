@@ -33,6 +33,10 @@ Anything else is rejected (HTTP 422). A missing or wrong token is HTTP 401.
 | `needs` | Needs you | warning tone |
 | `error` | Agent error | error tone |
 
+## Halt
+
+`Halt on` / `Halt off` pings come from the hub itself when you press **Fn + H** on the device. They only announce the change. What Halt does, and what it cannot do, is in [HALT.md](HALT.md).
+
 ## Limits
 
 - The hub keeps the last 20 events. The device checks every 15 s (45 s in field mode), so a ping can take that long to appear.

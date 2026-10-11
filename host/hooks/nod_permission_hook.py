@@ -4,7 +4,8 @@
 Env: NOD_TOKEN (required), NOD_CORE_URL (default http://127.0.0.1:8787),
 NOD_BUDDY_TIMEOUT (seconds, default 60). MAZ_* names still work. stdlib only.
 
-Device allow/deny -> decision JSON on stdout.
+Device allow/deny -> decision JSON on stdout. If the hub is Halted it denies at
+once with "Halted from nod" and that text is the deny message the agent sees.
 Timeout or any error -> no stdout, "ask" on stderr, exit 0: Claude Code then
 shows its normal terminal prompt.
 """
@@ -43,10 +44,11 @@ def summarize(tool_input: dict) -> str:
     return " ".join(str(text).split())[:200]
 
 
-def decide(event: dict) -> str | None:
-    """'allow' | 'deny' | None (None = ask in terminal)."""
+def decide(event: dict) -> tuple[str | None, str]:
+    """('allow'|'deny'|None, reason). None = ask in terminal. reason is set when
+    the hub denied it itself (Halt)."""
     if not TOKEN:
-        return None
+        return None, ""
     try:
         req = call("POST", "/buddy/request", {
             "tool": event.get("tool_name", "?"),
@@ -56,7 +58,7 @@ def decide(event: dict) -> str | None:
         end = time.monotonic() + TIMEOUT
         while True:
             if req.get("decision") in ("allow", "deny"):
-                return req["decision"]
+                return req["decision"], str(req.get("reason") or "")
             left = end - time.monotonic()
             if left <= 0:
                 break
@@ -65,7 +67,7 @@ def decide(event: dict) -> str | None:
         call("POST", "/buddy/decide", {"id": req["id"], "decision": "cancel"})
     except (urllib.error.URLError, OSError, ValueError, KeyError):
         pass
-    return None
+    return None, ""
 
 
 def main() -> int:
@@ -73,13 +75,13 @@ def main() -> int:
         event = json.load(sys.stdin)
     except ValueError:
         event = {}
-    verdict = decide(event)
+    verdict, reason = decide(event)
     if not verdict:
         print("ask", file=sys.stderr)
         return 0
     decision = {"behavior": verdict}
     if verdict == "deny":
-        decision["message"] = "Denied from nod device"
+        decision["message"] = reason or "Denied from nod device"
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest",
                                              "decision": decision}}))
     return 0

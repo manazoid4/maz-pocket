@@ -82,6 +82,9 @@ struct AgentEvent {
 
 struct BeamMessage {
     std::vector<AgentEvent> events;  // new /buddy/events since the last poll
+    int8_t halted = -1;              // nod Halt from /buddy/halt: -1 unknown, 0 off, 1 on
+    bool haltSendFailed = false;     // a Halt toggle was requested but Core did not take it
+    bool haltCheckFailed = false;    // latest GET/POST could not confirm Core state
     bool ok = false;
     bool hasMessage = false;
     std::string id;
@@ -188,6 +191,8 @@ TeachStatus teachStatus(const std::string& sessionId);
 // a command. Telemetry is a cached one-shot laptop snapshot, not a stream.
 Reply beamSend(const std::string& text);
 BeamMessage beamPull();
+// nod Halt: the main task asks, the next Beam pull job sends it (no extra timer).
+void haltWant(bool on);
 SystemStatus systemStatus();
 WorkSummary workSummary();
 Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);

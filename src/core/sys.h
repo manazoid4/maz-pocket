@@ -35,6 +35,8 @@ struct SysState {
     uint8_t     agentsWaiting = 0;
     uint8_t     agentsStale   = 0;
     bool        agentQuestion = false;
+    bool        halted        = false;  // nod Halt: Core denies every agent approval
+    bool        haltKnown     = false;  // false means the latest Core state is unavailable
     bool        nudgeDue      = false;
     uint32_t    nudgeCheckedAt = 0;
 

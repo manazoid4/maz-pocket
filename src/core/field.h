@@ -23,6 +23,7 @@ void cycleQuick(int slot);
 
 void toggleFieldMode();
 void toggleShift();
+void toggleHalt();  // nod Halt (Fn+H): ask Core to deny every agent approval, or resume
 std::string shiftElapsedText();
 
 void requestSystemStatus();

@@ -72,6 +72,19 @@ void statusBar(M5Canvas& g) {
     }
 
     int x = 48;
+    // Halt beats everything: unmistakable, flashes so it is seen from across a desk.
+    if (Sys.halted && Sys.haltKnown) {
+        const bool on = (millis() / 500) % 2;
+        g.fillRect(x - 2, 1, 52, STATUS_H - 3, on ? ERR : PANEL);
+        g.setTextColor(on ? BG : ERR, on ? ERR : PANEL);
+        g.drawString("HALTED", x + 2, 4);
+        x += 56;
+    } else if (!Sys.haltKnown && !Sys.hostAddr.empty()) {
+        g.fillRect(x - 2, 1, 42, STATUS_H - 3, ERR);
+        g.setTextColor(BG, ERR);
+        g.drawString("HALT?", x + 2, 4);
+        x += 46;
+    }
     // Live activity beats everything else for attention.
     if (Sys.recording) {
         g.fillCircle(x + 3, 7, 3, ERR);

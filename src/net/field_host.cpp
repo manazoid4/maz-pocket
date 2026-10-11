@@ -8,6 +8,7 @@
 #include <WiFi.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <utility>
@@ -131,6 +132,38 @@ void fieldOnline() { Sys.hostOnline = true; }
 // reboot never replays old pings. Worker-task only, no locking needed.
 int32_t gAgentSince = -1;
 
+// nod Halt rides the same Beam pull job: optional POST (toggle asked for with
+// Fn+H), then GET the truth. Halt only ever denies on the Core side.
+std::atomic<int8_t> gHaltWant{-1};  // -1 none, 0 resume, 1 halt
+
+void pullHalt(const std::string& base, bool remote, BeamMessage& out) {
+    const int8_t want = gHaltWant.exchange(-1);
+    HTTPClient http;
+    if (!beginField(http, base, "/buddy/halt", remote)) {
+        out.haltSendFailed = want >= 0;
+        out.haltCheckFailed = true;
+        return;
+    }
+    http.setTimeout(4000);
+    int status;
+    if (want >= 0) {
+        http.addHeader("Content-Type", "application/json");
+        status = http.POST(want ? "{\"on\":true}" : "{\"on\":false}");
+    } else {
+        status = http.GET();
+    }
+    String body;
+    const bool read = status == 200 && readBoundedBody(http, body, 1024) == BodyReadResult::Ok;
+    http.end();
+    JsonDocument doc;
+    if (!read || deserializeJson(doc, body) || !doc["halted"].is<bool>()) {
+        out.haltSendFailed = want >= 0;  // report failed toggles; state remains unknown
+        out.haltCheckFailed = true;
+        return;
+    }
+    out.halted = doc["halted"].as<bool>() ? 1 : 0;
+}
+
 void pullAgentEvents(const std::string& base, bool remote, BeamMessage& out) {
     HTTPClient http;
     const std::string path = "/buddy/events?since=" +
@@ -233,6 +266,8 @@ Reply beamSend(const std::string& text) {
     return out;
 }
 
+void haltWant(bool on) { gHaltWant = on ? 1 : 0; }
+
 BeamMessage beamPull() {
     BeamMessage out;
     for (const auto& base : fieldBases()) {
@@ -254,6 +289,7 @@ BeamMessage beamPull() {
             out.kind = msg["kind"] | "text";
             out.text = msg["text"] | "";
         }
+        pullHalt(base.first, base.second, out);
         pullAgentEvents(base.first, base.second, out);
         return out;
     }
