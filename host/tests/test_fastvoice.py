@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import wave
 
 import httpx
 from mazhost import netpool
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from mazhost.app import create_app
 from mazhost.config import Settings
-from mazhost.speakplan import SpeakPlanner, TimingLog, plan_parts, split_sentences
+from mazhost.speakplan import SpeakPlanner, TimingLog, plan_parts, split_sentences, spoken_reply
 from mazhost.tts import SpeechOut
 from mazhost.voices import ADRIAN_ID
 
@@ -151,3 +152,45 @@ def test_long_first_sentence_is_capped():
             "without any stop, then it ends right here. Second one.")
     parts = plan_parts(text)
     assert len(parts) == 2 and len(parts[0]) <= 110 and " ".join(parts) == text.replace("stop, then", "stop, then")
+
+def test_short_spoken_reply_keeps_full_screen_text_elsewhere():
+    long = ("First, I found the report. Second, I can summarize it now. "
+            "Third, I could make you a new report that discusses every single point at length. "
+            + "Extra details. " * 30)
+    short = spoken_reply(long)
+    assert short == "First, I found the report. Second, I can summarize it now."
+    assert len(short) <= 220
+    assert spoken_reply("Done.") == "Done."
+    single = "A " + "quite long explanation " * 40
+    assert len(spoken_reply(single)) <= 220 and spoken_reply(single).endswith("...")
+
+def _pcm_wav(path, rate=24000, channels=2):
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(b"\\x00\\x00" * channels * (rate // 100))
+
+def test_tts_device_native_pcm16k_mono(tmp_path):
+    path = tmp_path / "stereo.wav"
+    _pcm_wav(path)
+    SpeechOut._device_wav(path)
+    with wave.open(str(path), "rb") as wav:
+        assert wav.getnchannels() == 1
+        assert wav.getsampwidth() == 2
+        assert wav.getframerate() == 16000
+        assert wav.getnframes() == 160
+
+def test_local_kokoro_option_produces_native_wav_without_cloud(tmp_path, monkeypatch):
+    out = SpeechOut(_settings(tmp_path, tts_provider="kokoro"))
+    calls = []
+    def local(text, path):
+        calls.append(text)
+        _pcm_wav(path)
+    monkeypatch.setattr(out, "_kokoro", local)
+    first = out.synthesize("Kokoro local example.")
+    assert calls == ["Kokoro local example."] and out.last_provider == "kokoro"
+    with wave.open(str(first), "rb") as wav:
+        assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 1, 2)
+    out.synthesize("Kokoro local example.")
+    assert len(calls) == 1 and out.last_provider == "cache"
