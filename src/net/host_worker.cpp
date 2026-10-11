@@ -30,6 +30,7 @@ OutboxAudioResult gOutboxAudioResult;
 OutboxBeamResult gOutboxBeamResult;
 host::BeamMessage gBeamPullResult;
 host::SystemStatus gSystemResult;
+host::TodayStatus gTodayResult;
 host::WorkSummary gWorkResult;
 WorkIncrementResult gWorkIncrementResult;
 WorkflowResult gWorkflowResult;
@@ -128,6 +129,8 @@ void worker(void*) {
             gBeamPullResult = host::beamPull();
         } else if (kind == JobKind::SystemStatus) {
             gSystemResult = host::systemStatus();
+        } else if (kind == JobKind::Today) {
+            gTodayResult = host::todayStatus();
         } else if (kind == JobKind::WorkSummary) {
             gWorkResult = host::workSummary();
         } else if (kind == JobKind::WorkIncrement) {
@@ -172,7 +175,7 @@ bool canSubmit() {
 void clearResults() {
     gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gOutboxAudioResult = OutboxAudioResult{};
     gOutboxBeamResult = OutboxBeamResult{}; gBeamPullResult = host::BeamMessage{};
-    gSystemResult = host::SystemStatus{}; gWorkResult = host::WorkSummary{};
+    gSystemResult = host::SystemStatus{}; gTodayResult = host::TodayStatus{}; gWorkResult = host::WorkSummary{};
     gWorkIncrementResult = WorkIncrementResult{};
     gWorkflowResult = WorkflowResult{}; gTeachResult = TeachResult{};
 }
@@ -206,6 +209,7 @@ bool submitOutboxBeam(const std::string& recordId, const std::string& text) {
 }
 bool submitBeamPull() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::BeamPull); return true; }
 bool submitSystemStatus() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::SystemStatus); return true; }
+bool submitToday() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::Today); return true; }
 bool submitWorkSummary() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::WorkSummary); return true; }
 bool submitWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
     if (trackId.empty() || eventTypeId.empty() || !canSubmit() || !ensureWorker()) return false;
@@ -232,6 +236,7 @@ bool takeOutboxAudioResult(OutboxAudioResult& result) { if (state()!=State::Done
 bool takeOutboxBeamResult(OutboxBeamResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxBeam)return false; result=std::move(gOutboxBeamResult); resetToIdle(); return true; }
 bool takeBeamPullResult(host::BeamMessage& result) { if (state()!=State::Done||jobKind()!=JobKind::BeamPull)return false; result=std::move(gBeamPullResult); resetToIdle(); return true; }
 bool takeSystemStatusResult(host::SystemStatus& result) { if (state()!=State::Done||jobKind()!=JobKind::SystemStatus)return false; result=std::move(gSystemResult); resetToIdle(); return true; }
+bool takeTodayResult(host::TodayStatus& result) { if (state()!=State::Done||jobKind()!=JobKind::Today)return false; result=std::move(gTodayResult); resetToIdle(); return true; }
 bool takeWorkSummaryResult(host::WorkSummary& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkSummary)return false; result=std::move(gWorkResult); resetToIdle(); return true; }
 bool takeWorkIncrementResult(WorkIncrementResult& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkIncrement)return false; result=std::move(gWorkIncrementResult); resetToIdle(); return true; }
 bool takeWorkflowResult(WorkflowResult& result) { if (state()!=State::Done||jobKind()!=JobKind::Workflow)return false; result=std::move(gWorkflowResult); resetToIdle(); return true; }

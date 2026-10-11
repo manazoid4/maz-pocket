@@ -39,6 +39,8 @@ uint32_t gOutboxBackoffMs = 15000;
 uint32_t gNextBeamPoll = 0;
 bool gSystemRequested = false;
 bool gWorkRequested = false;
+bool gTodayRequested = false;
+host::TodayStatus gToday;
 bool gReminderDue = false;
 
 std::string& quickSetting(int slot) {
@@ -201,6 +203,12 @@ void finishSystem(const host::SystemStatus& s) {
     shell::invalidate();
 }
 
+void finishToday(const host::TodayStatus& t) {
+    gTodayRequested = false;
+    gToday = t;  // a failed poll is kept (ok=false + error) so the screen can say why
+    shell::invalidate();
+}
+
 void finishWork(const host::WorkSummary& s) {
     gWorkRequested = false;
     if (!s.ok) return;  // keep last-known values on a failed poll — never blank/zero
@@ -304,6 +312,11 @@ void update() {
                 if (host_worker::takeSystemStatusResult(r)) finishSystem(r);
                 break;
             }
+            case host_worker::JobKind::Today: {
+                host::TodayStatus r;
+                if (host_worker::takeTodayResult(r)) finishToday(r);
+                break;
+            }
             case host_worker::JobKind::WorkSummary: {
                 host::WorkSummary r;
                 if (host_worker::takeWorkSummaryResult(r)) finishWork(r);
@@ -334,6 +347,10 @@ void update() {
 
     if (gWorkRequested) {
         if (host_worker::submitWorkSummary()) return;
+    }
+
+    if (gTodayRequested) {
+        if (host_worker::submitToday()) return;
     }
 
     if (Sys.outboxQueued && static_cast<int32_t>(millis() - gNextOutboxTry) >= 0) {
@@ -459,6 +476,17 @@ void requestSystemStatus() {
 }
 
 void requestWorkSummary() { gWorkRequested = true; }
+
+void requestToday() {
+    gTodayRequested = true;
+    if (!host::configured()) {
+        gToday = host::TodayStatus{};
+        gToday.error = "PC unreachable";
+        gTodayRequested = false;
+    }
+}
+
+const host::TodayStatus& today() { return gToday; }
 
 bool requestWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
     return host_worker::submitWorkIncrement(trackId, eventTypeId);
