@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <string>
 
+#include "../net/mazhost.h"
+
 namespace maz {
 namespace field {
 
@@ -27,6 +29,8 @@ std::string shiftElapsedText();
 
 void requestSystemStatus();
 void requestWorkSummary();
+void requestToday();             // refresh the Today screen data
+const host::TodayStatus& today();  // last result (ok=false until one arrives)
 bool requestWorkIncrement(const std::string& trackId, const std::string& eventTypeId);
 void queueBeam(const std::string& text);
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from mazhost import buddy as buddy_mod
 from mazhost.app import create_app
 from mazhost.config import Settings
 
@@ -231,3 +232,94 @@ def test_permission_hook_reads_nod_env(monkeypatch):
     monkeypatch.delenv("MAZ_TOKEN", raising=False)
     monkeypatch.setenv("NOD_TOKEN", "t")
     assert load(HOOK, "perm").TOKEN == "t"
+
+
+# ---- Today counters (/buddy/today) ----
+def today_api(monkeypatch, day="2026-10-11"):
+    clock = {"d": day}
+    monkeypatch.setattr(buddy_mod, "_local_today", lambda: clock["d"])
+    return api(), clock
+
+
+def ev(c, kind, source="", text="x"):
+    return c.post("/buddy/event", json={"kind": kind, "text": text, "source": source}, headers=H)
+
+
+def today(c):
+    return c.get("/buddy/today", headers=H).json()
+
+
+def test_today_empty_day_and_auth(monkeypatch):
+    c, _ = today_api(monkeypatch)
+    assert today(c) == {"ok": True, "date": "2026-10-11", "done": 0, "needs": 0, "errors": 0,
+                        "usage": 0, "approved": 0, "denied": 0, "agents": [], "last": None}
+    assert c.get("/buddy/today").status_code == 401
+
+
+def test_today_counts_by_kind_and_last(monkeypatch):
+    c, _ = today_api(monkeypatch)
+    for k in ("done", "done", "needs", "error", "usage", "usage", "usage"):
+        ev(c, k, "codex", text=k)
+    got = today(c)
+    assert (got["done"], got["needs"], got["errors"], got["usage"]) == (2, 1, 1, 3)
+    assert set(got["last"]) == {"kind", "text", "source", "ts"}
+    assert (got["last"]["kind"], got["last"]["source"]) == ("usage", "codex")
+
+
+def test_today_per_agent_and_cap(monkeypatch):
+    c, _ = today_api(monkeypatch)
+    for _ in range(3):
+        ev(c, "done", "claude")
+    ev(c, "done", "codex")
+    ev(c, "needs", "ghost")  # not a done: no agent row
+    ev(c, "done")  # no source
+    assert today(c)["agents"] == [{"source": "claude", "done": 3}, {"source": "codex", "done": 1},
+                                  {"source": "other", "done": 1}]
+    c, _ = today_api(monkeypatch)
+    for i in range(10):
+        ev(c, "done", f"a{i}")
+    ev(c, "done", "a0")  # an already-listed agent keeps counting by name
+    agents = today(c)["agents"]
+    assert len(agents) == 9 and agents[0] == {"source": "a0", "done": 2}
+    assert agents[-1] == {"source": "other", "done": 2} and today(c)["done"] == 11
+
+
+def test_today_approved_denied_through_decide(monkeypatch):
+    c, _ = today_api(monkeypatch)
+
+    def ask(sid=""):
+        return c.post("/buddy/request", json={"tool": "Bash", "session_id": sid}, headers=H).json()["id"]
+
+    def decide(rid, d):
+        c.post("/buddy/decide", json={"id": rid, "decision": d}, headers=H)
+
+    a, b, x = ask(), ask(), ask()
+    decide(a, "allow")
+    decide(a, "deny")  # already decided: not counted twice
+    decide(b, "deny")
+    decide(x, "cancel")  # a hook timeout is neither
+    assert (today(c)["approved"], today(c)["denied"]) == (1, 1)
+    s1, s2 = ask("s"), ask("s")
+    decide(s1, "allow_all")  # s1 and the waiting s2 are both approved
+    ask("s")  # auto-allowed afterwards
+    assert (today(c)["approved"], today(c)["denied"]) == (4, 1)
+    assert c.post("/buddy/decide", json={"id": "nope", "decision": "allow"}, headers=H).status_code == 404
+
+
+def test_today_midnight_rollover(monkeypatch):
+    c, clock = today_api(monkeypatch)
+    ev(c, "done", "claude")
+    rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    c.post("/buddy/decide", json={"id": rid, "decision": "allow"}, headers=H)
+    assert (today(c)["done"], today(c)["approved"]) == (1, 1)
+    clock["d"] = "2026-10-12"  # read after midnight: fresh day, no write needed
+    got = today(c)
+    assert got["date"] == "2026-10-12" and got["done"] == 0 and got["approved"] == 0
+    assert got["agents"] == [] and got["last"] is None
+    ev(c, "needs", "claude")
+    assert today(c)["needs"] == 1
+    clock["d"] = "2026-10-13"  # write after midnight also starts clean
+    ev(c, "done", "codex")
+    got = today(c)
+    assert (got["done"], got["needs"]) == (1, 0) and got["agents"] == [{"source": "codex", "done": 1}]
+    assert c.get("/buddy/events", headers=H).json()["last"] == 3  # event ring is untouched
