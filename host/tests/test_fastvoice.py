@@ -169,7 +169,7 @@ def _pcm_wav(path, rate=24000, channels=2):
         wav.setnchannels(channels)
         wav.setsampwidth(2)
         wav.setframerate(rate)
-        wav.writeframes(b"\\x00\\x00" * channels * (rate // 100))
+        wav.writeframes(bytes(2 * channels * (rate // 100)))
 
 def test_tts_device_native_pcm16k_mono(tmp_path):
     path = tmp_path / "stereo.wav"
