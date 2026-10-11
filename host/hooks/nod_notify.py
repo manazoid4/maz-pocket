@@ -17,7 +17,8 @@ import sys
 import urllib.request
 
 KINDS = ("done", "usage", "needs", "error")
-TEXT_FIELDS = ("text", "message", "last_assistant_message", "summary")
+TEXT_FIELDS = ("text", "message", "last_assistant_message", "last-assistant-message",
+               "prompt_response", "summary")  # last two: Codex, Gemini CLI
 
 
 def env(name: str, default: str = "") -> str:
@@ -63,6 +64,11 @@ def main(argv: list[str] | None = None) -> int:
             source = args[i + 1] if i + 1 < len(args) else ""
             del args[i:i + 2]
         kind, text = (args + ["", ""])[:2]
+        if text.lstrip().startswith("{"):  # agent passed its JSON payload as an argument (Codex)
+            try:
+                text = first_line(json.loads(text))
+            except ValueError:
+                pass
         if not text and not sys.stdin.isatty():
             raw = sys.stdin.read()
             try:

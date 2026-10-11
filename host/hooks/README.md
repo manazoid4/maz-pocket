@@ -4,7 +4,7 @@ Claude Code `PermissionRequest` hook. Sends tool + one-line summary to Core
 `/buddy/request`, long-polls `/buddy/state`. Device allow/deny -> decision JSON.
 60 s timeout or Core down -> silent exit 0 (+ `ask` on stderr) = normal terminal prompt.
 
-Env: `MAZ_TOKEN` (Core token), `MAZ_CORE_URL` (default `http://127.0.0.1:8787`), `MAZ_BUDDY_TIMEOUT` (default 60).
+Env: `NOD_TOKEN` (Core token), `NOD_CORE_URL` (default `http://127.0.0.1:8787`), `NOD_BUDDY_TIMEOUT` (default 60). Old `MAZ_*` names still work. Other agents: see `ADAPTERS.md` and `docs/AGENT-EVENTS.md`.
 
 Install: add to `~/.claude/settings.json` (merge into existing `hooks`):
 

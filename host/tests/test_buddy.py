@@ -200,6 +200,15 @@ def test_notify_stdin_json_fields(monkeypatch):
     assert evs[1]["text"] == "s" * 160 and evs[2]["text"] == "plain text line"
 
 
+def test_notify_json_as_argument_codex_style(monkeypatch):
+    c = api()
+    n = wire_notify(monkeypatch, c)
+    payload = json.dumps({"type": "agent-turn-complete", "last-assistant-message": "Fixed it"})
+    assert n.main(["done", "--source", "codex", payload]) == 0
+    e = c.get("/buddy/events", headers=H).json()["events"][0]
+    assert (e["text"], e["source"]) == ("Fixed it", "codex")
+
+
 def test_notify_nod_env_beats_maz_env(monkeypatch):
     n = load(NOTIFY, "nod_notify_env")
     monkeypatch.setenv("MAZ_TOKEN", "old")
