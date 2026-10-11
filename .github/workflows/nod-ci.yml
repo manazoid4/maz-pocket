@@ -56,7 +56,7 @@ jobs:
           headroom=$((limit - size))
           echo "headroom: $headroom bytes"
           if [ "$size" -gt "$limit" ]; then echo "::error::firmware.bin exceeds app slot by $((size - limit)) bytes"; exit 1; fi
-          if [ "$headroom" -lt 8192 ]; then echo "::warning::firmware.bin headroom only $headroom bytes (< 8192) of the app slot"; fi
+          if [ "$headroom" -lt 16384 ]; then echo "::error::firmware.bin headroom only $headroom bytes (< 16384) of the app slot"; exit 1; fi
 
       - name: Manifest
         run: python scripts/fw_manifest.py .pio/build/cardputer-adv/firmware.bin dist/

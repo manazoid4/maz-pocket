@@ -34,6 +34,7 @@ host::BuddyPoll gBuddyPollResult;
 BuddyDecideResult gBuddyDecideResult;
 std::string gBuddyId, gBuddyDecision;
 host::SystemStatus gSystemResult;
+host::TodayStatus gTodayResult;
 host::WorkSummary gWorkResult;
 WorkIncrementResult gWorkIncrementResult;
 WorkflowResult gWorkflowResult;
@@ -166,6 +167,8 @@ void worker(void*) {
             gBuddyDecideResult.ok = host::buddyDecide(gBuddyId, gBuddyDecision, gBuddyDecideResult.applied);
         } else if (kind == JobKind::SystemStatus) {
             gSystemResult = host::systemStatus();
+        } else if (kind == JobKind::Today) {
+            gTodayResult = host::todayStatus();
         } else if (kind == JobKind::WorkSummary) {
             gWorkResult = host::workSummary();
         } else if (kind == JobKind::WorkIncrement) {
@@ -213,7 +216,7 @@ void clearResults() {
     gPartsExpected.store(0, std::memory_order_release);
     gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gOutboxAudioResult = OutboxAudioResult{};
     gOutboxBeamResult = OutboxBeamResult{}; gBeamPullResult = host::BeamMessage{};
-    gSystemResult = host::SystemStatus{}; gWorkResult = host::WorkSummary{};
+    gSystemResult = host::SystemStatus{}; gTodayResult = host::TodayStatus{}; gWorkResult = host::WorkSummary{};
     gWorkIncrementResult = WorkIncrementResult{};
     gWorkflowResult = WorkflowResult{}; gTeachResult = TeachResult{};
 }
@@ -253,6 +256,7 @@ bool submitBuddyDecide(const std::string& id, const std::string& decision) {
     gBuddyId = id; gBuddyDecision = decision; clearResults(); publish(JobKind::BuddyDecide); return true;
 }
 bool submitSystemStatus() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::SystemStatus); return true; }
+bool submitToday() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::Today); return true; }
 bool submitWorkSummary() { if (!canSubmit() || !ensureWorker()) return false; clearResults(); publish(JobKind::WorkSummary); return true; }
 bool submitWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
     if (trackId.empty() || eventTypeId.empty() || !canSubmit() || !ensureWorker()) return false;
@@ -295,6 +299,7 @@ bool takeCoreInfoResult(host::CoreInfo& result) { if (state()!=State::Done||jobK
 bool takeBuddyPollResult(host::BuddyPoll& result) { if (state()!=State::Done||jobKind()!=JobKind::BuddyPoll)return false; result=std::move(gBuddyPollResult); resetToIdle(); return true; }
 bool takeBuddyDecideResult(BuddyDecideResult& result) { if (state()!=State::Done||jobKind()!=JobKind::BuddyDecide)return false; result=std::move(gBuddyDecideResult); resetToIdle(); return true; }
 bool takeSystemStatusResult(host::SystemStatus& result) { if (state()!=State::Done||jobKind()!=JobKind::SystemStatus)return false; result=std::move(gSystemResult); resetToIdle(); return true; }
+bool takeTodayResult(host::TodayStatus& result) { if (state()!=State::Done||jobKind()!=JobKind::Today)return false; result=std::move(gTodayResult); resetToIdle(); return true; }
 bool takeWorkSummaryResult(host::WorkSummary& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkSummary)return false; result=std::move(gWorkResult); resetToIdle(); return true; }
 bool takeWorkIncrementResult(WorkIncrementResult& result) { if (state()!=State::Done||jobKind()!=JobKind::WorkIncrement)return false; result=std::move(gWorkIncrementResult); resetToIdle(); return true; }
 bool takeWorkflowResult(WorkflowResult& result) { if (state()!=State::Done||jobKind()!=JobKind::Workflow)return false; result=std::move(gWorkflowResult); resetToIdle(); return true; }
