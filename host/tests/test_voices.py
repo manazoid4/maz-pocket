@@ -109,7 +109,7 @@ def test_preview_cached_on_disk(tmp_path, calls):
     assert r.status_code == 200 and r.headers["content-type"] == "audio/wav" and r.content[:4] == b"RIFF"
     c.post("/voices/preview", json={"reference_id": OTHER}, headers=AUTH)
     assert calls["post"] == [OTHER]  # second one served from disk
-    assert (tmp_path / "data" / "voice-previews" / f"{OTHER}.wav").exists()
+    assert (tmp_path / "data" / "voice-previews" / "cardputer_adv" / f"{OTHER}.wav").exists()
     assert c.post("/voices/preview", json={"reference_id": "zz"}, headers=AUTH).status_code == 400
 
 
