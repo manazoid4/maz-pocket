@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from mazhost import buddy as buddy_mod
 from mazhost.app import create_app
 from mazhost.config import Settings
 
@@ -338,3 +339,37 @@ def test_event_endpoints_do_not_touch_approvals_or_grants():
     later = c.post("/buddy/request", json={"tool": "Bash", "session_id": "s"}, headers=H).json()
     assert later["decision"] is None  # an event never pre-approves a later request
     assert c.post("/buddy/event", json={"kind": "done", "text": "t" * 5000}, headers=H).status_code == 422
+
+# Today counters never grant approval and reset at midnight (Core local time).
+def test_today_counts_and_permissions(monkeypatch):
+    day = {"value": "2026-10-11"}
+    monkeypatch.setattr(buddy_mod, "_local_today", lambda: day["value"])
+    c = api()
+    assert c.get("/buddy/today").status_code == 401
+    assert c.get("/buddy/today", headers=H).json()["done"] == 0
+    for kind in ("done", "done", "needs", "error", "usage"):
+        response = c.post("/buddy/event", json={"kind": kind, "source": "codex", "text": kind}, headers=H)
+        assert response.status_code == 200
+    r1 = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    r2 = c.post("/buddy/request", json={"tool": "Write"}, headers=H).json()["id"]
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow"}, headers=H).status_code == 200
+    assert c.post("/buddy/decide", json={"id": r2, "decision": "deny"}, headers=H).status_code == 200
+    got = c.get("/buddy/today", headers=H).json()
+    assert tuple(got[k] for k in ("done", "needs", "errors", "usage", "approved", "denied")) == (2, 1, 1, 1, 1, 1)
+    assert got["agents"] == [{"source": "codex", "done": 2}]
+    assert got["last"]["kind"] == "usage"
+    assert c.post("/buddy/decide", json={"id": r1, "decision": "allow_all"}, headers=H).status_code == 400
+    assert c.get("/buddy/today", headers=H).json()["approved"] == 1
+    day["value"] = "2026-10-12"
+    fresh = c.get("/buddy/today", headers=H).json()
+    assert fresh["done"] == fresh["approved"] == 0 and fresh["agents"] == [] and fresh["last"] is None
+
+def test_today_agent_cap_and_no_automatic_decision(monkeypatch):
+    monkeypatch.setattr(buddy_mod, "_local_today", lambda: "2026-10-11")
+    c = api()
+    for i in range(10):
+        c.post("/buddy/event", json={"kind": "done", "source": f"a{i}"}, headers=H)
+    rows = c.get("/buddy/today", headers=H).json()["agents"]
+    assert len(rows) == 9 and rows[-1] == {"source": "other", "done": 2}
+    rid = c.post("/buddy/request", json={"tool": "Bash"}, headers=H).json()["id"]
+    assert c.get(f"/buddy/state?id={rid}", headers=H).json()["decision"] is None
