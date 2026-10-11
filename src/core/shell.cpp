@@ -18,6 +18,7 @@
 #include "approvals.h"
 #include "field.h"
 #include "notify.h"
+#include "quiet.h"
 #include "settings.h"
 #include "launcher.h"
 #include "sys.h"
@@ -317,6 +318,14 @@ bool handleGlobalKey(const KeyEvent& e) {
         notify::post(Note::Info, "Context Ask", field::context().c_str());
         return true;
     }
+    if ((e.mods & MOD_FN) && e.code == KEY_H) {
+        field::toggleHalt();
+        return true;
+    }
+    if ((e.mods & MOD_FN) && e.code == KEY_Q) {
+        quiet::cycle();
+        return true;
+    }
     if ((e.mods & MOD_FN) && e.code == KEY_F) {
         field::toggleFieldMode();
         return true;
@@ -512,6 +521,7 @@ void loop() {
     field::update();
     if (approvals::update(gScreenOff)) wake();
     notify::update();
+    quiet::update();
     apps::updateProductServices();
     lvui::tick();
     applyScreenTimeout();

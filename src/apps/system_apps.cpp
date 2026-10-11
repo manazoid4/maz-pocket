@@ -12,6 +12,7 @@
 #include "../audio/sfx.h"
 #include "../audio/voice.h"
 #include "../core/notify.h"
+#include "../core/quiet.h"
 #include "../core/settings.h"
 #include "../core/launcher.h"
 #include "../core/shell.h"
@@ -294,7 +295,7 @@ private:
 const char* SET_NAMES[] = {"Brightness",    "Volume",        "UI sounds",
                            "Screen timeout", "Mic gain",     "Storage",
                            "Time zone",      "Wi-Fi & host", "Keys & help",
-                           "Voice"};
+                           "Voice",           "Quiet mode", "Quiet for"};
 constexpr int SET_COUNT = sizeof(SET_NAMES) / sizeof(SET_NAMES[0]);
 
 class SettingsApp : public App {
@@ -361,6 +362,16 @@ public:
             case 9:
                 if (e.code == KEY_ENTER) shell::pushById("voice");
                 break;
+            case 10: {
+                const int lv = (static_cast<int>(quiet::level()) + (d ? d : 1) + 3) % 3;
+                quiet::set(static_cast<quiet::Level>(lv), Cfg.quietDur);
+                break;
+            }
+            case 11: {
+                const uint8_t dur = static_cast<uint8_t>((Cfg.quietDur + (d ? d : 1) + quiet::DUR_COUNT) % quiet::DUR_COUNT);
+                quiet::set(quiet::level(), dur);
+                break;
+            }
             default:
                 break;
         }
@@ -414,6 +425,14 @@ private:
                 break;
             case 7:
                 return Sys.wifiConnected ? Sys.wifiSsid : "not connected";
+            case 10: {
+                const int mins = quiet::remainingMin();
+                if (mins < 0) return quiet::levelName(quiet::level());
+                snprintf(b, sizeof(b), "%s %dh%02d", quiet::levelName(quiet::level()), mins / 60, mins % 60);
+                break;
+            }
+            case 11:
+                return quiet::durLabel(Cfg.quietDur);
             default:
                 return "";
         }
@@ -736,6 +755,8 @@ const char* HELP_LINES[] = {
     "Ctrl+L      back to M5Launcher",
     "Fn+SPACE    context ask (Talk)",
     "Fn+F        toggle field mode",
+    "Fn+Q        quiet / silent / normal",
+    "Fn+H        pause agent permission asks",
     "ESC         back (the <ESC chip)",
     "hold ESC    home from anywhere",
     "#HOME",

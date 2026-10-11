@@ -93,6 +93,57 @@ BodyReadResult readBoundedBody(HTTPClient& http, String& body, size_t maxBytes) 
 
 void fieldOnline() { Sys.hostOnline = true; }
 
+// Agent alerts ride the existing Beam poll (same cadence, same worker job).
+// RAM only: -1 = not synced yet. The first poll just records `last`, so a
+// reboot never replays old pings. Worker-task only, no locking needed.
+int32_t gAgentSince = -1;
+
+void pullHaltState(const std::string& base, bool remote, BeamMessage& out) {
+    NodHttp http;
+    if (!beginField(http, base, "/buddy/halt", remote)) {
+        out.haltCheckFailed = true;
+        return;
+    }
+    http.setTimeout(3500);
+    const int status = http.GET();
+    String body;
+    const bool read = status == 200 && readBoundedBody(http, body, 768) == BodyReadResult::Ok;
+    http.end();
+    JsonDocument doc;
+    if (!read || deserializeJson(doc, body) || !doc["halted"].is<bool>()) {
+        out.haltCheckFailed = true;
+        return;
+    }
+    out.halted = doc["halted"].as<bool>() ? 1 : 0;
+}
+
+void pullAgentEvents(const std::string& base, bool remote, BeamMessage& out) {
+    NodHttp http;
+    const std::string path = "/buddy/events?since=" +
+                             std::to_string(gAgentSince < 0 ? INT32_MAX : gAgentSince);
+    if (!beginField(http, base, path.c_str(), remote)) return;
+    http.setTimeout(4000);
+    const int status = http.GET();
+    String body;
+    const bool read = status == 200 && readBoundedBody(http, body, 6144) == BodyReadResult::Ok;
+    http.end();
+    if (!read) return;  // older Core without /buddy/events: silently skip
+    JsonDocument doc;
+    if (deserializeJson(doc, body) || !doc["last"].is<int>()) return;
+    const int32_t last = doc["last"].as<int32_t>();
+    const bool synced = gAgentSince >= 0 && last >= gAgentSince;  // last < since: Core restarted
+    if (synced) {
+        for (JsonObject e : doc["events"].as<JsonArray>()) {
+            AgentEvent ev;
+            ev.kind = e["kind"] | "";
+            ev.text = e["text"] | "";
+            ev.source = e["source"] | "";
+            out.events.push_back(std::move(ev));
+        }
+    }
+    gAgentSince = last;
+}
+
 }  // namespace
 
 Reply talkTextContext(const std::string& session, const std::string& text,
@@ -168,6 +219,24 @@ Reply beamSend(const std::string& text) {
     return out;
 }
 
+bool haltNow(bool on) {
+    // Issued directly on Fn+H, without waiting for the periodic Beam poll.
+    for (const auto& base : fieldBases()) {
+        NodHttp http;
+        if (!beginField(http, base.first, "/buddy/halt", base.second)) continue;
+        http.setTimeout(3500);
+        http.addHeader("Content-Type", "application/json");
+        const int status = http.POST(on ? "{\"on\":true}" : "{\"on\":false}");
+        String body;
+        const bool read = status == 200 && readBoundedBody(http, body, 768) == BodyReadResult::Ok;
+        http.end();
+        JsonDocument doc;
+        if (read && !deserializeJson(doc, body) && doc["halted"].is<bool>() &&
+            doc["halted"].as<bool>() == on) return true;
+    }
+    return false;
+}
+
 BeamMessage beamPull() {
     BeamMessage out;
     for (const auto& base : fieldBases()) {
@@ -189,6 +258,8 @@ BeamMessage beamPull() {
             out.kind = msg["kind"] | "text";
             out.text = msg["text"] | "";
         }
+        pullHaltState(base.first, base.second, out);
+        pullAgentEvents(base.first, base.second, out);
         return out;
     }
     Sys.hostOnline = false;
@@ -234,6 +305,56 @@ SystemStatus systemStatus() {
     }
     Sys.hostOnline = false;
     out.error = "hub unreachable";
+    return out;
+}
+
+TodayStatus todayStatus() {
+    constexpr size_t MAX_TODAY_PAYLOAD_BYTES = 2048;
+    TodayStatus out;
+    for (const auto& base : fieldBases()) {
+        NodHttp http;
+        if (!beginField(http, base.first, "/buddy/today", base.second)) continue;
+        http.setTimeout(4000);
+        const int status = http.GET();
+        String body;
+        const BodyReadResult read = status > 0
+                                        ? readBoundedBody(http, body, MAX_TODAY_PAYLOAD_BYTES)
+                                        : BodyReadResult::Incomplete;
+        http.end();
+        if (status <= 0) continue;
+        if (status == 404) { out.error = "update Core"; return out; }  // older Core
+        if (read != BodyReadResult::Ok) { out.error = "bad today response"; return out; }
+        JsonDocument doc;
+        if (deserializeJson(doc, body) || status < 200 || status >= 300 ||
+            !(doc["ok"] | false) || !doc["done"].is<int>()) {
+            out.error = "bad today response";
+            return out;
+        }
+        fieldOnline();
+        out.done = doc["done"] | 0;
+        out.needs = doc["needs"] | 0;
+        out.errors = doc["errors"] | 0;
+        out.usage = doc["usage"] | 0;
+        out.approved = doc["approved"] | 0;
+        out.denied = doc["denied"] | 0;
+        for (JsonObject a : doc["agents"].as<JsonArray>()) {
+            if (out.agentCount >= TODAY_MAX_AGENTS) break;
+            TodayAgent& t = out.agents[out.agentCount++];
+            t.source = a["source"] | "";
+            t.done = a["done"] | 0;
+        }
+        JsonObject last = doc["last"].as<JsonObject>();
+        if (!last.isNull()) {
+            out.hasLast = true;
+            out.lastKind = last["kind"] | "";
+            out.lastText = last["text"] | "";
+            out.lastSource = last["source"] | "";
+        }
+        out.ok = true;
+        return out;
+    }
+    Sys.hostOnline = false;
+    out.error = "PC unreachable";
     return out;
 }
 

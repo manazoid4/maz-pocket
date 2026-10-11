@@ -75,12 +75,36 @@ struct CoreJob {
     std::string error;
 };
 
+// Notify-only agent ping from Core /buddy/events (kind: done|usage|needs|error).
+// Data only: nothing in this struct can approve, deny or run anything.
+struct AgentEvent {
+    std::string kind;
+    std::string text;
+    std::string source;  // free-text agent name, may be empty
+};
+
 struct BeamMessage {
+    std::vector<AgentEvent> events;  // new /buddy/events since the last poll
+    int8_t halted = -1;              // Core state: -1 unknown, 0 off, 1 on
+    bool haltCheckFailed = false;
     bool ok = false;
     bool hasMessage = false;
     std::string id;
     std::string kind;
     std::string text;
+    std::string error;
+};
+
+// "What did my agents do today" counts from Core GET /buddy/today.
+constexpr int TODAY_MAX_AGENTS = 9;  // 8 named + "other"
+struct TodayAgent { std::string source; int done = 0; };
+struct TodayStatus {
+    bool ok = false;
+    int done = 0, needs = 0, errors = 0, usage = 0, approved = 0, denied = 0;
+    int agentCount = 0;
+    TodayAgent agents[TODAY_MAX_AGENTS];
+    bool hasLast = false;
+    std::string lastKind, lastText, lastSource;
     std::string error;
 };
 
@@ -201,7 +225,9 @@ TeachStatus teachStatus(const std::string& sessionId);
 // a command. Telemetry is a cached one-shot laptop snapshot, not a stream.
 Reply beamSend(const std::string& text);
 BeamMessage beamPull();
+bool haltNow(bool on);    // immediate authenticated POST; never stops running processes
 SystemStatus systemStatus();
+TodayStatus todayStatus();
 WorkSummary workSummary();
 Reply workIncrement(const std::string& trackId, const std::string& eventTypeId);
 

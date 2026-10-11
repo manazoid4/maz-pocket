@@ -7,11 +7,13 @@
 #include <ctime>
 
 #include "../apps/apps.h"
+#include "../audio/sfx.h"
 #include "../net/host_worker.h"
 #include "../net/mazhost.h"
 #include "../storage/store.h"
 #include "launcher.h"
 #include "notify.h"
+#include "quiet.h"
 #include "settings.h"
 #include "shell.h"
 #include "sys.h"
@@ -39,6 +41,8 @@ uint32_t gNextBeamPoll = 0;
 uint32_t gNextCoreInfo = 0;
 bool gSystemRequested = false;
 bool gWorkRequested = false;
+bool gTodayRequested = false;
+host::TodayStatus gToday;
 bool gReminderDue = false;
 
 std::string& quickSetting(int slot) {
@@ -159,6 +163,35 @@ void finishOutboxBeam(const host_worker::OutboxBeamResult& result) {
 void finishBeamPull(const host::BeamMessage& msg) {
     const uint32_t cadence = Cfg.fieldMode ? 45000u : 15000u;
     gNextBeamPoll = millis() + cadence;
+    for (const auto& e : msg.events) {
+        std::string detail = e.source.empty() ? e.text : e.source + ": " + e.text;
+        if (detail.size() > 160) detail.resize(160);
+        // Quiet mode decides the sound only; the toast is always posted.
+        using quiet::Ev;
+        const Ev ev = e.kind == "done" ? Ev::Done : e.kind == "usage" ? Ev::Usage
+                    : e.kind == "needs" ? Ev::Needs : e.kind == "error" ? Ev::Error : Ev::None;
+        if (ev == Ev::None) continue;
+        const bool chirp = quiet::shouldChirp(quiet::level(), ev);
+        if (ev == Ev::Done) {
+            if (chirp) sfx::agentDone();  // plays the chirp, mutes the generic toast beep
+            else sfx::skipNextNote();
+            notify::post(Note::Success, "Agent done", detail);
+        } else {
+            if (!chirp) sfx::skipNextNote();
+            if (ev == Ev::Usage) notify::post(Note::Warn, "Usage", detail);
+            else if (ev == Ev::Needs) notify::post(Note::Warn, "Needs you", detail);
+            else notify::post(Note::Error, "Agent error", detail);
+        }
+    }
+    if (msg.halted >= 0) {
+        const bool value = msg.halted == 1;
+        if (!Sys.haltKnown || Sys.halted != value) shell::invalidate();
+        Sys.halted = value;
+        Sys.haltKnown = true;
+    } else if (msg.haltCheckFailed && Sys.haltKnown) {
+        Sys.haltKnown = false;
+        shell::invalidate();
+    }
     if (!msg.ok || !msg.hasMessage || msg.text.empty()) return;
 
     store::Record r;
@@ -193,6 +226,12 @@ void finishSystem(const host::SystemStatus& s) {
     Sys.ollamaModel = s.ollamaModel;
     Sys.ollamaVramMb = s.ollamaVramMb;
     Sys.ollamaContext = s.ollamaContext;
+    shell::invalidate();
+}
+
+void finishToday(const host::TodayStatus& value) {
+    gTodayRequested = false;
+    gToday = value;
     shell::invalidate();
 }
 
@@ -306,6 +345,11 @@ void update() {
                 if (host_worker::takeSystemStatusResult(r)) finishSystem(r);
                 break;
             }
+            case host_worker::JobKind::Today: {
+                host::TodayStatus result;
+                if (host_worker::takeTodayResult(result)) finishToday(result);
+                break;
+            }
             case host_worker::JobKind::WorkSummary: {
                 host::WorkSummary r;
                 if (host_worker::takeWorkSummaryResult(r)) finishWork(r);
@@ -336,6 +380,9 @@ void update() {
 
     if (gWorkRequested) {
         if (host_worker::submitWorkSummary()) return;
+    }
+    if (gTodayRequested) {
+        if (host_worker::submitToday()) return;
     }
 
     if (Sys.outboxQueued && static_cast<int32_t>(millis() - gNextOutboxTry) >= 0) {
@@ -455,6 +502,26 @@ void toggleShift() {
     shell::invalidate();
 }
 
+void toggleHalt() {
+    if (!host::configured()) {
+        notify::post(Note::Warn, "Pause asks needs Core", "pair with PC first");
+        return;
+    }
+    // Unknown state chooses only the safe direction (deny future asks).
+    const bool target = !Sys.haltKnown || !Sys.halted;
+    if (host::haltNow(target)) {
+        Sys.halted = target;
+        Sys.haltKnown = true;
+        notify::post(target ? Note::Warn : Note::Info,
+                     target ? "Asks paused" : "Asks resumed",
+                     target ? "Running tools are NOT stopped" : "New asks still need approval");
+    } else {
+        Sys.haltKnown = false;
+        notify::post(Note::Error, "Pause not confirmed", "Core unreachable");
+    }
+    shell::invalidate();
+}
+
 std::string shiftElapsedText() { return elapsed(Sys.shiftSeconds); }
 
 void requestSystemStatus() {
@@ -466,6 +533,17 @@ void requestSystemStatus() {
 }
 
 void requestWorkSummary() { gWorkRequested = true; }
+
+void requestToday() {
+    gTodayRequested = true;
+    if (!host::configured()) {
+        gToday = host::TodayStatus{};
+        gToday.error = "Core unreachable";
+        gTodayRequested = false;
+    }
+}
+
+const host::TodayStatus& today() { return gToday; }
 
 bool requestWorkIncrement(const std::string& trackId, const std::string& eventTypeId) {
     return host_worker::submitWorkIncrement(trackId, eventTypeId);
