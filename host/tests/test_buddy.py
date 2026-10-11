@@ -128,27 +128,97 @@ def test_event_ring_cap_bad_kind_truncate_auth():
     assert c.get("/buddy/events").status_code == 401
 
 
-def test_stop_hook_posts_and_exits_zero(monkeypatch, capsys):
+def load(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def wire_notify(monkeypatch, c):
+    monkeypatch.setenv("NOD_TOKEN", TOKEN)
+    notify = load(NOTIFY, "nod_notify")
+    sys.modules["nod_notify"] = notify  # the stop hook imports it by name
+    notify.call = lambda p, body, timeout=3: c.post(p, json=body, headers=H).json()
+    return notify
+
+
+def stdin(monkeypatch, text):
     import io
+    f = io.StringIO(text)
+    f.isatty = lambda: False
+    monkeypatch.setattr(sys, "stdin", f)
+
+
+def test_stop_hook_posts_and_exits_zero(monkeypatch, capsys):
     c = api()
-    monkeypatch.setenv("MAZ_TOKEN", TOKEN)
-    spec = importlib.util.spec_from_file_location("stop_hook", STOP_HOOK)
-    hook = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(hook)
-    hook.call = lambda m, p, body, timeout=3: c.request(m, p, json=body, headers=H).json()
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(
-        {"hook_event_name": "Stop", "last_assistant_message": "\nAll done here\nmore"})))
+    wire_notify(monkeypatch, c)
+    hook = load(STOP_HOOK, "stop_hook")
+    stdin(monkeypatch, json.dumps(
+        {"hook_event_name": "Stop", "last_assistant_message": "\nAll done here\nmore"}))
     assert hook.main() == 0
     assert capsys.readouterr().out == ""
     e = c.get("/buddy/events", headers=H).json()["events"][0]
     assert (e["kind"], e["text"], e["source"]) == ("done", "All done here", "claude-code")
-    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    stdin(monkeypatch, "{}")
     hook.main()
     assert c.get("/buddy/events", headers=H).json()["events"][1]["text"] == "Claude finished"
 
 
 def test_stop_hook_dead_hub_silent_exit_zero():
-    env = {**os.environ, "MAZ_TOKEN": TOKEN, "MAZ_CORE_URL": "http://127.0.0.1:1"}
+    env = {**os.environ, "NOD_TOKEN": TOKEN, "NOD_CORE_URL": "http://127.0.0.1:1"}
     out = subprocess.run([sys.executable, str(STOP_HOOK)], input="{}", text=True,
                          capture_output=True, env=env, timeout=30)
     assert out.returncode == 0 and out.stdout == "" and out.stderr == ""
+
+
+# ---- generic CLI: nod_notify.py ----
+NOTIFY = Path(__file__).parents[1] / "hooks" / "nod_notify.py"
+
+
+def test_notify_args_path_stores_source(monkeypatch):
+    c = api()
+    n = wire_notify(monkeypatch, c)
+    assert n.main(["done", "build finished", "--source", "codex"]) == 0
+    assert n.main(["usage", "90% used", "--source", "x" * 99]) == 0
+    evs = c.get("/buddy/events", headers=H).json()["events"]
+    assert [(e["kind"], e["text"], e["source"]) for e in evs] == [
+        ("done", "build finished", "codex"), ("usage", "90% used", "x" * 40)]
+
+
+def test_notify_stdin_json_fields(monkeypatch):
+    c = api()
+    n = wire_notify(monkeypatch, c)
+    stdin(monkeypatch, json.dumps({"message": "\n\nfirst line\nsecond " + "z" * 300}))
+    assert n.main(["needs", "--source", "gemini"]) == 0
+    stdin(monkeypatch, json.dumps({"summary": "s" * 300}))
+    n.main(["done"])
+    stdin(monkeypatch, "plain text line\nmore")
+    n.main(["error"])
+    evs = c.get("/buddy/events", headers=H).json()["events"]
+    assert (evs[0]["text"], evs[0]["source"]) == ("first line", "gemini")
+    assert evs[1]["text"] == "s" * 160 and evs[2]["text"] == "plain text line"
+
+
+def test_notify_nod_env_beats_maz_env(monkeypatch):
+    n = load(NOTIFY, "nod_notify_env")
+    monkeypatch.setenv("MAZ_TOKEN", "old")
+    monkeypatch.setenv("MAZ_CORE_URL", "http://old")
+    assert (n.env("TOKEN"), n.env("CORE_URL")) == ("old", "http://old")
+    monkeypatch.setenv("NOD_TOKEN", "new")
+    monkeypatch.setenv("NOD_CORE_URL", "http://new")
+    assert (n.env("TOKEN"), n.env("CORE_URL")) == ("new", "http://new")
+
+
+def test_notify_dead_hub_and_bad_input_silent_exit_zero():
+    env = {**os.environ, "NOD_TOKEN": TOKEN, "NOD_CORE_URL": "http://127.0.0.1:1"}
+    for argv in (["done", "hi"], ["bogus", "hi"], []):
+        out = subprocess.run([sys.executable, str(NOTIFY), *argv], input="", text=True,
+                             capture_output=True, env=env, timeout=30)
+        assert out.returncode == 0 and out.stdout == "" and out.stderr == ""
+
+
+def test_permission_hook_reads_nod_env(monkeypatch):
+    monkeypatch.delenv("MAZ_TOKEN", raising=False)
+    monkeypatch.setenv("NOD_TOKEN", "t")
+    assert load(HOOK, "perm").TOKEN == "t"
