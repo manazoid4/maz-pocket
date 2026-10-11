@@ -756,6 +756,7 @@ const char* HELP_LINES[] = {
     "Fn+SPACE    context ask (Talk)",
     "Fn+F        toggle field mode",
     "Fn+Q        quiet / silent / normal",
+    "Fn+H        pause agent permission asks",
     "ESC         back (the <ESC chip)",
     "hold ESC    home from anywhere",
     "#HOME",

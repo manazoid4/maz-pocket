@@ -25,6 +25,7 @@ void cycleQuick(int slot);
 
 void toggleFieldMode();
 void toggleShift();
+void toggleHalt(); // Fn+H: immediately pause or resume new nod-mediated asks
 std::string shiftElapsedText();
 
 void requestSystemStatus();

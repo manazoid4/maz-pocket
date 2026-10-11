@@ -85,6 +85,8 @@ struct AgentEvent {
 
 struct BeamMessage {
     std::vector<AgentEvent> events;  // new /buddy/events since the last poll
+    int8_t halted = -1;              // Core state: -1 unknown, 0 off, 1 on
+    bool haltCheckFailed = false;
     bool ok = false;
     bool hasMessage = false;
     std::string id;
@@ -223,6 +225,7 @@ TeachStatus teachStatus(const std::string& sessionId);
 // a command. Telemetry is a cached one-shot laptop snapshot, not a stream.
 Reply beamSend(const std::string& text);
 BeamMessage beamPull();
+bool haltNow(bool on);    // immediate authenticated POST; never stops running processes
 SystemStatus systemStatus();
 TodayStatus todayStatus();
 WorkSummary workSummary();

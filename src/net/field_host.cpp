@@ -98,6 +98,25 @@ void fieldOnline() { Sys.hostOnline = true; }
 // reboot never replays old pings. Worker-task only, no locking needed.
 int32_t gAgentSince = -1;
 
+void pullHaltState(const std::string& base, bool remote, BeamMessage& out) {
+    NodHttp http;
+    if (!beginField(http, base, "/buddy/halt", remote)) {
+        out.haltCheckFailed = true;
+        return;
+    }
+    http.setTimeout(3500);
+    const int status = http.GET();
+    String body;
+    const bool read = status == 200 && readBoundedBody(http, body, 768) == BodyReadResult::Ok;
+    http.end();
+    JsonDocument doc;
+    if (!read || deserializeJson(doc, body) || !doc["halted"].is<bool>()) {
+        out.haltCheckFailed = true;
+        return;
+    }
+    out.halted = doc["halted"].as<bool>() ? 1 : 0;
+}
+
 void pullAgentEvents(const std::string& base, bool remote, BeamMessage& out) {
     NodHttp http;
     const std::string path = "/buddy/events?since=" +
@@ -200,6 +219,24 @@ Reply beamSend(const std::string& text) {
     return out;
 }
 
+bool haltNow(bool on) {
+    // Issued directly on Fn+H, without waiting for the periodic Beam poll.
+    for (const auto& base : fieldBases()) {
+        NodHttp http;
+        if (!beginField(http, base.first, "/buddy/halt", base.second)) continue;
+        http.setTimeout(3500);
+        http.addHeader("Content-Type", "application/json");
+        const int status = http.POST(on ? "{\"on\":true}" : "{\"on\":false}");
+        String body;
+        const bool read = status == 200 && readBoundedBody(http, body, 768) == BodyReadResult::Ok;
+        http.end();
+        JsonDocument doc;
+        if (read && !deserializeJson(doc, body) && doc["halted"].is<bool>() &&
+            doc["halted"].as<bool>() == on) return true;
+    }
+    return false;
+}
+
 BeamMessage beamPull() {
     BeamMessage out;
     for (const auto& base : fieldBases()) {
@@ -221,6 +258,7 @@ BeamMessage beamPull() {
             out.kind = msg["kind"] | "text";
             out.text = msg["text"] | "";
         }
+        pullHaltState(base.first, base.second, out);
         pullAgentEvents(base.first, base.second, out);
         return out;
     }

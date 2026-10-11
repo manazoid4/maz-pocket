@@ -36,6 +36,8 @@ struct SysState {
     uint8_t     agentsWaiting = 0;
     uint8_t     agentsStale   = 0;
     bool        agentQuestion = false;
+    bool        halted = false;
+    bool        haltKnown = false;
     bool        nudgeDue      = false;
     uint32_t    nudgeCheckedAt = 0;
 

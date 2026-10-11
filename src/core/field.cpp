@@ -183,6 +183,15 @@ void finishBeamPull(const host::BeamMessage& msg) {
             else notify::post(Note::Error, "Agent error", detail);
         }
     }
+    if (msg.halted >= 0) {
+        const bool value = msg.halted == 1;
+        if (!Sys.haltKnown || Sys.halted != value) shell::invalidate();
+        Sys.halted = value;
+        Sys.haltKnown = true;
+    } else if (msg.haltCheckFailed && Sys.haltKnown) {
+        Sys.haltKnown = false;
+        shell::invalidate();
+    }
     if (!msg.ok || !msg.hasMessage || msg.text.empty()) return;
 
     store::Record r;
@@ -490,6 +499,26 @@ void toggleShift() {
     r.source = "field";
     store::addRecord(r);
     notify::post(Note::Success, "Shift saved", elapsed(Sys.shiftSeconds).c_str());
+    shell::invalidate();
+}
+
+void toggleHalt() {
+    if (!host::configured()) {
+        notify::post(Note::Warn, "Pause asks needs Core", "pair with PC first");
+        return;
+    }
+    // Unknown state chooses only the safe direction (deny future asks).
+    const bool target = !Sys.haltKnown || !Sys.halted;
+    if (host::haltNow(target)) {
+        Sys.halted = target;
+        Sys.haltKnown = true;
+        notify::post(target ? Note::Warn : Note::Info,
+                     target ? "Asks paused" : "Asks resumed",
+                     target ? "Running tools are NOT stopped" : "New asks still need approval");
+    } else {
+        Sys.haltKnown = false;
+        notify::post(Note::Error, "Pause not confirmed", "Core unreachable");
+    }
     shell::invalidate();
 }
 

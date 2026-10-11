@@ -318,6 +318,10 @@ bool handleGlobalKey(const KeyEvent& e) {
         notify::post(Note::Info, "Context Ask", field::context().c_str());
         return true;
     }
+    if ((e.mods & MOD_FN) && e.code == KEY_H) {
+        field::toggleHalt();
+        return true;
+    }
     if ((e.mods & MOD_FN) && e.code == KEY_Q) {
         quiet::cycle();
         return true;
