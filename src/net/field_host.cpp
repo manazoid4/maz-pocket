@@ -312,7 +312,7 @@ TodayStatus todayStatus() {
     constexpr size_t MAX_TODAY_PAYLOAD_BYTES = 2048;
     TodayStatus out;
     for (const auto& base : fieldBases()) {
-        HTTPClient http;
+        NodHttp http;
         if (!beginField(http, base.first, "/buddy/today", base.second)) continue;
         http.setTimeout(4000);
         const int status = http.GET();
