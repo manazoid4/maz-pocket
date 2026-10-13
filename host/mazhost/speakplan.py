@@ -23,6 +23,7 @@ log = logging.getLogger("uvicorn.error")
 _SENT_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])")
 _ABBREV = ("mr.", "mrs.", "ms.", "dr.", "st.", "vs.", "e.g.", "i.e.", "etc.", "no.")
 FIRST_PART_MAX = 110  # cap on part 0 so first audio arrives sooner
+SPOKEN_REPLY_MAX = 220  # display keeps full reply; speech stays pocket-sized
 SHORT_REPLY_CHARS = 70  # at or below this a single TTS call is already quick
 
 
@@ -52,6 +53,28 @@ def plan_parts(text: str) -> list[str]:
         if cut >= 30:
             first, rest = first[:cut + 1].rstrip(), (first[cut + 1:].strip() + " " + rest).strip()
     return [first, rest]
+
+
+def spoken_reply(text: str) -> str:
+    """Two concise spoken sentences; the screen always keeps the full answer."""
+    clean = " ".join(text.split()).strip()
+    clean = re.sub(r"(?m)(?:^|\\s)[*_`#]+(?=\\w)", " ", clean).strip()
+    if len(clean) <= SPOKEN_REPLY_MAX:
+        return clean
+    parts = split_sentences(clean)
+    chosen: list[str] = []
+    for part in parts[:2]:
+        candidate = " ".join([*chosen, part])
+        if len(candidate) > SPOKEN_REPLY_MAX:
+            break
+        chosen.append(part)
+    if chosen:
+        return " ".join(chosen)
+    # Prefer a natural clause/word break when the first sentence is too long.
+    cut = clean.rfind(" ", 0, SPOKEN_REPLY_MAX - 3)
+    if cut < 50:
+        cut = SPOKEN_REPLY_MAX - 3
+    return clean[:cut].rstrip(" ,;:") + "..."
 
 
 def _discard(future: Future) -> None:
@@ -93,7 +116,7 @@ class SpeakPlanner:
         self._max = max_plans
 
     def start(self, text: str, row: dict[str, Any]) -> tuple[str, int]:
-        parts = plan_parts(text)
+        parts = plan_parts(spoken_reply(text))
         if not parts:
             return "", 0
         began = time.perf_counter()
