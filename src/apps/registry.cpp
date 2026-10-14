@@ -12,8 +12,8 @@ const Descriptor TABLE[] = {
     {"capturehub", "Capture",     "CAPTURE","capture teach demo brain dump voice recorder screen workflow", KEY_B, true, makeCaptureHub},
     {"agents",     "Agents",      "AGENTS", "agents plan crew retro nudge status assurance sync",   KEY_N, true,  makeAgentsHub},
     {"desk",       "Control",     "CONTROL","control wifi pc device storage settings core laptop debug pairing phone", 0, true, makeDesk},
-    {"recall",     "Memory",      "MEMORY", "memory inbox notes prompt deck snippets viewer skills knowledge", 0, true, makeRecall},
-    {"flow",       "Focus",       "FOCUS",  "focus reminders sprint tasks shift workflows",         0,     true,  makeFlow},
+    {"recall",     "Memory",      "MEMORY", "memory inbox notes prompt deck snippets viewer skills knowledge", 0, false, makeRecall},
+    {"flow",       "Focus",       "FOCUS",  "focus reminders sprint tasks shift workflows",         0,     false, makeFlow},
 
     {"braindump",  "Brain Dump",   "BRAIN",  "brain dump voice structured capture highlight",        0, false, makeCapture},
     {"teach",      "Teach Demo",   "TEACH",  "teach demonstration screen record monitor mark workflow", 0, false, makeTeach},
@@ -24,6 +24,7 @@ const Descriptor TABLE[] = {
     {"retro",      "Retro",       "RETRO",  "retro learn session improve template skill knowledge guard", 0, false, makeRetro},
 
     {"control",    "Control Center", "CTRL", "control center device network pc core screen",   0,     false, makeControlCenter},
+    {"pcactions",  "PC Actions", "ACTION", "cloud request youtube notepad note confirm", 0, false, makePcActions},
     {"network",    "Wi-Fi",       "WI-FI",  "wifi network scan connect reconnect hotspot",     KEY_W, false, makeNetworkV5},
     {"core",       "Projects & Builds", "CORE", "core pc projects builds tests git local ai",  0,     false, makeCoreConsole},
     {"pairing",    "Pairing & Phone", "PAIR", "pairing token token id phone approval full control", 0, false, makePairing},

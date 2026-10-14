@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import json
 import wave
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mazhost.app import create_app
@@ -31,6 +33,12 @@ class FakeModels:
         return f"Focus on the hardware test. Prior replies: {prior}", "local"
 
 
+class FakeActionModels(FakeModels):
+    def chat(self, messages, route):
+        assert route == "cloud"
+        return json.dumps({"action": "open_youtube"}), "cloud:test"
+
+
 class FakeNudge:
     def status(self):
         return {"configured": True, "online": True}
@@ -51,7 +59,7 @@ class FakePC:
     def __init__(self):
         self.actions: list[str] = []
 
-    def perform(self, action: str):
+    def perform(self, action: str, text: str = ""):
         self.actions.append(action)
         return SimpleNamespace(action=action, label=f"did {action}")
 
@@ -89,7 +97,21 @@ class FakeTelemetry:
         }
 
 
-def client(pc=None, models=None, beam=None, telemetry=None):
+class FakeDevice:
+    def __init__(self, status):
+        self._status = status
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def status(self):
+        return self._status
+
+
+def client(pc=None, models=None, beam=None, telemetry=None, device=None):
     settings = Settings(token="test-token-that-is-not-default", _env_file=None)
     return TestClient(
         create_app(
@@ -97,6 +119,7 @@ def client(pc=None, models=None, beam=None, telemetry=None):
             stt=FakeStt(),
             models=models or FakeModels(),
             nudge=FakeNudge(),
+            device=device,
             pc=pc or FakePC(),
             beam=beam or FakeBeam(),
             telemetry=telemetry or FakeTelemetry(),
@@ -107,6 +130,73 @@ def client(pc=None, models=None, beam=None, telemetry=None):
 def test_requires_bearer_token():
     response = client().get("/health")
     assert response.status_code == 401
+
+
+def test_cloud_pc_action_requires_cardputer_confirmation_and_replay_is_safe():
+    pc = FakePC()
+    api = client(pc=pc, models=FakeActionModels())
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    sid = api.post("/session/start", headers=headers).json()["session_id"]
+
+    unknown = api.post(
+        "/pc/propose",
+        headers=headers,
+        json={"session_id": "not-a-live-session", "request": "open youtube"},
+    )
+    assert unknown.status_code == 404
+
+    proposed = api.post(
+        "/pc/propose",
+        headers=headers,
+        json={"session_id": sid, "request": "open youtube"},
+    )
+    assert proposed.status_code == 200
+    assert proposed.json()["preview"] == "Open YouTube"
+    assert pc.actions == []
+
+    body = {"session_id": sid, "proposal_id": proposed.json()["proposal_id"]}
+    first = api.post("/pc/confirm", headers=headers, json=body)
+    second = api.post("/pc/confirm", headers=headers, json=body)
+    assert first.status_code == 200
+    assert second.json() == first.json()
+    assert pc.actions == ["open_youtube"]
+
+
+def test_diagnostics_requires_affirmative_cardputer_connection():
+    api = client(device=FakeDevice({"ok": False, "error": "offline"}))
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    response = api.get("/diagnostics", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["cardputer"]["connected"] is False
+    assert response.json()["routes"]["cloud"]["configured"] is False
+
+
+@pytest.mark.parametrize(
+    ("monitor_state", "connected", "status"),
+    [
+        ({"monitoring": True, "connection_state": "connected", "last_seen_at": 100}, True, "connected"),
+        ({"monitoring": True, "connection_state": "connected", "last_seen_at": None}, True, "connected"),
+        ({"monitoring": False, "connection_state": "stopped", "last_seen_at": 100}, False, "stopped"),
+        ({"monitoring": True, "connection_state": "reconnecting", "last_seen_at": 100}, False, "reconnecting"),
+        ({"monitoring": True, "connection_state": "port_missing", "last_seen_at": 100}, False, "port_missing"),
+        ({"monitoring": False, "connection_state": "connected", "last_seen_at": 100}, False, "stopped"),
+        ({"monitoring": True, "connection_state": "unexpected"}, False, "unknown"),
+        ({"connected": True}, False, "unknown"),
+        ({"ok": False, "error": "offline"}, False, "unknown"),
+    ],
+)
+def test_diagnostics_reports_serial_state_without_claiming_runtime_health(monitor_state, connected, status):
+    api = client(device=FakeDevice(monitor_state))
+    headers = {"Authorization": "Bearer test-token-that-is-not-default"}
+    response = api.get("/diagnostics", headers=headers)
+    assert response.status_code == 200
+    cardputer = response.json()["cardputer"]
+    assert cardputer["connected"] is connected
+    assert cardputer["status"] == status
+    assert cardputer["transport"] == "usb_serial"
+    assert cardputer["last_seen_at"] == monitor_state.get("last_seen_at")
+    assert cardputer["runtime_reachable"] is None
+    assert cardputer["reachability_tested"] is False
 
 
 def test_text_turn_keeps_session_context_and_nudge_is_evidence_backed():

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.1 — Project14 candidate
+
+- Four primary Home surfaces with secondary features preserved.
+- Cloud-proposed YouTube and new Notepad-note actions require explicit confirmation.
+- PLAN discovery runs through the worker; model output cannot replace server authority metadata.
+- Installer preflight preserves app slots and storage; connection diagnostics distinguish USB monitoring from LAN reachability.
+- App-only BIN and Windows setup EXE delivery. Physical acceptance remains pending.
+
 ## v0.8.0 — CONTROL
 
 - CALL MAZ: renamed COMM experience, spoken reply playback on fresh installs, P replay, V voice toggle, A cloud/local/auto route.

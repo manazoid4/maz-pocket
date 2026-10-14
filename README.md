@@ -2,11 +2,13 @@
 
 **A pocket-sized physical control surface for your PC, AI models and coding agents — built for the M5Stack Cardputer ADV.**
 
-## Current release candidate: v0.8.0 — CONTROL
+## Current release candidate: v0.8.1 — Project14
+
+Use the app-only `MAZ-Pocket-v0.8.1.bin` with M5Launcher's web UI and `MAZ-Core-Setup-v0.8.1.exe` on Windows. Candidate physical voice acceptance remains pending; see `docs/element14/FINAL-STATUS.md`.
 
 MAZ Pocket is deliberately not an ESP32 app drawer. The Cardputer handles voice, short text, status, approvals and quick commands while **MAZ Core** on the PC handles models, projects, screen recording, coding agents and heavier work.
 
-## The six things on Home
+## The four competition surfaces on Home
 
 | Home tile | What it does |
 |---|---|
@@ -14,10 +16,10 @@ MAZ Pocket is deliberately not an ESP32 app drawer. The Cardputer handles voice,
 | **CAPTURE** | Teach a PC workflow by recording it, make a Brain Dump, or save a voice recording. |
 | **AGENTS** | Agent status, PLAN, CREW, RETRO and project/build tools. |
 | **CONTROL** | Pair your phone, see Token ID, inspect laptop/Wi-Fi/Core/device state and settings. |
-| **MEMORY** | Results Inbox, Prompt Deck, notes, snippets, Beam and viewer. |
-| **FOCUS** | Focus timer, work sprints, tasks, reminders and shift clock. |
 
-There is intentionally **no seventh top-level app**.
+Memory, Focus and the existing secondary tools remain available through the
+palette and deeper menus. They were not deleted; Home is focused so the
+connection story is clear during the element14 demonstration.
 
 ## CALL MAZ
 
@@ -32,6 +34,16 @@ This is the useful feature that older builds hid behind the internal name `COMM`
 - **A** — change AI route directly on the Cardputer.
 - **N** — new conversation.
 - **C** — simple PC media/desktop controls.
+
+## CONFIRMED PC ACTIONS
+
+Open **CONTROL → PC ACTION**, then type a request or hold **Ctrl+Space** to
+dictate it. The configured cloud model may propose exactly one of two actions:
+open the fixed YouTube home page, or create a new text file in MAZ's notes
+directory and request that Windows open it in Notepad. The Cardputer shows the
+proposal and requires **Enter** before MAZ Core dispatches it; **Esc** cancels.
+Model output can never supply a URL, path, executable or shell command. PLAN
+remains read-only and cannot execute these actions.
 
 Fresh v0.8 installs prefer **CLOUD** for Call MAZ. You can change it on the Cardputer or at `http://mazpocket.local`:
 

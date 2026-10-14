@@ -104,6 +104,9 @@ Reply decodeReply(HTTPClient& http, int status) {
         out.transcript = doc["text"] | "";
         if (out.transcript.empty()) out.transcript = doc["transcript"] | "";
         out.provider = doc["provider"] | "";
+        out.action = doc["action"] | "";
+        out.proposalId = doc["proposal_id"] | "";
+        out.preview = doc["preview"] | "";
         JsonArray commands = doc["commands"].as<JsonArray>();
         if (!commands.isNull() && commands.size() &&
             std::string(commands[0]["type"] | "") == "reminder.create") {
@@ -267,6 +270,24 @@ Reply pcAction(const std::string& action) {
     String body;
     serializeJson(doc, body);
     return jsonPost("/pc/action", body.c_str());
+}
+
+Reply pcPropose(const std::string& sessionId, const std::string& request) {
+    JsonDocument doc;
+    doc["session_id"] = sessionId;
+    doc["request"] = request;
+    String body;
+    serializeJson(doc, body);
+    return jsonPost("/pc/propose", body.c_str());
+}
+
+Reply pcConfirm(const std::string& sessionId, const std::string& proposalId) {
+    JsonDocument doc;
+    doc["session_id"] = sessionId;
+    doc["proposal_id"] = proposalId;
+    String body;
+    serializeJson(doc, body);
+    return jsonPost("/pc/confirm", body.c_str());
 }
 
 bool speak(const std::string& text, const std::string& wavPath) {

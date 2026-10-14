@@ -1,4 +1,8 @@
-# MAZ Pocket v0.8.0 — CONTROL
+# MAZ Pocket v0.8.1 — Project14 candidate
+
+Focused Home: CALL / CAPTURE / AGENTS / CONTROL. Adds explicitly confirmed YouTube and fresh Notepad-note actions, responsive PLAN discovery and typed routing failures. Windows delivery is a per-user setup EXE; Cardputer delivery is an app-only BIN for M5Launcher web UI. Existing stored data and prior app slots are preserved. Physical voice acceptance and competition submission remain pending; do not treat a build as a hardware pass.
+
+## Previous v0.8.0 — CONTROL
 
 v0.8.0 turns MAZ Pocket from a capable FIELD remote into a clearer physical interface for **voice AI, PC workflows, coding agents and phone-approved PC control**.
 

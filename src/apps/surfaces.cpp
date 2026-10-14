@@ -104,6 +104,7 @@ constexpr HubItem AGENT_ITEMS[] = {
 };
 
 constexpr HubItem CONTROL_ITEMS[] = {
+    {"PC ACTION", "YouTube / text note", "pcactions"},
     {"PAIRING + PHONE", "token / approvals", "pairing"},
     {"LAPTOP STATUS", "CPU / GPU / AI", "laptop"},
     {"PROJECTS + BUILDS", "git / tests", "core"},
