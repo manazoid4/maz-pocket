@@ -139,39 +139,40 @@ def prepare(port: str, require_free: int = 0, already_in_launcher: bool = False)
     if not already_in_launcher:
         reset(port)
     with serial.Serial(port, 115200, timeout=0.2) as device:
-        deadline = time.time() + 15
-        while BOOT_BANNER not in read_line(device, deadline):
-            if time.time() >= deadline:
-                raise RuntimeError("M5Launcher boot banner not found")
-        command(device, "nav SelPress", 2, until=("OK nav",))
+        if not already_in_launcher:
+            deadline = time.time() + 15
+            while BOOT_BANNER not in read_line(device, deadline):
+                if time.time() >= deadline:
+                    raise RuntimeError("M5Launcher boot banner not found")
+            command(device, "nav SelPress", 2, until=("OK nav",))
 
         lines, free = partitions(device)
-        for label in stale_app_labels(lines):
-            command(device, f"partition delete {label}", 8,
-                    until=("OK partition deleted", "ERR partition not found"))
-            print(f"[+] Removed the previous MAZ Pocket app slot '{label}'.")
-            lines, free = partitions(device)
-
-        if not any(line.startswith("mazdata ") for line in lines):
-            replies = command(device, "partition create data littlefs mazdata 0x200000", 10,
-                              until=("OK partition created", "ERR"))
-            if any(r.startswith("OK partition created") for r in replies):
-                print("[+] M5Launcher created dedicated MAZ storage.")
-            elif any(r.startswith("ERR Duplicate partition label") for r in replies):
-                print("[+] M5Launcher MAZ storage is ready.")
-            else:
-                raise RuntimeError(
-                    "M5Launcher did not confirm MAZ storage creation: " + "; ".join(replies))
-            _, free = partitions(device)
-        else:
-            print("[+] M5Launcher MAZ storage is ready.")
-
-        print(f"[+] Free flash after preparation: {free // 1024}KB")
-        if require_free and free < require_free:
+        # Never infer ownership from a label prefix or remove a working app to
+        # discover whether its replacement fits. A constrained layout needs an
+        # explicitly verified backup/recovery path, not automatic repartitioning.
+        if not any(line.startswith("mazdata ") and "type=data" in line for line in lines):
+            raise RuntimeError("Existing MAZ storage was not identified; no partitions were changed.")
+        required = ((require_free + 0xFFFF) // 0x10000) * 0x10000
+        if require_free <= 0 or free < required:
             raise RuntimeError(
-                f"Only {free // 1024}KB free but the image needs {require_free // 1024}KB. "
-                "M5Launcher will silently never answer READY. Delete an unused app in "
-                "M5Launcher, or shrink the 2MB 'mazdata' partition.")
+                f"Insufficient free flash: {free // 1024}KB available, "
+                f"{required // 1024}KB aligned image required. "
+                "No partitions were changed. Preserve the current app and storage; "
+                "use a verified backup/recovery path before replacing an existing slot.")
+        print(f"[+] Existing apps/storage preserved; {free // 1024}KB free.")
+
+
+def inspect(port: str) -> None:
+    """Ask an already-running Launcher for its map without reset/navigation."""
+    device = serial.Serial(port=None, baudrate=115200, timeout=0.2)
+    device.dtr = False
+    device.rts = False
+    device.port = port
+    with device:
+        lines, free = partitions(device)
+        if not any(line.startswith("Flash size:") for line in lines):
+            raise RuntimeError("No Launcher partition report; leave the device in M5Launcher and retry.")
+        print(f"[+] Read-only Launcher report: {free // 1024}KB free; no partitions changed.")
 
 
 def verify(port: str) -> None:
@@ -193,7 +194,7 @@ def verify(port: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("handoff", "prepare", "verify"))
+    parser.add_argument("mode", choices=("handoff", "inspect", "prepare", "verify"))
     parser.add_argument("--port", required=True)
     parser.add_argument("--require-free", type=int, default=0,
                         help="bytes the image needs; prepare fails early if the "
@@ -204,7 +205,7 @@ def main() -> None:
     if args.mode == "prepare":
         prepare(args.port, args.require_free, args.already_in_launcher)
     else:
-        {"handoff": handoff, "verify": verify}[args.mode](args.port)
+        {"handoff": handoff, "inspect": inspect, "verify": verify}[args.mode](args.port)
 
 
 if __name__ == "__main__":

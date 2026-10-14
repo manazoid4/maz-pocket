@@ -109,7 +109,11 @@ void worker(void*) {
             gPcResult.action = gAction;
             gPcResult.reply = host::pcAction(gAction);
         } else if (kind == JobKind::PcPropose) {
-            gPcProposalResult.reply = host::pcPropose(gSession, gText);
+            std::string session = gSession;
+            if (session.empty()) session = host::startSession();
+            if (session.empty()) gPcProposalResult.reply.error = "PC unreachable";
+            else gPcProposalResult.reply = host::pcPropose(session, gText);
+            gPcProposalResult.session = std::move(session);
         } else if (kind == JobKind::PcConfirm) {
             gPcProposalResult.reply = host::pcConfirm(gSession, gAction);
         } else if (kind == JobKind::OutboxAudio) {
@@ -188,13 +192,13 @@ bool submitPcAction(const std::string& action, bool retainResult) {
     if (action.empty() || !canSubmit() || !ensureWorker()) return false;
     gAction = action; gRetainPcResult.store(retainResult, std::memory_order_release); clearResults(); publish(JobKind::PcAction); return true;
 }
-bool submitPcProposal(const std::string& clientId, const std::string& request) {
-    if (clientId.empty() || request.empty() || !canSubmit() || !ensureWorker()) return false;
-    gSession = clientId; gText = request; clearResults(); publish(JobKind::PcPropose); return true;
+bool submitPcProposal(const std::string& sessionId, const std::string& request) {
+    if (request.empty() || !canSubmit() || !ensureWorker()) return false;
+    gSession = sessionId; gText = request; clearResults(); publish(JobKind::PcPropose); return true;
 }
-bool submitPcConfirm(const std::string& clientId, const std::string& proposalId) {
-    if (clientId.empty() || proposalId.empty() || !canSubmit() || !ensureWorker()) return false;
-    gSession = clientId; gAction = proposalId; clearResults(); publish(JobKind::PcConfirm); return true;
+bool submitPcConfirm(const std::string& sessionId, const std::string& proposalId) {
+    if (sessionId.empty() || proposalId.empty() || !canSubmit() || !ensureWorker()) return false;
+    gSession = sessionId; gAction = proposalId; clearResults(); publish(JobKind::PcConfirm); return true;
 }
 bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
                        const std::string& context) {

@@ -105,7 +105,7 @@ private:
 
     void propose() {
         if (_request.text.empty() || host_worker::busy()) return;
-        if (!host_worker::submitPcProposal("cardputer", _request.text)) {
+        if (!host_worker::submitPcProposal(_session, _request.text)) {
             notify::post(Note::Error, "Could not propose", host_worker::stateName());
             return;
         }
@@ -116,7 +116,7 @@ private:
 
     void confirm() {
         if (_proposalId.empty() || host_worker::busy()) return;
-        if (!host_worker::submitPcConfirm("cardputer", _proposalId)) {
+        if (!host_worker::submitPcConfirm(_session, _proposalId)) {
             notify::post(Note::Error, "Could not confirm", host_worker::stateName());
             return;
         }
@@ -132,6 +132,7 @@ private:
         if (!host_worker::takePcProposalResult(result)) return;
         _ok = result.reply.ok;
         if (kind == host_worker::JobKind::PcPropose && result.reply.ok && !result.reply.proposalId.empty()) {
+            _session = result.session;
             _proposalId = result.reply.proposalId;
             _message = result.reply.preview;
             _view = ActionView::Confirm;
@@ -146,6 +147,7 @@ private:
 
     TextField _request;
     ActionView _view = ActionView::Input;
+    std::string _session;
     std::string _proposalId;
     std::string _message;
     bool _ok = false;

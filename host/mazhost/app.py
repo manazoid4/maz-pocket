@@ -74,12 +74,12 @@ class PCActionRequest(BaseModel):
 
 
 class PCProposalRequest(BaseModel):
-    client_id: str = Field(min_length=1, max_length=160)
+    session_id: str = Field(min_length=1, max_length=160)
     request: str = Field(min_length=1, max_length=4_000)
 
 
 class PCConfirmRequest(BaseModel):
-    client_id: str = Field(min_length=1, max_length=160)
+    session_id: str = Field(min_length=1, max_length=160)
     proposal_id: str = Field(min_length=1, max_length=160)
 
 
@@ -262,6 +262,11 @@ def create_app(
     def diagnostics():
         routes = model_router.status()
         device_state = device_monitor.status()
+        serial_state = device_state.get("connection_state", "unknown")
+        if serial_state not in {"connected", "stopped", "reconnecting", "port_missing"}:
+            serial_state = "unknown"
+        if serial_state == "connected" and device_state.get("monitoring") is not True:
+            serial_state = "stopped"
         last_usage = routes.get("last_usage") or {}
         return {
             "ok": True,
@@ -281,8 +286,12 @@ def create_app(
                 },
             },
             "cardputer": {
-                "connected": device_state.get("connected") is True,
-                "status": "connected" if device_state.get("connected") is True else "unavailable",
+                "connected": serial_state == "connected",
+                "status": serial_state,
+                "transport": "usb_serial",
+                "last_seen_at": device_state.get("last_seen_at"),
+                "runtime_reachable": None,
+                "reachability_tested": False,
             },
         }
 
@@ -443,8 +452,10 @@ def create_app(
 
     @api.post("/pc/propose")
     def pc_propose(body: PCProposalRequest):
+        if not sessions.has(body.session_id):
+            raise HTTPException(404, "session_not_found")
         try:
-            return pc_proposals.propose(body.client_id, body.request)
+            return pc_proposals.propose(body.session_id, body.request)
         except ProposalError as error:
             raise HTTPException(422, str(error)) from error
         except RouteError:
@@ -454,8 +465,10 @@ def create_app(
 
     @api.post("/pc/confirm")
     def pc_confirm(body: PCConfirmRequest):
+        if not sessions.has(body.session_id):
+            raise HTTPException(404, "session_not_found")
         try:
-            return pc_proposals.confirm(body.client_id, body.proposal_id)
+            return pc_proposals.confirm(body.session_id, body.proposal_id)
         except ProposalError as error:
             raise HTTPException(409, str(error)) from error
         except RuntimeError as error:

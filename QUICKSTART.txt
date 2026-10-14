@@ -1,11 +1,10 @@
-MAZ POCKET v0.8.0 - CONTROL QUICKSTART
+MAZ POCKET v0.8.1 - PROJECT14 QUICKSTART
 ======================================
 
 WHAT TO DOWNLOAD
 ----------------
-Laptop/client only:   MAZ-Core-v0.8.0.zip
-Cardputer only:       MAZ-Cardputer-v0.8.0.zip
-Everything together: MAZ-Pocket-v0.8.0-Install.zip
+Windows: MAZ-Core-Setup-v0.8.1.exe
+Cardputer: MAZ-Pocket-v0.8.1.bin (app-only, install with M5Launcher web UI)
 
 The Cardputer ZIP contains an app-only M5Launcher firmware image. M5Launcher owns installation and rollback. Do NOT flash this app .bin at address 0x0.
 

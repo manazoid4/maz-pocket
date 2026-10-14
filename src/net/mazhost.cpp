@@ -272,18 +272,18 @@ Reply pcAction(const std::string& action) {
     return jsonPost("/pc/action", body.c_str());
 }
 
-Reply pcPropose(const std::string& clientId, const std::string& request) {
+Reply pcPropose(const std::string& sessionId, const std::string& request) {
     JsonDocument doc;
-    doc["client_id"] = clientId;
+    doc["session_id"] = sessionId;
     doc["request"] = request;
     String body;
     serializeJson(doc, body);
     return jsonPost("/pc/propose", body.c_str());
 }
 
-Reply pcConfirm(const std::string& clientId, const std::string& proposalId) {
+Reply pcConfirm(const std::string& sessionId, const std::string& proposalId) {
     JsonDocument doc;
-    doc["client_id"] = clientId;
+    doc["session_id"] = sessionId;
     doc["proposal_id"] = proposalId;
     String body;
     serializeJson(doc, body);
