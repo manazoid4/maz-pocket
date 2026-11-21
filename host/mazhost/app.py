@@ -10,7 +10,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.background import BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from .authority import AuthorityBroker
@@ -28,6 +28,8 @@ from .jobs import CoreJobs
 from .llm import Models, Route
 from .nudge import NudgeClient
 from .pc import PCController
+from .pc_proposals import ProposalError, ProposalStore
+from .errors import RouteError
 from .prompts import EXTRACT_PROMPTS, SYSTEM_PROMPT
 from .refine import refine
 from .security import Security
@@ -71,6 +73,16 @@ class PCActionRequest(BaseModel):
     ]
 
 
+class PCProposalRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=160)
+    request: str = Field(min_length=1, max_length=4_000)
+
+
+class PCConfirmRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=160)
+    proposal_id: str = Field(min_length=1, max_length=160)
+
+
 class CoreActionRequest(BaseModel):
     action: Literal["git_status", "git_fetch", "git_pull_ff", "tests", "build", "open_folder"]
     project: str = Field(min_length=1, max_length=160)
@@ -97,6 +109,7 @@ def create_app(
     nudge_client = nudge or NudgeClient(cfg)
     device_monitor = device or DeviceMonitor(cfg)
     pc_controller = pc or PCController()
+    pc_proposals = ProposalStore(model_router, pc_controller)
     core_service = core or MazCore(cfg)
     core_jobs = CoreJobs(core_service)
     bridge_worker = bridge or BridgeWorker(cfg, core_service)
@@ -120,6 +133,10 @@ def create_app(
         allow_headers=["Authorization", "Content-Type", "X-MAZ-Token", "X-MAZ-Context"],
         expose_headers=["X-MAZ-Width", "X-MAZ-Height", "X-MAZ-Format"],
     )
+
+    @api.exception_handler(RouteError)
+    async def route_error_handler(_request: Request, error: RouteError) -> JSONResponse:
+        return JSONResponse(status_code=error.http_status, content=error.payload())
 
     @api.on_event("startup")
     def start_bridge() -> None:
@@ -240,6 +257,43 @@ def create_app(
     @api.get("/models")
     def models_status():
         return {**model_router.status(), "default_route": cfg.default_route}
+
+    @api.get("/diagnostics")
+    def diagnostics():
+        routes = model_router.status()
+        device_state = device_monitor.status()
+        serial_state = device_state.get("connection_state", "unknown")
+        if serial_state not in {"connected", "stopped", "reconnecting", "port_missing"}:
+            serial_state = "unknown"
+        if serial_state == "connected" and device_state.get("monitoring") is not True:
+            serial_state = "stopped"
+        last_usage = routes.get("last_usage") or {}
+        return {
+            "ok": True,
+            "core": {"status": "online", "version": CORE_VERSION},
+            "routes": {
+                "selected": cfg.default_route,
+                "last_provider": last_usage.get("provider"),
+                "local": {
+                    "engine": routes.get("local_engine"),
+                    "endpoint_reachable": bool(routes.get("local") is True),
+                    "model": routes.get("local_model"),
+                    "model_available": bool(routes.get("local_model_installed") is True),
+                },
+                "cloud": {
+                    "configured": bool(routes.get("cloud") is True),
+                    "reachability_tested": False,
+                },
+            },
+            "cardputer": {
+                "connected": serial_state == "connected",
+                "status": serial_state,
+                "transport": "usb_serial",
+                "last_seen_at": device_state.get("last_seen_at"),
+                "runtime_reachable": None,
+                "reachability_tested": False,
+            },
+        }
 
     # ------------------------------------------------------------- MAZ Core
     @api.get("/core/status")
@@ -395,6 +449,30 @@ def create_app(
             "reply": result.label,
             "provider": "pc-local",
         }
+
+    @api.post("/pc/propose")
+    def pc_propose(body: PCProposalRequest):
+        if not sessions.has(body.session_id):
+            raise HTTPException(404, "session_not_found")
+        try:
+            return pc_proposals.propose(body.session_id, body.request)
+        except ProposalError as error:
+            raise HTTPException(422, str(error)) from error
+        except RouteError:
+            raise
+        except RuntimeError as error:
+            raise HTTPException(503, "cloud_action_unavailable") from error
+
+    @api.post("/pc/confirm")
+    def pc_confirm(body: PCConfirmRequest):
+        if not sessions.has(body.session_id):
+            raise HTTPException(404, "session_not_found")
+        try:
+            return pc_proposals.confirm(body.session_id, body.proposal_id)
+        except ProposalError as error:
+            raise HTTPException(409, str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
 
     # --------------------------------------------------------------- speech
     @api.post("/speak")

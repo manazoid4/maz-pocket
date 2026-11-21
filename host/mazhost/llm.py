@@ -5,6 +5,7 @@ from typing import Literal
 import httpx
 
 from .config import Settings
+from .errors import ErrorCode, RouteError
 
 Route = Literal["local", "auto", "cloud"]
 
@@ -233,25 +234,45 @@ class Models:
 
     def _cloud(self, messages: list[dict[str, str]]) -> tuple[str, str]:
         if not self.settings.cloud_key:
-            raise RuntimeError("no_model_available")
-        response = self.client.post(
-            f"{self.settings.cloud_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.cloud_key}"},
-            json={
-                "model": self.settings.cloud_model,
-                "messages": messages,
-                "temperature": 0.2,
-                # OpenAI-compatible gateways do not agree on the default. A
-                # local 9router endpoint streams unless told otherwise, which
-                # returns concatenated SSE chunks and breaks the single-object
-                # parse below. Ask for one complete response explicitly.
-                "stream": False,
-            },
-        )
-        response.raise_for_status()
-        text = response.json()["choices"][0]["message"]["content"].strip()
+            raise RouteError(ErrorCode.AUTH_FAILED, "cloud", retryable=False)
+        try:
+            response = self.client.post(
+                f"{self.settings.cloud_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {self.settings.cloud_key}"},
+                json={
+                    "model": self.settings.cloud_model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "stream": False,
+                },
+            )
+        except httpx.TimeoutException as error:
+            raise RouteError(ErrorCode.UPSTREAM_TIMEOUT, "cloud", retryable=True) from error
+        except httpx.HTTPError as error:
+            raise RouteError(ErrorCode.UPSTREAM_UNAVAILABLE, "cloud", retryable=True) from error
+        if not response.is_success:
+            message = ""
+            try:
+                message = str(response.json().get("error", {}).get("message", "")).lower()
+            except (AttributeError, TypeError, ValueError):
+                pass
+            if response.status_code in (401, 403):
+                code, retryable = ErrorCode.AUTH_FAILED, False
+            elif response.status_code == 404 and "model" in message:
+                code, retryable = ErrorCode.MODEL_NOT_FOUND, False
+            elif response.status_code == 404:
+                code, retryable = ErrorCode.ENDPOINT_NOT_FOUND, False
+            elif response.status_code == 429:
+                code, retryable = ErrorCode.RATE_LIMITED, True
+            else:
+                code, retryable = ErrorCode.UPSTREAM_UNAVAILABLE, True
+            raise RouteError(code, "cloud", retryable=retryable, upstream_status=response.status_code)
+        try:
+            text = response.json()["choices"][0]["message"]["content"].strip()
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+            raise RouteError(ErrorCode.INVALID_UPSTREAM_RESPONSE, "cloud", retryable=False) from error
         if not text:
-            raise RuntimeError("cloud_model_empty_reply")
+            raise RouteError(ErrorCode.INVALID_UPSTREAM_RESPONSE, "cloud", retryable=False)
         self._last_usage = {"provider": "cloud"}
         return text, "cloud"
 
@@ -261,5 +282,5 @@ class Models:
                 return self._local(messages)
             except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError):
                 if route == "local":
-                    raise RuntimeError("local_models_unavailable")
+                    raise RouteError(ErrorCode.LOCAL_UNAVAILABLE, "local", retryable=True)
         return self._cloud(messages)

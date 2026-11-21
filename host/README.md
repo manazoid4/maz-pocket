@@ -31,6 +31,15 @@ $env:MAZ_LLAMACPP_MODEL_PATH = "C:\path\to\model.gguf"
 .\host\start-llamacpp.ps1
 ```
 
+### Confirmed Cardputer PC actions
+
+`POST /pc/propose` accepts an authenticated `client_id` and a plain request.
+It asks the existing configured cloud route for one strict proposal:
+`open_youtube`, `create_notepad_note`, or unsupported. A valid proposal expires
+after 120 seconds. `POST /pc/confirm` consumes the stored proposal before
+dispatch and is replay-safe. The client never submits a URL, path, executable
+or command. Notes use exclusive creation under `%USERPROFILE%\.maz-pocket\notes`.
+
 Then set `MAZ_LOCAL_ENGINE=llamacpp` and `MAZ_LLAMACPP_URL=http://127.0.0.1:8080` in `host/.env`.
 
 MAZ Core never launches inference itself. One long-lived `llama-server` keeps the model resident, which is what makes a follow-up Pocket turn answer in about a second. `keep_alive` in the model status is an Ollama concept and does not apply to llama.cpp; `/props` supplies the context llama-server actually fitted after clamping to VRAM. `MAZ_LLAMACPP_BACKUP_URL` plus `MAZ_LLAMACPP_BACKUP_MODEL` point the backup step of the chain at a second server, typically a smaller model on another port.

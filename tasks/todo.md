@@ -1,93 +1,25 @@
-# MAZ Pocket v1.0.0 — execution checklist
+# MAZ Pocket execution checklist
 
-## Reconcile
+Read tasks/plan.md first. Preserve tasks/v1-work-plan.md and tasks/v1-work-todo.md as historical plans. Planning is complete; execution is not.
 
-- [ ] Start from latest `main`; inspect open PRs/branches/releases/workflows.
-- [ ] Preserve current v0.8 CONTROL behavior and stable IDs.
-- [ ] Lock compact Track/Event/summary/history contracts.
+- [ ] 1. Inventory inherited changes and current runtime.
+- [ ] 1b. Clean controlled PR/docs/release promotional metadata; preserve attribution.
+- [ ] 2. Add read-only Launcher inspection and fail-before-write preparation.
+- [ ] 3. Correct diagnostics and identify the intended Core instance.
+- [ ] 4. Build/version/install the guarded recovery candidate.
+- [ ] 5. Make USB pairing deterministic and secret-safe.
+- [ ] 5b. Prove real dictated follow-up note, PC effect and Cardputer receipt before GUI polish.
+- [ ] 6a. Add tested user-session lifecycle controller.
+- [ ] 6b. Add minimal responsive Tkinter Core GUI.
+- [ ] 7. Wire preserved-setting startup; port phone short codes only if needed.
+- [ ] 8. Freeze final source, build, flash and record physical three-run acceptance.
+- [ ] 9. Push reviewed branch, pass CI/review, clear public gate, publish unique release.
+- [ ] 10. Complete Project14 media/blog; entrant submits and supplies URL/timestamp.
+- [ ] 11. Publish verified Mazwrks /work/maz-pocket case study.
+- [ ] 12. Sync evidence, reusable launch kit and Kickstarter readiness backlog to memory/vault.
+- [ ] 12b. Deliver sanitized client pilot proposition and funding-readiness brief; assign next actions for other competitions.
+- [ ] Every closeout: commit/push unified memory to GitHub and verify remote commit; vault push alone is insufficient.
 
-## Durable Work core
+Read docs/element14/SESSION-REQUIREMENTS-AUDIT.md for recovered original requirements. Task 8 can run after 4–5 without waiting for GUI tasks 6–7. Target entrant submission 12 September; recorded hard deadline 13 September 2026, 23:59 UK.
 
-- [ ] Add versioned SQLite Track + Event store under `~/.maz-pocket/work/`.
-- [ ] Add idempotent JOB HUNT template.
-- [ ] Add idempotent MAZ WORKS template.
-- [ ] Add custom count/time/check-in tracks.
-- [ ] Add append-only progress events.
-- [ ] Add safe undo/reversal semantics.
-- [ ] Add correct UTC/local-time aggregation and DST tests.
-- [ ] Add bounded seven-day summary/history.
-
-## API
-
-- [ ] Add authenticated Work summary route.
-- [ ] Add track list/create/update/reorder/pin/pause/archive routes.
-- [ ] Add event append + undo routes.
-- [ ] Add bounded history route.
-- [ ] Add compact Cardputer payload tests.
-
-## Phone WORK UI
-
-- [ ] Refactor phone shell to `WORK | AUTHORITY`.
-- [ ] Make WORK default.
-- [ ] JOB HUNT large card + one-tap APPLICATION.
-- [ ] MAZ WORKS card + one-tap common acquisition actions.
-- [ ] Pinned custom track cards.
-- [ ] Undo Last.
-- [ ] Seven-day history.
-- [ ] Manage Tracks create/edit/reorder/pin/pause/archive.
-- [ ] Keep authority approvals/grants/manual session/audit/revoke intact.
-- [ ] Validate mobile width/touch/tap-count acceptance.
-
-## Cardputer WORK
-
-- [ ] Keep exactly six Home surfaces.
-- [ ] Keep internal `flow` ID; visible label becomes WORK.
-- [ ] WORK opens directly on progress dashboard.
-- [ ] Prioritize JOB HUNT + MAZ WORKS.
-- [ ] Show pinned custom progress when space allows.
-- [ ] Show compact seven-day state.
-- [ ] Show stale/offline last-good state honestly.
-- [ ] Preserve Focus/Sprint/Tasks/Reminders/Shift/Retro through secondary tools.
-- [ ] Use existing bounded Host worker; no blocking UI network work.
-
-## Optional safe integration
-
-- [ ] Add explicit Task completion timestamp/event if Tasks feed WORK.
-- [ ] Add Focus/Sprint/Shift summary persistence if safe.
-- [ ] Add Agent Nudge secondary context if safe.
-- [ ] Add local JSON/CSV export/import if safe.
-
-## Portal + installation
-
-- [ ] `mazpocket.local` uses WORK wording and OPEN WORK handoff.
-- [ ] Keep pairing/live screen/settings/staging intact.
-- [ ] Combined install package remains the default frictionless path.
-- [ ] Preserve existing `.env`/pairing config on Core upgrade.
-- [ ] Preserve M5Launcher installer/rollback ownership.
-- [ ] Preserve Windows PowerShell 5.1 shipped-installer validation.
-
-## v1 release gates
-
-- [ ] Multi-perspective product/UX/data/security/firmware/release/regression audit.
-- [ ] Fix all critical/high findings.
-- [ ] Full host tests green.
-- [ ] Version guard green.
-- [ ] Launcher handoff guard green.
-- [ ] Cardputer ADV build green and under slot ceiling.
-- [ ] Release packaging green.
-- [ ] Physical ADV WORK + regression gate passes.
-- [ ] Set `VERSION` and all canonical docs/package identities to `1.0.0`.
-- [ ] Merge complete v1 implementation to `main`.
-- [ ] Ensure no unfinished v1 PR remains open.
-- [ ] Trigger `.release/v1.0.0` only after the merge/gates.
-- [ ] Verify GitHub Release v1.0.0 contains Core, Cardputer, combined install ZIP, raw bin and SHA-256 evidence.
-- [ ] Default handoff to the user is the single combined v1.0.0 install package.
-
-## Deferred after v1
-
-- [ ] MCP Fix & Activate.
-- [ ] Deep Codex/Claude/OpenCode/Hermes telemetry.
-- [ ] Token/API Value headline analytics.
-- [ ] Automatic desktop productivity surveillance.
-- [ ] Cloud sync/accounts.
-- [ ] Complex project management and heatmaps.
+Do not check off hardware, release, deployment or submission without corresponding evidence. Update FINAL-STATUS.md at checkpoints. Existing push authorization persists; do not ask again for routine reviewed branch pushes.

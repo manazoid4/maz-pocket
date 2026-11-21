@@ -1,6 +1,8 @@
 param(
     [string]$Binary = "",
-    [string]$Port = ""
+    [string]$Port = "",
+    [switch]$AlreadyInLauncher,
+    [string]$ExpectedSha256 = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +14,9 @@ if (-not $Binary) {
     $Binary = Join-Path $Root "dist\maz-pocket-app.bin"
 }
 if (-not (Test-Path $Binary)) { throw "Firmware not found: $Binary" }
+$ImageHash = (Get-FileHash -LiteralPath $Binary -Algorithm SHA256).Hash
+if ($ExpectedSha256 -and $ImageHash -ne $ExpectedSha256) { throw "Firmware checksum does not match the selected candidate." }
+Write-Host "Candidate SHA-256: $ImageHash"
 
 # Refuse to install an image older than the current build. An agent or a stale
 # shell re-running this with a hand-rolled -Binary would otherwise quietly
@@ -36,12 +41,18 @@ if (-not (Test-Path $HostPython)) {
 
 if (-not $Port) {
     for ($attempt = 0; $attempt -lt 20 -and -not $Port; $attempt++) {
-        $Port = Get-CimInstance Win32_SerialPort | Where-Object {
+        $Candidates = @(Get-CimInstance Win32_SerialPort | Where-Object {
             $_.PNPDeviceID -match 'VID_303A&PID_1001'
-        } | Select-Object -First 1 -ExpandProperty DeviceID
+        })
+        if ($Candidates.Count -gt 1) { throw "Multiple Cardputers detected; specify -Port." }
+        if ($Candidates.Count -eq 1) { $Port = $Candidates[0].DeviceID }
         if (-not $Port) { Start-Sleep -Seconds 1 }
     }
 }
+$Identified = @(Get-CimInstance Win32_SerialPort | Where-Object {
+    $_.DeviceID -eq $Port -and $_.PNPDeviceID -match 'VID_303A&PID_1001'
+})
+if ($Identified.Count -ne 1) { throw "Selected port is not an identified Cardputer ADV interface." }
 if (-not $Port) {
     throw "Cardputer ADV not found over USB after 20 seconds. Connect its data cable and tap RESET."
 }
@@ -49,16 +60,16 @@ if (-not $Port) {
 # If MAZ Pocket is currently open, wait through the serial-open reset and then
 # ask it to hand back to Launcher. A Launcher already running simply ignores
 # this best-effort step and is accepted by `prepare` below.
-try {
+if (-not $AlreadyInLauncher) {
     & $HostPython (Join-Path $Root "scripts\launcher-device.py") handoff --port $Port
-} catch {
+    if ($LASTEXITCODE -ne 0) { throw "Launcher handoff was not verified. Enter M5Launcher, then retry with -AlreadyInLauncher." }
 }
 
 # Tell preparation how big the image is. M5Launcher answers a `flash firmware`
 # command it cannot satisfy with silence, which the flasher can only report as
 # "Timed out waiting for READY" -- a space problem that reads like a cable fault.
 $ImageBytes = (Get-Item $Binary).Length
-& $HostPython (Join-Path $Root "scripts\launcher-device.py") prepare --port $Port --require-free $ImageBytes
+& $HostPython (Join-Path $Root "scripts\launcher-device.py") prepare --port $Port --require-free $ImageBytes --already-in-launcher
 if ($LASTEXITCODE -ne 0) { throw "M5Launcher preparation failed." }
 
 $ToolDir = Join-Path ([IO.Path]::GetTempPath()) "maz-pocket-m5launcher-2.8.0"
@@ -73,6 +84,7 @@ $Expected = "9CFBA9AF762AC7D99488F23706320B30D0896C4993599990EC80AD06AB8F7536"
 $Actual = (Get-FileHash $Flasher -Algorithm SHA256).Hash
 if ($Actual -ne $Expected) { throw "Downloaded M5Launcher tool failed its checksum." }
 
+if ((Get-FileHash -LiteralPath $Binary -Algorithm SHA256).Hash -ne $ImageHash) { throw "Firmware changed during preparation." }
 & $HostPython $Flasher -f $Binary -p $Port -n "MAZ-Pocket"
 $FlashResult = $LASTEXITCODE
 

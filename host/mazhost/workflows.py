@@ -170,6 +170,20 @@ class WorkflowService:
         user = json.dumps({"task": task, "context": context}, default=str)[:18_000]
         try:
             result, provider = self._json_model(system, user, route)
+            allowed = {
+                "summary", "steps", "likely_files", "risks", "authority",
+                "parallelizable", "verification",
+            }
+            result = {key: value for key, value in result.items() if key in allowed}
+            list_fields = ("steps", "likely_files", "risks", "verification")
+            if (
+                not isinstance(result.get("summary"), str)
+                or any(not isinstance(result.get(key), list) for key in list_fields)
+                or any(any(not isinstance(item, str) for item in result[key]) for key in list_fields)
+                or result.get("authority") not in {"read_only", "project_full", "pc_full", "admin"}
+                or not isinstance(result.get("parallelizable"), bool)
+            ):
+                raise RuntimeError("workflow_model_invalid_plan")
         except RuntimeError:
             result = {
                 "summary": task[:240],
@@ -181,7 +195,7 @@ class WorkflowService:
                 "verification": ["Run project tests/build"],
             }
             provider = "deterministic-fallback"
-        return {"ok": True, "kind": "plan", "provider": provider, "task": task, "project": project, **result}
+        return {**result, "ok": True, "kind": "plan", "provider": provider, "task": task, "project": project}
 
     def crew(self, task: str, project: str = "", route: Route = "auto") -> dict[str, Any]:
         context = self._context(project)

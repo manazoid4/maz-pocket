@@ -25,6 +25,7 @@ TeachKind gTeachKind = TeachKind::Status;
 
 TalkResult gTalkResult;
 PcActionResult gPcResult;
+PcProposalResult gPcProposalResult;
 OutboxAudioResult gOutboxAudioResult;
 OutboxBeamResult gOutboxBeamResult;
 host::BeamMessage gBeamPullResult;
@@ -107,6 +108,14 @@ void worker(void*) {
         } else if (kind == JobKind::PcAction) {
             gPcResult.action = gAction;
             gPcResult.reply = host::pcAction(gAction);
+        } else if (kind == JobKind::PcPropose) {
+            std::string session = gSession;
+            if (session.empty()) session = host::startSession();
+            if (session.empty()) gPcProposalResult.reply.error = "PC unreachable";
+            else gPcProposalResult.reply = host::pcPropose(session, gText);
+            gPcProposalResult.session = std::move(session);
+        } else if (kind == JobKind::PcConfirm) {
+            gPcProposalResult.reply = host::pcConfirm(gSession, gAction);
         } else if (kind == JobKind::OutboxAudio) {
             std::string session = host::startSession();
             host::Reply reply;
@@ -160,7 +169,7 @@ bool canSubmit() {
 }
 
 void clearResults() {
-    gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gOutboxAudioResult = OutboxAudioResult{};
+    gTalkResult = TalkResult{}; gPcResult = PcActionResult{}; gPcProposalResult = PcProposalResult{}; gOutboxAudioResult = OutboxAudioResult{};
     gOutboxBeamResult = OutboxBeamResult{}; gBeamPullResult = host::BeamMessage{};
     gSystemResult = host::SystemStatus{}; gWorkflowResult = WorkflowResult{}; gTeachResult = TeachResult{};
 }
@@ -182,6 +191,14 @@ bool submitTalkAudio(const std::string& session, const std::string& wavPath,
 bool submitPcAction(const std::string& action, bool retainResult) {
     if (action.empty() || !canSubmit() || !ensureWorker()) return false;
     gAction = action; gRetainPcResult.store(retainResult, std::memory_order_release); clearResults(); publish(JobKind::PcAction); return true;
+}
+bool submitPcProposal(const std::string& sessionId, const std::string& request) {
+    if (request.empty() || !canSubmit() || !ensureWorker()) return false;
+    gSession = sessionId; gText = request; clearResults(); publish(JobKind::PcPropose); return true;
+}
+bool submitPcConfirm(const std::string& sessionId, const std::string& proposalId) {
+    if (sessionId.empty() || proposalId.empty() || !canSubmit() || !ensureWorker()) return false;
+    gSession = sessionId; gAction = proposalId; clearResults(); publish(JobKind::PcConfirm); return true;
 }
 bool submitOutboxAudio(const std::string& recordId, const std::string& wavPath,
                        const std::string& context) {
@@ -210,6 +227,7 @@ bool submitTeach(TeachKind kind, const std::string& sessionId,
 
 bool takeTalkResult(TalkResult& result) { if (state()!=State::Done||jobKind()!=JobKind::TalkAudio)return false; result=std::move(gTalkResult); resetToIdle(); return true; }
 bool takePcActionResult(PcActionResult& result) { if (state()!=State::Done||jobKind()!=JobKind::PcAction)return false; result=std::move(gPcResult); resetToIdle(); return true; }
+bool takePcProposalResult(PcProposalResult& result) { if (state()!=State::Done||(jobKind()!=JobKind::PcPropose&&jobKind()!=JobKind::PcConfirm))return false; result=std::move(gPcProposalResult); resetToIdle(); return true; }
 bool takeOutboxAudioResult(OutboxAudioResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxAudio)return false; result=std::move(gOutboxAudioResult); resetToIdle(); return true; }
 bool takeOutboxBeamResult(OutboxBeamResult& result) { if (state()!=State::Done||jobKind()!=JobKind::OutboxBeam)return false; result=std::move(gOutboxBeamResult); resetToIdle(); return true; }
 bool takeBeamPullResult(host::BeamMessage& result) { if (state()!=State::Done||jobKind()!=JobKind::BeamPull)return false; result=std::move(gBeamPullResult); resetToIdle(); return true; }

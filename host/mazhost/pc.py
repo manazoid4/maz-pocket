@@ -9,8 +9,12 @@ command prompt.
 from __future__ import annotations
 
 import ctypes
+import os
+import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
+from uuid import uuid4
 
 
 KEYEVENTF_KEYUP = 0x0002
@@ -28,6 +32,7 @@ VK_MEDIA_PLAY_PAUSE = 0xB3
 class ActionResult:
     action: str
     label: str
+    path: str = ""
 
 
 class PCController:
@@ -40,7 +45,14 @@ class PCController:
         "previous_track": "Previous track",
         "next_track": "Next track",
         "lock": "PC locked",
+        "open_youtube": "YouTube launch requested",
+        "create_notepad_note": "Note created; Notepad launch requested",
     }
+
+    YOUTUBE_URL = "https://www.youtube.com/"
+
+    def __init__(self, notes_dir: Path | None = None) -> None:
+        self.notes_dir = notes_dir or (Path.home() / ".maz-pocket" / "notes")
 
     @property
     def available(self) -> bool:
@@ -58,7 +70,28 @@ class PCController:
         for key in reversed(keys):
             user32.keybd_event(key, 0, KEYEVENTF_KEYUP, 0)
 
-    def perform(self, action: str) -> ActionResult:
+    def _launch_url(self, url: str) -> None:
+        os.startfile(url)  # type: ignore[attr-defined]
+
+    def _launch_notepad(self, path: Path) -> None:
+        subprocess.Popen(["notepad.exe", str(path)], shell=False, close_fds=True)
+
+    def _create_note(self, text: str) -> Path:
+        if not text or len(text) > 4000 or "\x00" in text:
+            raise RuntimeError("pc_note_invalid")
+        target = self.notes_dir.expanduser()
+        is_junction = getattr(os.path, "isjunction", lambda _path: False)
+        if target.exists() and (target.is_symlink() or is_junction(target)):
+            raise RuntimeError("pc_notes_dir_unsafe")
+        target.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink() or is_junction(target):
+            raise RuntimeError("pc_notes_dir_unsafe")
+        path = target / f"maz-note-{uuid4().hex}.txt"
+        with path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        return path
+
+    def perform(self, action: str, text: str = "") -> ActionResult:
         if action not in self.LABELS:
             raise RuntimeError("pc_action_not_allowed")
         if not self.available:
@@ -81,5 +114,15 @@ class PCController:
         elif action == "lock":
             if not ctypes.windll.user32.LockWorkStation():
                 raise RuntimeError("pc_lock_failed")
+
+        elif action == "open_youtube":
+            self._launch_url(self.YOUTUBE_URL)
+        elif action == "create_notepad_note":
+            path = self._create_note(text)
+            try:
+                self._launch_notepad(path)
+            except OSError as error:
+                raise RuntimeError("pc_note_created_notepad_launch_failed") from error
+            return ActionResult(action=action, label=self.LABELS[action], path=str(path))
 
         return ActionResult(action=action, label=self.LABELS[action])
