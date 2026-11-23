@@ -91,7 +91,7 @@ def test_phrase_cache_serves_second_call_without_fish(tmp_path, fish):
     b = out.synthesize("sorry, my brain is offline,  try again")
     assert a.read_bytes() == b.read_bytes()
     assert len(fish) == 1 and out.cache_hits == 1 and out.last_provider == "cache"
-    assert (tmp_path / "data" / "tts_cache" / ADRIAN_ID).is_dir()
+    assert (tmp_path / "data" / "tts_cache" / ADRIAN_ID / "cardputer_adv").is_dir()
     # a long, unique reply is never cached
     long = "This is a long one-off answer that must not be cached on disk at all."
     out.synthesize(long)
