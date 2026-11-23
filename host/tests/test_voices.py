@@ -13,7 +13,7 @@ from mazhost.authority import AuthorityBroker
 from mazhost.config import Settings
 from mazhost.phone_control import build_phone_app
 from mazhost.tts import SpeechOut
-from mazhost.voices import ADRIAN_ID, CURATED, ID_RE, VoiceService
+from mazhost.voices import ADRIAN_ID, SARAH_ID, CURATED, ID_RE, VoiceService
 
 TOKEN = "test-token-that-is-not-default"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -88,6 +88,43 @@ def test_list_default_and_select_persists(tmp_path, calls):
     c2 = TestClient(create_app(s))
     assert c2.get("/voices", headers=AUTH).json()["current"] == OTHER
     assert c.post("/voices/select", json={"reference_id": "../x"}, headers=AUTH).status_code == 400
+
+
+def test_sarah_and_one_custom_favourite_survive_voice_switches(tmp_path):
+    c, s = mk(tmp_path)
+    first = c.get("/voices", headers=AUTH).json()
+    assert [v["name"] for v in first["favourites"]] == ["Sarah"]
+    assert first["favourites"][0]["reference_id"] == SARAH_ID
+
+    c.post("/voices/select", headers=AUTH,
+           json={"reference_id": "a" * 32, "name": "My preferred voice"})
+    saved = c.get("/voices", headers=AUTH).json()
+    assert [v["name"] for v in saved["favourites"]] == ["Sarah", "My preferred voice"]
+    assert saved["favourites"][-1]["current"] is True
+
+    c.post("/voices/select", headers=AUTH, json={"reference_id": SARAH_ID, "name": "Sarah"})
+    switched = c.get("/voices", headers=AUTH).json()
+    assert switched["favourites"][0]["current"] is True
+    assert switched["favourites"][1]["reference_id"] == "a" * 32
+
+    fresh = TestClient(create_app(s)).get("/voices", headers=AUTH).json()
+    assert fresh["favourites"] == switched["favourites"]
+
+    c.post("/voices/select", headers=AUTH, json={"reference_id": "b" * 32, "name": "New voice"})
+    replaced = c.get("/voices", headers=AUTH).json()
+    assert [v["name"] for v in replaced["favourites"]] == ["Sarah", "New voice"]
+
+
+def test_phone_has_sarah_and_fish_link_choice(tmp_path):
+    s = _settings(tmp_path, fish_api_key="k", tts_enabled=True)
+    root = FastAPI()
+    root.mount("/control", build_phone_app(s, AuthorityBroker(s), voices=SpeechOut(s).voices))
+    client = TestClient(root, base_url="http://testserver/control/", headers={"user-agent": "ph"})
+    client.post("session/login", data={"token": TOKEN})
+    page = client.get("").text
+    assert 'id="voiceFavorites"' in page
+    assert 'id="fishVoiceLink"' in page
+    assert "function fishVoiceId" in page
 
 
 def test_search_proxy_filters_and_caches(tmp_path, calls):

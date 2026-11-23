@@ -26,6 +26,7 @@ from .config import Settings
 log = logging.getLogger("uvicorn.error")
 
 ADRIAN_ID = "bf322df2096a46f18c579d0baa36f41d"
+SARAH_ID = "933563129e564b19a115bedd57b7406a"
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 PREVIEW_TEXT = "Hi, I'm nod."
 SEARCH_TTL_S = 600
@@ -33,7 +34,7 @@ SEARCH_TTL_S = 600
 # Verified against GET https://api.fish.audio/model (public, type=tts, en) on 2026-10-07.
 CURATED: list[dict[str, str]] = [
     {"name": "Adrian", "reference_id": ADRIAN_ID, "description": "Steady, deep narrator (default)"},
-    {"name": "Sarah", "reference_id": "933563129e564b19a115bedd57b7406a", "description": "Soft, engaged female, conversational"},
+    {"name": "Sarah", "reference_id": SARAH_ID, "description": "Soft, engaged female, conversational"},
     {"name": "Ethan", "reference_id": "536d3a5e000945adb7038665781a4aca", "description": "Curious male explainer, professional"},
     {"name": "Selene", "reference_id": "b347db033a6549378b48d00acb0d06cd", "description": "Calm, meditative female"},
     {"name": "Slax", "reference_id": "c5f56a6cc2ec4fa8920cb4c5889a3fb7", "description": "Clear, crisp male, measured"},
@@ -98,6 +99,11 @@ class VoiceService:
                 data["voice_name"] = name[:80]
             else:
                 data.pop("voice_name", None)
+            # Keep one custom Fish choice as a favourite alongside Sarah.
+            # Switching to Sarah or another curated voice never erases it.
+            if ref not in {item["reference_id"] for item in CURATED}:
+                data["custom_voice_reference_id"] = ref
+                data["custom_voice_name"] = name[:80] if name else "My Fish voice"
             self.dir.mkdir(parents=True, exist_ok=True)
             tmp = self._file.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -125,7 +131,20 @@ class VoiceService:
         if not any(v["current"] for v in voices):
             voices.insert(0, {"name": self.name_of(cur) or "Custom voice", "reference_id": cur,
                               "description": "Picked from search", "current": True})
-        return {"ok": True, "current": cur, "current_name": self.name_of(cur), "voices": voices}
+        saved = self._read()
+        favourites = [dict(next(v for v in CURATED if v["reference_id"] == SARAH_ID),
+                           current=cur == SARAH_ID)]
+        custom_id = saved.get("custom_voice_reference_id")
+        if isinstance(custom_id, str) and ID_RE.fullmatch(custom_id) and custom_id != SARAH_ID:
+            custom_name = saved.get("custom_voice_name")
+            favourites.append({
+                "name": custom_name[:80] if isinstance(custom_name, str) and custom_name else "My Fish voice",
+                "reference_id": custom_id,
+                "description": "Your saved Fish Audio voice",
+                "current": cur == custom_id,
+            })
+        return {"ok": True, "current": cur, "current_name": self.name_of(cur),
+                "voices": voices, "favourites": favourites}
 
     def search(self, q: str) -> list[dict[str, Any]]:
         key = self.settings.fish_api_key
