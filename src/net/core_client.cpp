@@ -125,6 +125,8 @@ BuddyPoll buddyPoll() {
         b.summary = it["summary"] | "";
         b.project = it["project"] | "";
         b.session = it["session_id"] | "";
+        b.risk = it["risk"] | "RUN";
+        b.hash = it["hash"] | "";
         b.left = it["left"] | 0;
         if (!b.id.empty()) out.items.push_back(std::move(b));
     }
@@ -144,7 +146,7 @@ bool buddyDecide(const std::string& id, const std::string& decision, std::string
     const int status = http.POST(payload);
     const String body = status > 0 ? http.getString() : String();
     http.end();
-    if (status == 404) { applied = "gone"; return true; }  // expired or cancelled at the terminal
+    if (status == 404 || status == 409) { applied = "gone"; return true; }  // unknown, expired (409) or cancelled at the terminal
     JsonDocument doc;
     if (status != 200 || deserializeJson(doc, body)) return false;
     applied = doc["decision"] | "";

@@ -143,6 +143,7 @@ def create_app(
 ) -> FastAPI:
     cfg = settings or Settings()
     security = Security(cfg)
+    security.warn_shared_token(logging.getLogger("uvicorn.error"))
     speech = stt or SpeechToText(cfg)
     speech_out = SpeechOut(cfg)
     turn_timings = TimingLog(20)

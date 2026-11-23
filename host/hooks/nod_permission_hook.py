@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code PermissionRequest hook -> nod Core approval.
 
-Env: NOD_TOKEN (required), NOD_CORE_URL (default http://127.0.0.1:8787),
+Env: NOD_REQUEST_TOKEN (preferred: request-only, cannot approve) or NOD_TOKEN, NOD_CORE_URL (default http://127.0.0.1:8787),
 NOD_BUDDY_TIMEOUT (seconds, default 60). Old MAZ_* names still work. stdlib only.
 
 Device allow/deny -> decision JSON on stdout.
@@ -22,7 +22,7 @@ def _env(name: str, default: str = "") -> str:  # NOD_* first, legacy MAZ_* fall
 
 
 BASE = _env("CORE_URL", "http://127.0.0.1:8787").rstrip("/")
-TOKEN = _env("TOKEN")
+TOKEN = _env("REQUEST_TOKEN") or _env("TOKEN")  # request-only token cannot decide
 TIMEOUT = float(_env("BUDDY_TIMEOUT", "60"))
 
 
@@ -40,7 +40,7 @@ def call(method: str, path: str, body: dict | None = None, timeout: float = 10):
 def summarize(tool_input: dict) -> str:
     text = (tool_input.get("command") or tool_input.get("file_path") or tool_input.get("url")
             or json.dumps(tool_input, separators=(",", ":")))
-    return " ".join(str(text).split())[:200]
+    return " ".join(str(text).split())[:2000]  # Core limit; the device pages the full text
 
 
 def decide(event: dict) -> tuple[str | None, str]:
@@ -63,7 +63,7 @@ def decide(event: dict) -> tuple[str | None, str]:
                 break
             req = call("GET", f"/buddy/state?id={req['id']}&wait={min(left, 20):.2f}",
                        timeout=min(left, 20) + 5)
-        call("POST", "/buddy/decide", {"id": req["id"], "decision": "cancel"})
+        call("POST", "/buddy/cancel", {"id": req["id"]})
     except (urllib.error.URLError, OSError, ValueError, KeyError):
         pass
     return None, ""

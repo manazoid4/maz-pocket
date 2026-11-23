@@ -4,7 +4,7 @@
     nod_notify.py <done|usage|needs|error> "text" [--source NAME]
     echo '{"message": "build ok"}' | nod_notify.py done --source codex
 
-Env: NOD_TOKEN (required), NOD_CORE_URL (default http://127.0.0.1:8787).
+Env: NOD_REQUEST_TOKEN (preferred) or NOD_TOKEN, NOD_CORE_URL (default http://127.0.0.1:8787).
 Legacy MAZ_TOKEN / MAZ_CORE_URL are used when the NOD_ ones are unset.
 stdlib only. 3 s timeout. ALWAYS exits 0 and prints nothing: a notifier must
 never break the tool that called it. Contract: docs/AGENT-EVENTS.md
@@ -29,7 +29,7 @@ def call(path: str, body: dict, timeout: float = 3):
     req = urllib.request.Request(
         env("CORE_URL", "http://127.0.0.1:8787").rstrip("/") + path,
         data=json.dumps(body).encode(), method="POST",
-        headers={"Authorization": "Bearer " + env("TOKEN"), "Content-Type": "application/json"})
+        headers={"Authorization": "Bearer " + (env("REQUEST_TOKEN") or env("TOKEN")), "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
@@ -49,7 +49,7 @@ def first_line(obj) -> str:
 def send(kind: str, text: str, source: str = "") -> None:
     """Post one event. Never raises."""
     try:
-        if kind in KINDS and env("TOKEN"):
+        if kind in KINDS and (env("REQUEST_TOKEN") or env("TOKEN")):
             call("/buddy/event", {"kind": kind, "text": text[:160], "source": source[:40]})
     except Exception:  # noqa: BLE001 - a notifier must never break its caller
         pass

@@ -27,10 +27,24 @@ class Security:
             return False
         return hmac.compare_digest(authorization, f"Bearer {self.settings.token}")
 
+    def request_token_ok(self, authorization: str | None) -> bool:
+        s = self.settings
+        return bool(s.request_token_configured and authorization
+                    and hmac.compare_digest(authorization, f"Bearer {s.request_token}"))
+
+    def warn_shared_token(self, log) -> None:
+        if not self.settings.request_token_configured:
+            log.warning("MAZ_REQUEST_TOKEN is not set: agent hooks share MAZ_TOKEN and can approve "
+                        "their own requests. Set a separate request-only token for hooks.")
+
     def authorize(self, request: Request, authorization: str | None = Header(default=None)) -> None:
         self.require_configured()
         if request.url.path in PUBLIC_PATHS:
             return  # /health: handler returns minimal info unless token is valid
+        if self.request_token_ok(authorization):
+            if request.url.path in REQUEST_TOKEN_PATHS:
+                return
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "request_token_cannot_decide")
         if not self.token_ok(authorization):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication_required")
 
@@ -51,6 +65,8 @@ class Security:
 
 # --- remote exposure (Tailscale Funnel etc.) --------------------------------
 
+# The request-only token (agent hooks) may ONLY do these. Deciding needs the main token.
+REQUEST_TOKEN_PATHS = frozenset({"/buddy/request", "/buddy/state", "/buddy/cancel", "/buddy/event"})
 PUBLIC_PATHS = frozenset({"/health", "/ui"})  # /ui: static page only, holds no data
 _DOC_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/pair/docs", "/pair/redoc", "/pair/openapi.json")
 FUNNEL_HEADER = "tailscale-funnel-request"

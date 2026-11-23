@@ -23,8 +23,17 @@ Install: add to `~/.claude/settings.json` (merge into existing `hooks`):
 }
 ```
 
+### Tokens: agents must not approve themselves
+
+Set `MAZ_REQUEST_TOKEN` on Core (a different random value from `MAZ_TOKEN`) and give hooks
+`NOD_REQUEST_TOKEN` (the hooks prefer it over `NOD_TOKEN`). That token can only call
+`POST /buddy/request`, `GET /buddy/state`, `POST /buddy/cancel` and `POST /buddy/event`;
+everything else, including `/buddy/decide`, is HTTP 403. Keep `MAZ_TOKEN` for the device and UI.
+If only `MAZ_TOKEN` is set the hooks share it and an agent could approve its own request;
+Core logs a warning at start (never the token value).
+
 Device endpoints: `GET /buddy/pending`, `POST /buddy/decide {id, decision: allow|deny|cancel}`.
-Every approval is for one request only: `allow_all` and `POST /buddy/allow-all` are rejected (HTTP 400)
+Every approval is for one request only: there is no `allow_all` decision or `/buddy/allow-all` route
 and each request expires after 60 s (see `docs/APPROVALS.md`).
 
 ## nod stop hook (done ping)

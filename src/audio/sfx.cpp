@@ -44,7 +44,12 @@ void approval()  { pair(880.f, 1480.f, 90, /*force=*/true); }
 // Called right before notify::post(Success): the toast's generic "saved" beep
 // is skipped once so only the agent chirp plays.
 bool gSkipNextNote = false;
-void agentDone() { gSkipNextNote = true; pair(880.f, 1175.f, 50); }
+// Done ring: short rising C-E-G-C arpeggio (respects Quiet/Silent/UI sounds via beep()).
+void agentDone() {
+    gSkipNextNote = true;
+    static const float N[] = {1047.f, 1319.f, 1568.f, 2093.f};
+    for (float hz : N) { beep(hz, 55); delay(65); }
+}
 void skipNextNote() { gSkipNextNote = true; }
 
 void timerDone() {

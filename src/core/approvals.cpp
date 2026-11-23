@@ -18,7 +18,7 @@ using namespace theme;
 namespace {
 
 struct Req {
-    std::string id, tool, summary, project, session;
+    std::string id, tool, summary, project, session, risk, hash;
     uint32_t    deadline = 0;  // millis() when Core's 60 s window closes
 };
 
@@ -32,6 +32,10 @@ uint16_t                 gMsgColor = 0;
 uint32_t                 gMsgUntil = 0, gNextPoll = 0;
 uint8_t                  gRetries = 0, gFails = 0;
 bool                     gSubmitted = false;
+std::string              gShownId;     // card page/arm state belongs to this request
+uint8_t                  gPage = 0;
+uint32_t                 gArmUntil = 0;  // first Y/ENTER on the last page arms approve until this millis()
+constexpr size_t         COLS = 37, LINES = 5;
 
 bool done(const std::string& id) { return std::find(gDone.begin(), gDone.end(), id) != gDone.end(); }
 void markDone(const std::string& id) {
@@ -54,7 +58,7 @@ bool absorb(const host::BuddyPoll& p) {
     std::vector<Req> next;
     for (const host::BuddyItem& it : p.items) {
         if (done(it.id)) continue;
-        Req r{it.id, it.tool, it.summary, it.project, it.session, now + static_cast<uint32_t>(it.left) * 1000u};
+        Req r{it.id, it.tool, it.summary, it.project, it.session, it.risk, it.hash, now + static_cast<uint32_t>(it.left) * 1000u};
         for (const Req& old : gQueue) if (old.id == it.id) { r.deadline = old.deadline; break; }
         next.push_back(std::move(r));
     }
@@ -78,12 +82,12 @@ void send(const char* decision) {
     gPhase = Phase::Sending;
 }
 
-std::string clip(const std::string& s, size_t from, size_t n, bool more) {
-    if (from >= s.size()) return "";
-    std::string out = s.substr(from, n);
-    if (more && s.size() > from + n && out.size() > 2) { out.resize(out.size() - 2); out += ".."; }
-    return out;
+std::string clip(const std::string& s, size_t from, size_t n) {
+    return from >= s.size() ? std::string() : s.substr(from, n);
 }
+// The card pages the FULL request text, COLS chars per line, LINES lines per page.
+int pageCount(const Req& r) { return std::max<int>(1, (r.summary.size() + COLS * LINES - 1) / (COLS * LINES)); }
+std::string toolName(const Req& r) { return r.tool.compare(0, 5, "mcp__") == 0 ? r.tool.substr(5) : r.tool; }
 
 }  // namespace
 
@@ -103,7 +107,7 @@ bool update(bool screenOff) {
             if (host_worker::takeBuddyDecideResult(r)) {
                 if (r.ok) {
                     markDone(r.id); drop(r.id);
-                    if (r.applied == "allow" || r.applied == "allow_all") { toast("Approved", OK); sfx::confirm(); }
+                    if (r.applied == "allow") { toast("Approved", OK); sfx::confirm(); }
                     else if (r.applied == "deny") toast("Denied", ERR);
                     else if (r.applied == "gone") toast("Expired", DIM);
                     else toast("Handled at terminal", DIM);
@@ -157,15 +161,23 @@ bool handleKey(const KeyEvent& e) {
     if (gPhase == Phase::Idle) return false;
     if (!e.down) return true;
     if (gPhase != Phase::Showing) return true;  // swallow while sending / confirming
-    if (e.code == KEY_Y || e.code == KEY_ENTER) send("allow");
-    else if (e.code == KEY_N || e.code == KEY_ESC) send("deny");
+    const int last = pageCount(gQueue.front()) - 1;
+    if (e.code == KEY_N || e.code == KEY_ESC) send("deny");
+    else if (e.code == KEY_UP || e.code == KEY_SEMICOLON) { if (gPage > 0) --gPage; gArmUntil = 0; }
+    else if (e.code == KEY_DOWN || e.code == KEY_DOT) { if (gPage < last) ++gPage; gArmUntil = 0; }
+    else if (e.code == KEY_Y || e.code == KEY_ENTER) {
+        // Approve needs the whole text read (last page) and a second press within 4 s.
+        if (gPage < last) ++gPage;
+        else if (gArmUntil && static_cast<int32_t>(millis() - gArmUntil) < 0) { gArmUntil = 0; send("allow"); }
+        else gArmUntil = millis() + 4000;
+    }
     // No session-wide approval shortcut: each action needs a deliberate decision.
     return true;
 }
 
 void render(M5Canvas& g) {
     if (gPhase == Phase::Idle) return;
-    const int x = 4, y = 18, w = SCREEN_W - 8, h = 100;
+    const int x = 4, y = 16, w = SCREEN_W - 8, h = 116;
     g.fillRoundRect(x, y, w, h, 4, PANEL);
     g.drawRoundRect(x, y, w, h, 4, ACCENT);
     g.setTextDatum(top_left);
@@ -180,48 +192,50 @@ void render(M5Canvas& g) {
     }
     if (gQueue.empty()) return;
     const Req& r = gQueue.front();
+    if (r.id != gShownId) { gShownId = r.id; gPage = 0; gArmUntil = 0; }
     const int32_t leftMs = static_cast<int32_t>(r.deadline - millis());
     const int left = leftMs > 0 ? (leftMs + 999) / 1000 : 0;
+    const int pages = pageCount(r);
+    const bool armed = gArmUntil && static_cast<int32_t>(millis() - gArmUntil) < 0;
 
+    // Row 1: risk word + request hash (same hash Core computes over the full text).
     g.setFont(&fonts::Font0);
-    g.setTextColor(ACCENT, PANEL);
-    g.drawString("CLAUDE CODE NEEDS YOU", x + 6, y + 5);
-    if (gQueue.size() > 1) {
-        char c[12];
-        snprintf(c, sizeof(c), "+%u more", static_cast<unsigned>(gQueue.size() - 1));
-        g.setTextDatum(top_right);
-        g.setTextColor(WARN, PANEL);
-        g.drawString(c, x + w - 6, y + 5);
-        g.setTextDatum(top_left);
-    }
-    g.setFont(&fonts::Font2);
+    g.setTextColor(r.risk == "READ" ? OK : WARN, PANEL);
+    g.drawString((r.risk + " #" + r.hash).c_str(), x + 6, y + 4);
+    char c[24] = "";
+    if (gQueue.size() > 1) snprintf(c, sizeof(c), "+%u more", static_cast<unsigned>(gQueue.size() - 1));
+    g.setTextDatum(top_right);
+    g.setTextColor(ACCENT2, PANEL);
+    g.drawString(c[0] ? c : clip(r.project, 0, 18).c_str(), x + w - 6, y + 4);
+    g.setTextDatum(top_left);
+
+    // Rows 2-3: full tool name (MCP names wrap, never cut).
     g.setTextColor(TEXT, PANEL);
-    g.drawString(clip(r.tool, 0, 14, false).c_str(), x + 6, y + 17);
-    if (!r.project.empty()) {
-        g.setFont(&fonts::Font0);
-        g.setTextDatum(top_right);
-        g.setTextColor(ACCENT2, PANEL);
-        g.drawString(clip(r.project, 0, 18, false).c_str(), x + w - 6, y + 22);
-        g.setTextDatum(top_left);
-    }
-    g.setFont(&fonts::Font0);
+    const std::string tool = toolName(r);
+    g.drawString(clip(tool, 0, COLS).c_str(), x + 6, y + 15);
+    g.drawString(clip(tool, COLS, COLS).c_str(), x + 6, y + 24);
+
+    // Body: this page of the full text.
     g.setTextColor(DIM, PANEL);
-    const size_t N = 36;
-    g.drawString(clip(r.summary, 0, N, false).c_str(), x + 6, y + 40);
-    g.drawString(clip(r.summary, N, N, true).c_str(), x + 6, y + 52);
+    const size_t base = static_cast<size_t>(gPage) * COLS * LINES;
+    for (size_t i = 0; i < LINES; ++i) g.drawString(clip(r.summary, base + i * COLS, COLS).c_str(), x + 6, y + 36 + 9 * i);
 
-    // Countdown bar (60 s window).
-    const int bw = w - 44;
-    g.drawRect(x + 6, y + 70, bw, 7, LINE);
+    // Countdown bar (60 s window) + page counter.
+    const int bw = w - 70;
+    g.drawRect(x + 6, y + 84, bw, 7, LINE);
     const int fill = std::min(bw - 2, (bw - 2) * left / 60);
-    g.fillRect(x + 7, y + 71, fill, 5, left > 15 ? OK : left > 7 ? WARN : ERR);
-    char t[8];
-    snprintf(t, sizeof(t), "%ds", left);
+    g.fillRect(x + 7, y + 85, fill, 5, left > 15 ? OK : left > 7 ? WARN : ERR);
+    char t[24];
+    snprintf(t, sizeof(t), "%ds  %d/%d", left, gPage + 1, pages);
     g.setTextColor(TEXT, PANEL);
-    g.drawString(t, x + bw + 12, y + 70);
+    g.drawString(t, x + bw + 12, y + 84);
 
-    g.setTextColor(gPhase == Phase::Sending ? WARN : ACCENT, PANEL);
-    g.drawString(gPhase == Phase::Sending ? "Sending..." : "Y/ENT once  N/ESC deny", x + 6, y + 85);
+    const char* hint = gPhase == Phase::Sending ? "Sending..."
+                     : armed                  ? "Y/ENT again = APPROVE"
+                     : gPage < pages - 1      ? "Y/ENT read on  ;/. page  N deny"
+                                              : "Y/ENT x2 approve  N/ESC deny";
+    g.setTextColor(gPhase == Phase::Sending ? WARN : armed ? ERR : ACCENT, PANEL);
+    g.drawString(hint, x + 6, y + 100);
 }
 
 }  // namespace approvals

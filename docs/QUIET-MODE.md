@@ -9,7 +9,10 @@ Nothing changes on your hub, and agents keep sending events as before.
 |---|---|---|---|---|---|
 | **Normal** | chirp + toast | beep + toast | beep + toast | error tone + toast | on |
 | **Quiet** | silent toast | silent toast | beep + toast | error tone + toast | on |
-| **Silent** | silent toast | silent toast | silent toast | silent toast | off, including the Focus alarm |
+| **Silent** | silent toast | silent toast | silent toast | silent toast | off (menu clicks and agent beeps) |
+
+The approval chime and the Focus alarm are never muted by Quiet or Silent: an
+approval is waiting for you and a muted device would hide it.
 
 What never gets hidden: every agent event still shows its toast at every
 level. A `needs` or `error` toast always appears, even in Silent. The small
@@ -42,3 +45,9 @@ The sound rule is one pure function, `quiet::shouldChirp(level, event)` in
 `src/core/quiet.h`. The truth table above is its specification. There is no
 native test environment in this repo yet, so the function is checked by the
 firmware build only and has no automated test.
+
+## Done ring
+
+When an agent `done` event arrives the device plays a short rising four-note
+melody (muted by Quiet and Silent like the old chirp) and lights the RGB LED
+green for about 2 seconds. The LED is not muted by Quiet because it is silent.

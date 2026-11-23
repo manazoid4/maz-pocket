@@ -1,6 +1,7 @@
 #include "field.h"
 
 #include <Arduino.h>
+#include <M5Unified.h>
 #include <WiFi.h>
 
 #include <algorithm>
@@ -21,6 +22,15 @@
 namespace maz {
 namespace field {
 namespace {
+uint32_t gLedOff = 0;  // millis() when the done-ring LED goes dark; 0 = off
+
+// Done ring LED: green ~2 s on the ADV RGB LED (G21, owned by M5Unified).
+// Not muted by Quiet: it is silent. GPIO38 is the LCD backlight PWM, so it is NOT touched.
+void ledDone() {
+    M5.Led.setAllColor(0, 60, 0);
+    M5.Led.display();
+    gLedOff = (millis() + 2000) | 1;
+}
 
 struct QuickOption { const char* id; const char* label; };
 constexpr QuickOption QUICK[] = {
@@ -173,6 +183,7 @@ void finishBeamPull(const host::BeamMessage& msg) {
         if (ev == Ev::None) continue;
         const bool chirp = quiet::shouldChirp(quiet::level(), ev);
         if (ev == Ev::Done) {
+            ledDone();
             if (chirp) sfx::agentDone();  // plays the chirp, mutes the generic toast beep
             else sfx::skipNextNote();
             notify::post(Note::Success, "Agent done", detail);
@@ -316,6 +327,11 @@ void begin() {
 void update() {
     static bool good = false;
     if (!good && millis() > 45000) { good = true; host::fwMarkGood(); }
+    if (gLedOff && static_cast<int32_t>(millis() - gLedOff) >= 0) {
+        gLedOff = 0;
+        M5.Led.setAllColor(0, 0, 0);
+        M5.Led.display();
+    }
     if (Sys.shiftRunning) Sys.shiftSeconds = (millis() - gShiftStartedMs) / 1000;
 
     if (host_worker::state() == host_worker::State::Done) {
